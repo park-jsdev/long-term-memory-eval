@@ -1,0 +1,23 @@
+# Phase 1: session-summary memory → fixed OpenAI answer model → LoCoMo metrics
+
+data:
+  raw_path: data/raw/locomo10.json
+  # Pin for reproducibility (see data/README.md)
+  locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+
+pipeline:
+  memory: session_summary
+  prompt_path: prompts/qa_v1.txt
+  # null = full set; use a small int for smoke tests
+  max_questions: null
+
+reader:
+  provider: openai          # openai | mock
+  model: gpt-4.1-mini       # cheap default for MVP; set to gpt-4.1 for paper runs
+  temperature: 0.0
+  max_tokens: 64
+
+run:
+  run_id: null              # auto timestamp if null
+  output_dir: experiments
+  cache_dir: experiments/cache

@@ -12,11 +12,12 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
-# Runs
+# Runs / API cache
 experiments/*
 !experiments/.gitkeep
 logs/*
 !logs/.gitkeep
+outputs/
 
 # IDE / OS
 .idea/

@@ -1,8 +1,8 @@
-# LoCoMo knowledge distillation (minimal scaffold)
+# LoCoMo multi-teacher memory research
 
-Simple research scaffold for **knowledge distillation** with **apples-to-apples LoCoMo QA scoring** (F1 + category rules from [`snap-research/locomo`](https://github.com/snap-research/locomo) `task_eval/evaluation.py`).
-
-Stack: `requirements.txt`, plain YAML, plain JSON loaders, local CSV logs.
+conda + plain YAML + plain JSON + CSV/plots.  
+**Now (v0.1):** session-summary baseline QA with a fixed OpenAI answer model.  
+**Later:** multi-teacher fusion (C0–C4 sandwich). See `docs/agent/HUMANS.md`.
 
 ## Setup
 
@@ -13,62 +13,60 @@ pip install -r requirements.txt
 python scripts/fetch_locomo.py
 ```
 
-LoCoMo data is **CC BY-NC 4.0** (non-commercial). Pinned commit is recorded in `data/README.md`.
+Set `$env:OPENAI_API_KEY` for live runs.
+
+## Phase 1 baseline (session summaries → GPT)
+
+Offline smoke:
+
+```bash
+python -m src.locomo_eval.run --config configs/baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
+```
+
+Live (small):
+
+```bash
+python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
+```
+
+Full set:
+
+```bash
+python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
+```
+
+Outputs under `experiments/<run_id>/`: `predictions.csv`, `metrics.json`, `plots/`, `run_meta.json`.
+
+Rescore without API:
+
+```bash
+python -m src.locomo_eval.evaluate --predictions experiments/<run_id>/predictions.jsonl
+```
+
+Tests:
+
+```bash
+python -m pytest tests/test_baseline.py -q
+```
 
 ## Layout
 
 ```text
-configs/default.yaml     # paths, KD knobs, log paths
-data/raw/                # locomo10.json (fetched, gitignored)
-data/processed/          # flattened JSONL
-scripts/fetch_locomo.py
-scripts/prepare_data.py
-src/data/locomo.py       # JSON load + conversation flatten
-src/metrics/locomo_qa.py # official-style QA F1 / categories
-src/distill/losses.py    # KD+CE stub
-src/train.py             # train stub
-src/eval_locomo_qa.py    # score prediction JSON → CSV + summary
-logs/                    # CSV logs
-experiments/             # run outputs
+configs/baseline.yaml
+prompts/qa_v1.txt
+src/locomo_eval/          # baseline pipeline
+src/metrics/locomo_qa.py  # official LoCoMo F1
+docs/agent/               # SPEC, AGENTS, HUMANS, traces
+experiments/<run_id>/     # audit pack
+data/raw/locomo10.json    # fetched, gitignored
 ```
 
-## Prepare examples
+## Docs for humans and agents
 
-```bash
-python scripts/prepare_data.py --config configs/default.yaml --split all
-```
-
-## Evaluate predictions (apples-to-apples)
-
-Predictions JSON should match LoCoMo sample shape:
-
-```json
-[
-  {
-    "sample_id": "...",
-    "qa": [
-      {"prediction": "May 7 2023"},
-      ...
-    ]
-  }
-]
-```
-
-Gold `answer` / `category` are taken from `data/raw/locomo10.json` by `sample_id` order.
-
-```bash
-python src/eval_locomo_qa.py --config configs/default.yaml --predictions path/to/preds.json --run-name baseline
-```
-
-Reports overall F1 and per-category F1 (ids: `4` single-hop, `1` multi-hop, `2` temporal, `3` open-domain, `5` adversarial), writes `logs/eval_qa.csv` and `experiments/<run>/locomo_qa_scores.json`.
-
-## Train stub
-
-```bash
-python src/train.py --config configs/default.yaml
-```
-
-Set `model.teacher` / `model.student` in the YAML when you are ready to wire the real KD loop (`src/distill/losses.py`).
+- Humans: [`docs/agent/HUMANS.md`](docs/agent/HUMANS.md)
+- Agents: [`docs/agent/AGENTS.md`](docs/agent/AGENTS.md)
+- Spec: [`docs/agent/SPEC_v1.md`](docs/agent/SPEC_v1.md)
+- History: [`docs/agent/traces/`](docs/agent/traces/)
 
 ## Citation
 
