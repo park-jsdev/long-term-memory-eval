@@ -70,7 +70,7 @@ python scripts/fetch_locomo.py
 # Offline smoke (no API key)
 python -m src.locomo_eval.run --config configs/baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
 
-# Live OpenAI (needs OPENAI_API_KEY)
+# Live OpenAI (needs OPENAI_API_KEY in repo-root .env or shell)
 python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
 
 # Full baseline (costly)
@@ -85,8 +85,8 @@ python -m pytest tests/test_baseline.py -q
 python -m unittest tests.test_baseline
 ```
 
-Set API key (PowerShell): `$env:OPENAI_API_KEY="..."`  
-Never commit keys or `.env`.
+Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
+Never commit keys or `.env`. `src/locomo_eval/env.py` loads `.env` at run start / OpenAI reader init.
 
 ---
 

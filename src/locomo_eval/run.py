@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 from src.config import load_config
 from src.locomo_eval.cache import ResponseCache
 from src.locomo_eval.dataset import iter_questions, load_conversations
+from src.locomo_eval.env import load_env
 from src.locomo_eval.memory import get_memory_builder
 from src.locomo_eval.metrics import summarize_predictions
 from src.locomo_eval.prompts import load_prompt_template
@@ -181,6 +182,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    loaded = load_env()
+    if loaded is not None:
+        print(f"Loaded env from {loaded}")
     args = build_parser().parse_args(argv)
     cfg = load_config(args.config)
     run_baseline(cfg, args)

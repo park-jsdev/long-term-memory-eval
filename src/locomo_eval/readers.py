@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from .cache import ResponseCache
+from .env import load_env
 from .prompts import render_qa_prompt
 
 
@@ -53,10 +54,13 @@ class OpenAIReader(Reader):
         self.cache = cache
         self.timeout_s = timeout_s
 
+        # Prefer process env; fill missing keys from repo-root .env
+        load_env()
         api_key = os.environ.get(api_key_env)
         if not api_key:
             raise RuntimeError(
-                f"Set {api_key_env} in the environment before using OpenAIReader."
+                f"Set {api_key_env} in a repo-root .env file "
+                f"(see .env.example) or export it in the shell before using OpenAIReader."
             )
         try:
             from openai import OpenAI

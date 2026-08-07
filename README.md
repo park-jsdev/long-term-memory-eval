@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python scripts/fetch_locomo.py
 ```
 
-Set `$env:OPENAI_API_KEY` for live runs.
+For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (gitignored; auto-loaded).
 
 ## Phase 1 baseline (session summaries → GPT)
 

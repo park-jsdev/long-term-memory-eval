@@ -33,11 +33,14 @@ python scripts/fetch_locomo.py
 
 Data lands at `data/raw/locomo10.json` (not committed; CC BY-NC 4.0).
 
-For live API runs:
+For live API runs, put the key in a **repo-root `.env`** (gitignored):
 
-```powershell
-$env:OPENAI_API_KEY="sk-..."
+```bash
+copy .env.example .env
+# edit .env → OPENAI_API_KEY=sk-...
 ```
+
+The pipeline loads `.env` automatically on start. Shell export still works and wins if already set.
 
 ---
 
