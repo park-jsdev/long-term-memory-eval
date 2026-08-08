@@ -10,9 +10,10 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase (v0.1 / SPEC_v1):** end-to-end **session-summary baseline** only.
+**Current phase:** end-to-end read path with **draft C0 vs C1** memory builders.  
+See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
-Do **not** implement multi-teacher fusion, claim schema, or training unless the human explicitly expands scope.
+Do **not** implement multi-teacher fusion or claim schema unless the human expands scope.
 
 ---
 
@@ -25,7 +26,7 @@ Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 
 Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-memory aggregation, C4 claim-level fusion.
 
-v0.1 is the fixed **read** path with dataset session summaries as “memory,” so I/O + scoring + audit packs work before experiments.
+**Now:** `c0_raw` and `c1_session_summary` builders inject alternative `Memory.text` with frozen reader/metrics. C1 draft uses LoCoMo-provided summaries (not a live teacher API yet).
 
 ---
 
@@ -33,8 +34,11 @@ v0.1 is the fixed **read** path with dataset session summaries as “memory,” 
 
 | Path | Role |
 |------|------|
-| `configs/baseline.yaml` | Phase 1 run config |
+| `configs/baseline.yaml` | Default config (C1) |
+| `configs/c0_raw.yaml` | C0 raw dialog memory |
+| `configs/c1_session_summary.yaml` | C1 session-summary memory |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
+| `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |

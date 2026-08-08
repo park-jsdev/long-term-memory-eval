@@ -11,7 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.dataset import parse_sample
-from src.locomo_eval.memory import SessionSummaryMemoryBuilder
+from src.locomo_eval.memory import (
+    RawConversationMemoryBuilder,
+    SessionSummaryMemoryBuilder,
+    get_memory_builder,
+    resolve_memory_name,
+)
 from src.locomo_eval.metrics import exact_match, normalize_answer, token_f1
 from src.metrics.locomo_qa import score_prediction
 
@@ -65,14 +70,29 @@ class TestBaseline(unittest.TestCase):
         self.assertEqual(conv.questions[0].question_id, "conv-test-q-0")
         self.assertIn(1, conv.session_summaries)
 
-    def test_session_summary_memory(self):
+    def test_c1_session_summary_memory(self):
         conv = parse_sample(MINI)
         mem = SessionSummaryMemoryBuilder().build(conv, conv.questions[0])
-        self.assertEqual(mem.memory_type, "session_summary")
+        self.assertEqual(mem.memory_type, "c1_session_summary")
         self.assertIn("Session 1", mem.text)
         self.assertIn("painting", mem.text)
         self.assertIn("nursing", mem.text)
         self.assertEqual(mem.source_ids, ["session_1_summary", "session_2_summary"])
+        # Alias still resolves
+        alias = get_memory_builder("session_summary")
+        self.assertEqual(alias.name, "c1_session_summary")
+
+    def test_c0_raw_memory(self):
+        conv = parse_sample(MINI)
+        mem = RawConversationMemoryBuilder().build(conv, conv.questions[0])
+        self.assertEqual(mem.memory_type, "c0_raw")
+        self.assertIn("I started painting", mem.text)
+        self.assertIn("SESSION 1", mem.text)
+        self.assertIn("D1:1", mem.text)
+        # Truncation keeps recent tail
+        short = RawConversationMemoryBuilder(max_chars=40).build(conv, conv.questions[0])
+        self.assertIn("truncated", short.text.lower())
+        self.assertEqual(resolve_memory_name("c0"), "c0_raw")
 
     def test_normalize_and_scores(self):
         self.assertEqual(normalize_answer("The Cat!"), "cat")
@@ -90,6 +110,8 @@ class TestBaseline(unittest.TestCase):
         self.assertTrue(conv.questions)
         mem = SessionSummaryMemoryBuilder().build(conv, conv.questions[0])
         self.assertGreater(len(mem.text), 100)
+        raw = RawConversationMemoryBuilder().build(conv, conv.questions[0])
+        self.assertGreater(len(raw.text), 100)
 
 
 if __name__ == "__main__":

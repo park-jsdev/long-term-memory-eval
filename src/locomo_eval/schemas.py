@@ -51,11 +51,15 @@ class Conversation:
 
 @dataclass
 class Memory:
-    """Context string passed to the fixed answer model."""
+    """Context string passed to the fixed answer model.
+
+    Schema: docs/schemas/memory_runtime.md (memory_io.v1)
+    """
 
     memory_type: str
     text: str
     source_ids: list[str] = field(default_factory=list)
+    schema_version: str = "memory_io.v1"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

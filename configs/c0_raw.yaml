@@ -1,0 +1,27 @@
+# C0: raw dialogue memory → fixed answer LLM → LoCoMo metrics
+# Freeze reader/prompt when comparing to configs/c1_session_summary.yaml
+
+data:
+  raw_path: data/raw/locomo10.json
+  locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+
+pipeline:
+  memory: c0_raw
+  # Optional rough char budget for answer-model context (null = full dialog)
+  memory_max_chars: 120000
+  prompt_path: prompts/qa_v1.txt
+  max_questions: null
+
+reader:
+  provider: openai
+  model: gpt-4.1-mini
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+
+run:
+  run_id: null
+  output_dir: experiments
+  cache_dir: experiments/cache

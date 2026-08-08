@@ -2,11 +2,16 @@
 
 OpenAI is the Phase 1 implementation; Claude can replace it for answer/eval later.
 MockReader supports offline dry-runs and unit tests.
+
+OpenAI free-tier accounts often cap at ~50 requests/day (RPD). Each uncached QA
+item is one request. Use the disk cache + min_request_interval + 429 retries.
 """
 
 from __future__ import annotations
 
 import os
+import random
+import re
 import time
 from abc import ABC, abstractmethod
 from typing import Any
@@ -32,12 +37,45 @@ class MockReader(Reader):
         self.model_name = model_name
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
-        # Echo a short placeholder derived only from the question — never the gold answer.
         return "Unknown.", {"cached": False, "latency_s": 0.0, "usage": {}}
 
 
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    if "RateLimit" in name:
+        return True
+    status = getattr(exc, "status_code", None)
+    if status == 429:
+        return True
+    msg = str(exc).lower()
+    return "rate limit" in msg or "429" in msg
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """Best-effort parse of Retry-After or message 'try again in 28m48s'."""
+    headers = getattr(exc, "response", None)
+    if headers is not None:
+        h = getattr(headers, "headers", None) or {}
+        ra = h.get("retry-after") or h.get("Retry-After")
+        if ra is not None:
+            try:
+                return float(ra)
+            except ValueError:
+                pass
+
+    msg = str(exc)
+    # e.g. "Please try again in 28m48s" or "in 1.234s"
+    m = re.search(r"try again in\s+(\d+)m(\d+(?:\.\d+)?)s", msg, re.I)
+    if m:
+        return int(m.group(1)) * 60 + float(m.group(2))
+    m = re.search(r"try again in\s+(\d+(?:\.\d+)?)s", msg, re.I)
+    if m:
+        return float(m.group(1))
+    return None
+
+
 class OpenAIReader(Reader):
-    """Fixed answer LLM via OpenAI Chat Completions."""
+    """Fixed answer LLM via OpenAI Chat Completions (with 429 backoff + pace)."""
 
     def __init__(
         self,
@@ -47,14 +85,20 @@ class OpenAIReader(Reader):
         api_key_env: str = "OPENAI_API_KEY",
         cache: ResponseCache | None = None,
         timeout_s: float = 60.0,
+        max_retries: int = 8,
+        min_request_interval_s: float = 0.0,
+        max_wait_s: float = 3600.0,
     ):
         self.model_name = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.cache = cache
         self.timeout_s = timeout_s
+        self.max_retries = max_retries
+        self.min_request_interval_s = min_request_interval_s
+        self.max_wait_s = max_wait_s
+        self._last_request_t = 0.0
 
-        # Prefer process env; fill missing keys from repo-root .env
         load_env()
         api_key = os.environ.get(api_key_env)
         if not api_key:
@@ -67,6 +111,13 @@ class OpenAIReader(Reader):
         except ImportError as exc:
             raise ImportError("Install openai: pip install openai") from exc
         self._client = OpenAI(api_key=api_key, timeout=timeout_s)
+
+    def _pace(self) -> None:
+        if self.min_request_interval_s <= 0:
+            return
+        elapsed = time.time() - self._last_request_t
+        if self._last_request_t and elapsed < self.min_request_interval_s:
+            time.sleep(self.min_request_interval_s - elapsed)
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
         prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
@@ -89,38 +140,62 @@ class OpenAIReader(Reader):
                     "cache_key": key,
                 }
 
-        t0 = time.time()
-        resp = self._client.chat.completions.create(
-            model=self.model_name,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You answer questions using only the provided memory.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-        )
-        latency = time.time() - t0
-        text = (resp.choices[0].message.content or "").strip()
-        usage = {}
-        if resp.usage is not None:
-            usage = {
-                "prompt_tokens": resp.usage.prompt_tokens,
-                "completion_tokens": resp.usage.completion_tokens,
-                "total_tokens": resp.usage.total_tokens,
-            }
+        last_exc: BaseException | None = None
+        for attempt in range(self.max_retries + 1):
+            self._pace()
+            t0 = time.time()
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You answer questions using only the provided memory.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                self._last_request_t = time.time()
+                latency = time.time() - t0
+                text = (resp.choices[0].message.content or "").strip()
+                usage = {}
+                if resp.usage is not None:
+                    usage = {
+                        "prompt_tokens": resp.usage.prompt_tokens,
+                        "completion_tokens": resp.usage.completion_tokens,
+                        "total_tokens": resp.usage.total_tokens,
+                    }
 
-        if self.cache and key:
-            self.cache.set(key, {"answer": text, "usage": usage})
+                if self.cache and key:
+                    self.cache.set(key, {"answer": text, "usage": usage})
 
-        return text, {
-            "cached": False,
-            "latency_s": round(latency, 3),
-            "usage": usage,
-            "cache_key": key,
-        }
+                return text, {
+                    "cached": False,
+                    "latency_s": round(latency, 3),
+                    "usage": usage,
+                    "cache_key": key,
+                    "attempts": attempt + 1,
+                }
+            except Exception as exc:
+                last_exc = exc
+                if not _is_rate_limit_error(exc) or attempt >= self.max_retries:
+                    raise
+
+                wait = _retry_after_seconds(exc)
+                if wait is None:
+                    # Exponential backoff with jitter (caps below).
+                    wait = min(2 ** attempt + random.uniform(0, 1), 300.0)
+                wait = min(wait, self.max_wait_s)
+                print(
+                    f"  [rate-limit] attempt {attempt + 1}/{self.max_retries + 1}; "
+                    f"sleeping {wait:.1f}s before retry..."
+                )
+                time.sleep(wait)
+
+        assert last_exc is not None
+        raise last_exc
 
 
 def get_reader(
@@ -129,6 +204,9 @@ def get_reader(
     temperature: float = 0.0,
     max_tokens: int = 64,
     cache: ResponseCache | None = None,
+    max_retries: int = 8,
+    min_request_interval_s: float = 0.0,
+    max_wait_s: float = 3600.0,
 ) -> Reader:
     name = name.lower()
     if name == "mock":
@@ -139,5 +217,8 @@ def get_reader(
             temperature=temperature,
             max_tokens=max_tokens,
             cache=cache,
+            max_retries=max_retries,
+            min_request_interval_s=min_request_interval_s,
+            max_wait_s=max_wait_s,
         )
     raise ValueError(f"Unknown reader '{name}'. Use openai or mock.")
