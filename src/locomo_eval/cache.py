@@ -1,4 +1,12 @@
-"""Disk cache for LLM responses so interrupted runs can resume cleanly."""
+"""Content-addressed disk memo of LLM responses.
+
+Keyed by a hash of the request (provider, model, sampling params, prompt), not
+by run or question id. Shared across run_ids under ``experiments/cache/`` so
+identical prompts are not re-billed.
+
+Per-run resume (skip finished questions) is
+``experiments/<run_id>/predictions.jsonl`` in ``run.py``.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +17,7 @@ from typing import Any
 
 
 class ResponseCache:
-    """Simple JSON-file cache keyed by a stable request hash."""
+    """JSON-file memo used by OpenAIReader.answer before/after the API call."""
 
     def __init__(self, root: str | Path):
         self.root = Path(root)

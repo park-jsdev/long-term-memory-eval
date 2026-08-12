@@ -1,4 +1,4 @@
-"""Minimal YAML config loader."""
+"""Load one YAML file as a dict. No includes or inheritance."""
 
 from __future__ import annotations
 

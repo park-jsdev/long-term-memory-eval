@@ -1,6 +1,24 @@
-"""Small, readable data classes for the baseline pipeline.
+"""Typed records that move through one LoCoMo QA run.
 
-Keep fields explicit so JSONL / CSV exports stay easy to audit.
+Load (dataset.py) → Memory (memory.py) → Reader (readers.py) → Prediction
+→ score (metrics.py / evaluate.py). Orchestrated by run.py.
+
+    locomo10.json
+         │
+         ▼
+    Conversation ── contains ── Session ── contains ── Turn
+         │
+         ├── Question[]          gold QA items (answer is for scoring only)
+         └── session_summaries   C1 uses these; C0 uses sessions/turns instead
+         │
+         ▼
+    Memory.text                  sandwich middle — the one thing we vary
+         │
+         ▼
+    Reader.answer()              frozen bottom — must not see the gold answer
+         │
+         ▼
+    Prediction                   one JSONL row: Q + gold + pred + memory snapshot
 """
 
 from __future__ import annotations
@@ -11,6 +29,8 @@ from typing import Any
 
 @dataclass
 class Turn:
+    """One dialog utterance. C0 concatenates these into Memory.text."""
+
     dia_id: str
     speaker: str
     text: str
@@ -19,6 +39,8 @@ class Turn:
 
 @dataclass
 class Session:
+    """One dated chat session. Groups turns; C0 walks these in order."""
+
     session_id: int
     date_time: str
     turns: list[Turn] = field(default_factory=list)
@@ -26,6 +48,12 @@ class Session:
 
 @dataclass
 class Question:
+    """One LoCoMo QA item on a Conversation.
+
+    ``question`` goes to the reader. ``answer`` is gold for metrics only —
+    it must not be copied into Memory or the reader prompt.
+    """
+
     sample_id: str
     question_id: str
     question: str
@@ -37,6 +65,11 @@ class Question:
 
 @dataclass
 class Conversation:
+    """One LoCoMo sample: dialog history + gold questions.
+
+    Built by dataset.py from locomo10.json. Input to MemoryBuilder.
+    """
+
     sample_id: str
     speaker_a: str
     speaker_b: str
@@ -51,9 +84,9 @@ class Conversation:
 
 @dataclass
 class Memory:
-    """Context string passed to the fixed answer model.
+    """Context string the frozen answer model is allowed to see.
 
-    Schema: docs/schemas/memory_runtime.md (memory_io.v1)
+    Built by MemoryBuilder (C0/C1). Schema: docs/schemas/memory_runtime.md
     """
 
     memory_type: str
@@ -67,6 +100,12 @@ class Memory:
 
 @dataclass
 class Prediction:
+    """One scored QA row written to experiments/<run_id>/predictions.jsonl.
+
+    Snapshot of question, gold, model answer, and the memory that was used.
+    evaluate.py rescores these without calling the API.
+    """
+
     sample_id: str
     question_id: str
     question: str
@@ -78,7 +117,6 @@ class Prediction:
     reader_model: str
     prompt_version: str
     evidence: list[str] = field(default_factory=list)
-    # Optional run metadata (filled by runner)
     run_id: str = ""
     cached: bool = False
 

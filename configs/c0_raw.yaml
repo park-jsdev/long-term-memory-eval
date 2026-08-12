@@ -1,5 +1,6 @@
-# C0: raw dialogue memory → fixed answer LLM → LoCoMo metrics
-# Freeze reader/prompt when comparing to configs/c1_session_summary.yaml
+# C0 experiment. Standalone YAML — not a child of baseline.yaml.
+#   python -m src.locomo_eval.run --config configs/c0_raw.yaml --run-id ...
+# Freeze reader/prompt when comparing to configs/c1_session_summary.yaml.
 
 data:
   raw_path: data/raw/locomo10.json

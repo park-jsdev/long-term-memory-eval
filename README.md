@@ -332,7 +332,7 @@ python -m src.locomo_eval.evaluate --predictions experiments/<run_id>/prediction
 Tests:
 
 ```bash
-python -m unittest tests.test_baseline -q
+python -m unittest tests.test_pipeline_sanity -q
 ```
 
 ## Layout

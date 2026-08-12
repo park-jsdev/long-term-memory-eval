@@ -1,4 +1,15 @@
-"""End-to-end Phase 1 baseline: load → memory → reader → report."""
+"""Run one LoCoMo QA experiment from a YAML config.
+
+Each --config file is standalone (no includes). ``pipeline.memory`` is a
+builder id in memory.py (``c0_raw`` / ``c1_session_summary``), not another YAML.
+
+    python -m src.locomo_eval.run --config configs/baseline.yaml              # default = C1
+    python -m src.locomo_eval.run --config configs/c0_raw.yaml
+    python -m src.locomo_eval.run --config configs/c1_session_summary.yaml
+
+CLI flags (--memory, --model, ...) override that file. Compare two runs with
+scripts/compare_runs.py.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +40,11 @@ import json
 
 
 def _git_hash() -> str | None:
+    """Pin HEAD in run_meta so you can check out this commit and reproduce the run.
+
+    Returns None if git isn't available; missing git should not fail the experiment.
+    TODO: Remove cross-version features after development.
+    """
     try:
         out = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
@@ -42,6 +58,7 @@ def _git_hash() -> str | None:
 
 
 def _file_sha256(path: Path) -> str | None:
+    """Fingerprint the input JSON so you can tell if a later run used different data."""
     if not path.is_file():
         return None
     h = hashlib.sha256()
@@ -52,7 +69,10 @@ def _file_sha256(path: Path) -> str | None:
 
 
 def _load_existing_predictions(path: Path) -> dict[str, dict]:
-    """Map question_id -> row for resume after crash / rate limit."""
+    """Run checkpoint: question_id -> row so the same --run-id can resume.
+
+    Distinct from ResponseCache, which memos API answers by request hash across runs.
+    """
     if not path.is_file():
         return {}
     out: dict[str, dict] = {}
@@ -68,8 +88,15 @@ def _load_existing_predictions(path: Path) -> dict[str, dict]:
     return out
 
 
-def run_baseline(cfg: dict, overrides: argparse.Namespace) -> Path:
+def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
+    """Run one experimental condition from a loaded YAML.
+
+    Builds memory, calls the reader, writes ``experiments/<run_id>/``.
+    Which condition (C0, C1, ...) is ``cfg["pipeline"]["memory"]``, unless
+    ``--memory`` overrides it. Not tied to ``configs/baseline.yaml``.
+    """
     data_path = Path(overrides.data or cfg["data"]["raw_path"])
+    # Builder id (c0_raw / c1_session_summary), not a path to another YAML.
     memory_name = overrides.memory or cfg["pipeline"]["memory"]
     reader_name = overrides.reader or cfg["reader"]["provider"]
     model = overrides.model or cfg["reader"]["model"]
@@ -112,6 +139,7 @@ def run_baseline(cfg: dict, overrides: argparse.Namespace) -> Path:
         if not conversations:
             raise SystemExit(f"No sample_id match: {overrides.sample_id}")
 
+    # C0/C1 memory does not depend on the question; build once per conversation.
     memory_by_sample = {}
     if is_question_independent(memory_name):
         for conv in conversations:
@@ -193,6 +221,7 @@ def run_baseline(cfg: dict, overrides: argparse.Namespace) -> Path:
             prediction_rows.append(row)
             existing[q.question_id] = row
 
+            # Flush after each Q so a crash or rate-limit still leaves a resumable checkpoint.
             write_jsonl(pred_path, prediction_rows)
 
             if i % 10 == 0 or i == len(pairs):
@@ -236,6 +265,7 @@ def run_baseline(cfg: dict, overrides: argparse.Namespace) -> Path:
     summary["reader_model"] = reader.model_name
     summary["prompt_version"] = prompt_version
 
+    # Pins for later audit: data file, code commit, prompt, model, memory type.
     meta_out = {
         "run_id": run_id,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -275,10 +305,20 @@ def run_baseline(cfg: dict, overrides: argparse.Namespace) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Phase 1 LoCoMo session-summary baseline")
-    p.add_argument("--config", default="configs/baseline.yaml")
+    p = argparse.ArgumentParser(
+        description="Run one LoCoMo QA experiment from a standalone YAML config"
+    )
+    p.add_argument(
+        "--config",
+        default="configs/baseline.yaml",
+        help="YAML path (default: C1). Also configs/c0_raw.yaml, configs/c1_session_summary.yaml",
+    )
     p.add_argument("--data", default=None, help="Override path to locomo10.json")
-    p.add_argument("--memory", default=None, help="session_summary")
+    p.add_argument(
+        "--memory",
+        default=None,
+        help="Override pipeline.memory builder id (c0_raw, c1_session_summary; aliases c0, c1)",
+    )
     p.add_argument("--reader", default=None, help="openai | mock")
     p.add_argument("--model", default=None, help="Model name, e.g. gpt-4.1-mini")
     p.add_argument("--prompt", default=None)
@@ -295,7 +335,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Loaded env from {loaded}")
     args = build_parser().parse_args(argv)
     cfg = load_config(args.config)
-    run_baseline(cfg, args)
+    run_condition(cfg, args)
 
 
 if __name__ == "__main__":

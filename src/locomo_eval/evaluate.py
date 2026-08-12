@@ -1,4 +1,8 @@
-"""Re-score an existing predictions.jsonl without calling the API."""
+"""Re-score stored predictions without calling the API.
+
+Use this when the scorer changes (F1, EM, plots). Memory, prompt, or model
+changes need ``run.py``. Holding predictions fixed keeps new numbers comparable
+and avoids re-billing / rate limits."""
 
 from __future__ import annotations
 
@@ -26,7 +30,9 @@ def load_jsonl(path: Path) -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description="Evaluate LoCoMo baseline predictions")
+    p = argparse.ArgumentParser(
+        description="Rescore predictions.jsonl (metrics only; no API)"
+    )
     p.add_argument("--predictions", required=True, help="predictions.jsonl from a run")
     p.add_argument("--output-dir", default=None, help="Where to write metrics (default: beside predictions)")
     args = p.parse_args(argv)

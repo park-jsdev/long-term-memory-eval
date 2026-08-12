@@ -1,3 +1,12 @@
+# Trace: 2026-08-12 — AGENTS.md before review-session guidelines
+
+Snapshot of `docs/agent/AGENTS.md` before adding code/test/comment guidelines
+from the MR review session (test naming, one-function tests, unambiguous
+names, why-comments, schema pipeline notes). Also clarified cache vs
+checkpoint and `run_condition` vs baseline YAML.
+
+---
+
 # AGENTS.md — agent operating notes (v0.1)
 
 **Audience:** coding agents working in this repo.  
@@ -34,9 +43,9 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 
 | Path | Role |
 |------|------|
-| `configs/baseline.yaml` | CLI default; currently C1. Standalone (not a parent of c0/c1) |
+| `configs/baseline.yaml` | Default config (C1) |
 | `configs/c0_raw.yaml` | C0 raw dialog memory |
-| `configs/c1_session_summary.yaml` | C1 session-summary memory (same condition as baseline.yaml) |
+| `configs/c1_session_summary.yaml` | C1 session-summary memory |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
@@ -56,11 +65,11 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 | `memory.py` | MemoryBuilder interface + SessionSummary |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
-| `cache.py` | Content-addressed API memo (not the run checkpoint) |
+| `cache.py` | Disk hash cache for API resumes |
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
-| `run.py` | CLI: one condition from a YAML (`run_condition`) |
-| `evaluate.py` | CLI: rescore stored predictions (no API) |
+| `run.py` | CLI: full pipeline |
+| `evaluate.py` | CLI: rescore predictions |
 
 ---
 
@@ -83,10 +92,10 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_s
 # Rescore only
 python -m src.locomo_eval.evaluate --predictions experiments/<run_id>/predictions.jsonl
 
-# Unit tests (parse, memory builders, metrics — not C1-only)
-python -m pytest tests/test_pipeline_sanity.py -q
+# Unit tests
+python -m pytest tests/test_baseline.py -q
 # or
-python -m unittest tests.test_pipeline_sanity
+python -m unittest tests.test_baseline
 ```
 
 Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
@@ -115,28 +124,9 @@ Agents must not silently skip CSV/plots when code paths change.
 2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
-5. **Memoize API calls** (`experiments/cache/`, content-addressed). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
-6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
+5. **Cache API calls** (`experiments/cache/`); do not delete user caches unless asked.
+6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
-
----
-
-## Code, tests, and comments
-
-From review. Follow these when adding or renaming code.
-
-**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`cache` vs run checkpoint; baseline YAML vs C0/C1).
-
-**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`ResponseCache` vs JSONL resume; `evaluate.py` vs `run.py`).
-
-**Schemas / data-model classes.** The module docstring should map how types connect and which pipeline step uses them (load → memory → reader → prediction → score). Each class gets a short “what it is / who consumes it” note. Label gold answers as scorer-only (never in the reader prompt).
-
-**Tests.**
-- One unit test focuses on one function (`exact_match` tests stay separate from `token_f1` tests).
-- Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
-- Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
-
-**Experiments.** One YAML per `run.py` call. Compare C0 vs C1 with two runs, then `scripts/compare_runs.py` (no API).
 
 ---
 
@@ -155,7 +145,7 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
 - [ ] Memory builder swappable without changing reader/evaluator  
-- [ ] Tests for parse, memory, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] Tests for parse, memory, normalize  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---

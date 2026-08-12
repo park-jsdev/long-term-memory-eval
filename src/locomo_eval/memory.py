@@ -17,7 +17,11 @@ from .schemas import Conversation, Memory, Question
 
 
 class MemoryBuilder(ABC):
-    """Common interface so readers/evaluators stay memory-agnostic."""
+    """Sandwich middle: Conversation (+ Question) → Memory.
+
+    Called from run_condition. Swap the subclass (C0/C1) without touching
+    the reader or metrics.
+    """
 
     name: str = "base"
 

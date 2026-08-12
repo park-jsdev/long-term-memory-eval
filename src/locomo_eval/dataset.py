@@ -1,4 +1,4 @@
-"""Load LoCoMo JSON into normalized Conversation / Question objects.
+"""Load locomo10.json into Conversation / Question objects (pipeline step 1).
 
 Does not modify the source file. Source data stay in data/raw/.
 """

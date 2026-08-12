@@ -22,6 +22,11 @@ from .prompts import render_qa_prompt
 
 
 class Reader(ABC):
+    """Sandwich bottom: Memory.text + question → predicted answer.
+
+    Called once per unanswered question in run_condition. Must not see gold.
+    """
+
     model_name: str
 
     @abstractmethod
@@ -31,7 +36,7 @@ class Reader(ABC):
 
 
 class MockReader(Reader):
-    """Deterministic offline reader for pipeline smoke tests."""
+    """Offline stand-in for smoke tests. No API; always returns 'Unknown.'"""
 
     def __init__(self, model_name: str = "mock"):
         self.model_name = model_name
@@ -75,7 +80,7 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
 
 
 class OpenAIReader(Reader):
-    """Fixed answer LLM via OpenAI Chat Completions (with 429 backoff + pace)."""
+    """Live answer LLM (Chat Completions). Uses ResponseCache; 429 backoff + pace."""
 
     def __init__(
         self,
