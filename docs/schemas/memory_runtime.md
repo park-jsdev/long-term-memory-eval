@@ -17,10 +17,12 @@ Passed from builder → runner → prompt fill. Never includes the gold answer.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `memory_type` | string | Condition id, e.g. `c0_raw`, `c1_session_summary` |
+| `memory_type` | string | Condition id, e.g. `c0_raw`, `c1_session_summary`, `c1_teacher` |
 | `text` | string | **Full payload** inserted into `prompts/qa_v1.txt` as `{memory}` |
 | `source_ids` | list[string] | Provenance ids (turn `dia_id`s or `session_k_summary`) |
 | `schema_version` | string | Always `memory_io.v1` for this layout family |
+| `teacher_model` | string or null | Write-path model id when using `c1_teacher` |
+| `teacher_provider` | string or null | `openai` or `mock` |
 
 JSON shape (also in `memory_io.schema.json`):
 
@@ -76,6 +78,12 @@ Config: `configs/c1_session_summary.yaml` · uses LoCoMo release field `session_
 ```
 
 Sessions omitted if empty. Order = chronological session number.
+
+### Condition `c1_teacher` (`TeacherSessionMemoryBuilder`)
+
+Config: `configs/c1_teacher.yaml` · `teacher.model` / `--teacher-model`.
+
+Same `[Session k]` concatenation as C1, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
 
 ### Injection into the fixed prompt
 

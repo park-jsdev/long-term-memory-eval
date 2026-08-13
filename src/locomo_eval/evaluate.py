@@ -44,6 +44,9 @@ def main(argv: list[str] | None = None) -> None:
         summary["memory_type"] = rows[0].get("memory_type")
         summary["reader_model"] = rows[0].get("reader_model")
         summary["prompt_version"] = rows[0].get("prompt_version")
+        if rows[0].get("teacher_model"):
+            summary["teacher_model"] = rows[0].get("teacher_model")
+            summary["teacher_provider"] = rows[0].get("teacher_provider")
 
     out_dir = Path(args.output_dir) if args.output_dir else pred_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)

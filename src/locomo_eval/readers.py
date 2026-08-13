@@ -18,6 +18,7 @@ from typing import Any
 
 from .cache import ResponseCache
 from .env import load_env
+from .models import chat_create_kwargs, resolve_model
 from .prompts import render_qa_prompt
 
 
@@ -42,7 +43,12 @@ class MockReader(Reader):
         self.model_name = model_name
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
-        return "Unknown.", {"cached": False, "latency_s": 0.0, "usage": {}}
+        return "Unknown.", {
+            "cached": False,
+            "latency_s": 0.0,
+            "usage": {},
+            "model": self.model_name,
+        }
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -79,8 +85,12 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     return None
 
 
-class OpenAIReader(Reader):
-    """Live answer LLM (Chat Completions). Uses ResponseCache; 429 backoff + pace."""
+class OpenAIChatCaller:
+    """Shared Chat Completions helper for the answer reader and the teacher.
+
+    Model id is resolved through models.py so GPT-4.1 vs GPT-5.6 request
+    shapes stay in one place (max_tokens vs max_completion_tokens, etc.).
+    """
 
     def __init__(
         self,
@@ -94,7 +104,8 @@ class OpenAIReader(Reader):
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
     ):
-        self.model_name = model
+        self.spec = resolve_model(model)
+        self.model_name = self.spec.model_id
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.cache = cache
@@ -109,7 +120,7 @@ class OpenAIReader(Reader):
         if not api_key:
             raise RuntimeError(
                 f"Set {api_key_env} in a repo-root .env file "
-                f"(see .env.example) or export it in the shell before using OpenAIReader."
+                f"(see .env.example) or export it in the shell before using OpenAI."
             )
         try:
             from openai import OpenAI
@@ -124,14 +135,22 @@ class OpenAIReader(Reader):
         if self._last_request_t and elapsed < self.min_request_interval_s:
             time.sleep(self.min_request_interval_s - elapsed)
 
-    def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
-        prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        cache_extra: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        """Return (text, call_meta). Cache key includes model id + cache_extra."""
         cache_payload = {
             "provider": "openai",
             "model": self.model_name,
+            "family": self.spec.family,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
-            "prompt": prompt,
+            "max_tokens_field": self.spec.max_tokens_field,
+            "reasoning_effort": self.spec.reasoning_effort,
+            **cache_extra,
         }
         key = ResponseCache.make_key(cache_payload) if self.cache else None
 
@@ -143,25 +162,22 @@ class OpenAIReader(Reader):
                     "latency_s": 0.0,
                     "usage": hit.get("usage", {}),
                     "cache_key": key,
+                    "model": self.model_name,
+                    "family": self.spec.family,
                 }
 
+        create_kwargs = chat_create_kwargs(
+            self.spec,
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
         last_exc: BaseException | None = None
         for attempt in range(self.max_retries + 1):
             self._pace()
             t0 = time.time()
             try:
-                resp = self._client.chat.completions.create(
-                    model=self.model_name,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You answer questions using only the provided memory.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                )
+                resp = self._client.chat.completions.create(**create_kwargs)
                 self._last_request_t = time.time()
                 latency = time.time() - t0
                 text = (resp.choices[0].message.content or "").strip()
@@ -182,6 +198,8 @@ class OpenAIReader(Reader):
                     "usage": usage,
                     "cache_key": key,
                     "attempts": attempt + 1,
+                    "model": self.model_name,
+                    "family": self.spec.family,
                 }
             except Exception as exc:
                 last_exc = exc
@@ -190,7 +208,6 @@ class OpenAIReader(Reader):
 
                 wait = _retry_after_seconds(exc)
                 if wait is None:
-                    # Exponential backoff with jitter (caps below).
                     wait = min(2 ** attempt + random.uniform(0, 1), 300.0)
                 wait = min(wait, self.max_wait_s)
                 print(
@@ -201,6 +218,49 @@ class OpenAIReader(Reader):
 
         assert last_exc is not None
         raise last_exc
+
+
+class OpenAIReader(Reader):
+    """Live answer LLM (Chat Completions). Uses ResponseCache; 429 backoff + pace."""
+
+    def __init__(
+        self,
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: int = 64,
+        api_key_env: str = "OPENAI_API_KEY",
+        cache: ResponseCache | None = None,
+        timeout_s: float = 60.0,
+        max_retries: int = 8,
+        min_request_interval_s: float = 0.0,
+        max_wait_s: float = 3600.0,
+    ):
+        self._chat = OpenAIChatCaller(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_env=api_key_env,
+            cache=cache,
+            timeout_s=timeout_s,
+            max_retries=max_retries,
+            min_request_interval_s=min_request_interval_s,
+            max_wait_s=max_wait_s,
+        )
+        self.model_name = self._chat.model_name
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.cache = cache
+
+    def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
+        prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
+        messages = [
+            {
+                "role": "system",
+                "content": "You answer questions using only the provided memory.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+        return self._chat.complete(messages, cache_extra={"role": "reader", "prompt": prompt})
 
 
 def get_reader(
@@ -215,7 +275,9 @@ def get_reader(
 ) -> Reader:
     name = name.lower()
     if name == "mock":
-        return MockReader(model_name=model or "mock")
+        # Resolve aliases (luna → gpt-5.6-luna) so mock logs match live ids.
+        model_name = resolve_model(model).model_id if model else "mock"
+        return MockReader(model_name=model_name)
     if name == "openai":
         return OpenAIReader(
             model=model,

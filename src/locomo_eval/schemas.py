@@ -86,13 +86,15 @@ class Conversation:
 class Memory:
     """Context string the frozen answer model is allowed to see.
 
-    Built by MemoryBuilder (C0/C1). Schema: docs/schemas/memory_runtime.md
+    Built by MemoryBuilder (C0/C1/c1_teacher). Schema: docs/schemas/memory_runtime.md
     """
 
     memory_type: str
     text: str
     source_ids: list[str] = field(default_factory=list)
     schema_version: str = "memory_io.v1"
+    teacher_model: str | None = None
+    teacher_provider: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -119,6 +121,8 @@ class Prediction:
     evidence: list[str] = field(default_factory=list)
     run_id: str = ""
     cached: bool = False
+    teacher_model: str | None = None
+    teacher_provider: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -85,6 +85,7 @@ gold answer ──────────────────────�
 
 - **C0** today: dump raw dialog as the memory string (little structure).  
 - **C1** draft: dump released session summaries (structured-ish, still not a multi-teacher schema).  
+- **C1 teacher (`c1_teacher`):** one LLM summarizes each session; swap `teacher.model` within a family.  
 - **Later (C2–C4):** teacher outputs, fusion, claim-level schema — still the same idea: **produce a better memory payload for the same fixed Q + fixed answer LLM.**
 
 The experimental claim is almost always: *under a frozen answer model and prompt, does condition A’s memory make QA better than condition B’s?*
@@ -127,6 +128,38 @@ Open `experiments/compare_c0_c1/overall.csv` and the two `predictions.csv` files
 
 ---
 
+## Cross-model robustness (reader or teacher)
+
+This is **not** a C0 vs C1 memory comparison. Freeze memory (or freeze the reader) and swap one model slot.
+
+**Answer / eval model** (`gpt-4.1-mini` vs `gpt-5.6-luna`):
+
+```bash
+python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 5 --run-id cmp_reader_mini_n5
+python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
+python scripts/compare_cross_model.py --runs experiments/cmp_reader_mini_n5 experiments/cmp_reader_luna_n5 --axis reader --out experiments/compare_reader_mini_luna
+```
+
+**Teacher model within GPT-5.6** (live `c1_teacher`; freeze the reader):
+
+```bash
+python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id cmp_teacher_luna
+python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model gpt-5.6-terra --max-questions 3 --run-id cmp_teacher_terra
+python scripts/compare_cross_model.py --runs experiments/cmp_teacher_luna experiments/cmp_teacher_terra --axis teacher --out experiments/compare_teacher_family
+```
+
+Offline teacher smoke (no API):
+
+```bash
+python -m src.locomo_eval.run --config configs/c1_teacher.yaml --reader mock --teacher mock --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
+```
+
+`compare_cross_model.py` writes `overall.csv`, `paired_questions.csv`, `SUMMARY.md`, `compare.json`. Check `run_meta.json` for `reader_model` / `teacher_model` / `*_family`.
+
+Unit tests for these seams (no API): `python -m unittest tests/test_integration_sanity.py`.
+
+---
+
 ## Run the baseline
 
 **Offline smoke (no money / no key):**
@@ -147,10 +180,11 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 -
 python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
 ```
 
-Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For a stronger fixed answer model (your intended GPT-4.1 class):
+Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For GPT-5.6 Luna as the **answer** model (robustness axis, not a memory claim):
 
 ```bash
-python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id baseline_gpt41
+python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
+python scripts/compare_cross_model.py --runs experiments/smoke_openai experiments/cmp_reader_luna_n5 --axis reader --out experiments/compare_reader_mini_luna
 ```
 
 Config knobs live only in YAML + CLI overrides — no hidden flags.
@@ -197,9 +231,9 @@ If LoCoMo F1 is low but answers “feel” right, check:
 ```
 locomo10.json                 # official: dialog + summaries + gold QA
     → dataset.py              # Conversation / Question objects (gold kept for scorer only)
-    → memory.py               # experimental: Memory.text (gold never enters here for the LLM)
-    → prompts/qa_v1.txt       # fixed: Memory + Question only
-    → readers.py              # fixed answer LLM
+    → memory.py               # experimental: Memory.text (C0 / C1 / c1_teacher)
+    → prompts/qa_v1.txt       # frozen answer prompt
+    → readers.py              # answer LLM (swap only for robustness, not C0 vs C1)
     → metrics + report        # scorer uses gold; reports for humans
 ```
 
@@ -223,7 +257,7 @@ Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this basel
 
 ## What you should ask agents to do (and not)
 
-**Do:** extend memory builders, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
+**Do:** extend memory builders, swap reader/teacher models for robustness checks, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
 
 **Don’t (yet):** multi-LLM fusion, training loops, silent metric changes, deleting cache/data, committing secrets.
 

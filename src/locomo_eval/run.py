@@ -29,13 +29,15 @@ from src.config import load_config
 from src.locomo_eval.cache import ResponseCache
 from src.locomo_eval.dataset import iter_questions, load_conversations
 from src.locomo_eval.env import load_env
-from src.locomo_eval.memory import get_memory_builder, is_question_independent
+from src.locomo_eval.memory import get_memory_builder, is_question_independent, resolve_memory_name
 from src.locomo_eval.memory_log import write_memory_run_log
 from src.locomo_eval.metrics import summarize_predictions
+from src.locomo_eval.models import resolve_model
 from src.locomo_eval.prompts import load_prompt_template
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
+from src.locomo_eval.teachers import get_teacher
 import json
 
 
@@ -66,6 +68,31 @@ def _file_sha256(path: Path) -> str | None:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, cache: ResponseCache, reader_name: str):
+    """Construct a Teacher only for c1_teacher. Other builders ignore teacher YAML."""
+    if resolve_memory_name(memory_name) != "c1_teacher":
+        return None
+    tcfg = cfg.get("teacher") or {}
+    provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
+    model = getattr(overrides, "teacher_model", None) or tcfg.get("model")
+    if not provider:
+        provider = "mock" if str(reader_name).lower() == "mock" else "openai"
+    if not model:
+        raise SystemExit("c1_teacher requires teacher.model in YAML or --teacher-model")
+    prompt_path = tcfg.get("prompt_path")
+    return get_teacher(
+        provider,
+        model=model,
+        temperature=float(tcfg.get("temperature", 0.0)),
+        max_tokens=int(tcfg.get("max_tokens", 512)),
+        cache=cache,
+        max_retries=int(tcfg.get("max_retries", 8)),
+        min_request_interval_s=float(tcfg.get("min_request_interval_s", 0.5)),
+        max_wait_s=float(tcfg.get("max_wait_s", 3600.0)),
+        prompt_path=prompt_path,
+    )
 
 
 def _load_existing_predictions(path: Path) -> dict[str, dict]:
@@ -117,11 +144,15 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
-    builder = get_memory_builder(memory_name, max_chars=max_chars)
     cache = ResponseCache(cfg["run"].get("cache_dir", "experiments/cache"))
+    teacher = _build_teacher(cfg, overrides, memory_name, cache, reader_name)
+    builder = get_memory_builder(memory_name, max_chars=max_chars, teacher=teacher)
 
     rate_cfg = cfg.get("reader") or {}
-    reader_model = "mock" if reader_name.lower() == "mock" else model
+    if model:
+        reader_model = resolve_model(model).model_id
+    else:
+        reader_model = "mock" if reader_name.lower() == "mock" else "gpt-4.1-mini"
     reader = get_reader(
         reader_name,
         model=reader_model,
@@ -154,9 +185,13 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
 
     existing = _load_existing_predictions(pred_path)
     n_resume = sum(1 for _, q in pairs if q.question_id in existing)
+    teacher_model = getattr(builder, "teacher_model", None)
+    teacher_provider = getattr(builder, "teacher_provider", None)
     print(
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
-        f"reader={reader_name}/{reader.model_name} | resume_hits={n_resume}"
+        f"reader={reader_name}/{reader.model_name}"
+        + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
+        + f" | resume_hits={n_resume}"
     )
     if n_resume:
         print(f"  Resuming from {pred_path} ({n_resume} finished questions).")
@@ -178,6 +213,8 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
                         memory_type=str(row.get("memory_type") or builder.name),
                         text=str(row["memory_text"]),
                         source_ids=[],
+                        teacher_model=row.get("teacher_model"),
+                        teacher_provider=row.get("teacher_provider"),
                     )
                 if example_question is None:
                     example_question = q.question
@@ -213,6 +250,8 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
                 evidence=list(q.evidence),
                 run_id=run_id,
                 cached=bool(meta.get("cached")),
+                teacher_model=memory.teacher_model,
+                teacher_provider=memory.teacher_provider,
             )
             row = pred.to_dict()
             row["latency_s"] = meta.get("latency_s")
@@ -263,7 +302,12 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
     summary = summarize_predictions(prediction_rows)
     summary["memory_type"] = builder.name
     summary["reader_model"] = reader.model_name
+    summary["reader_family"] = resolve_model(reader.model_name).family
     summary["prompt_version"] = prompt_version
+    if teacher_model:
+        summary["teacher_model"] = teacher_model
+        summary["teacher_provider"] = teacher_provider
+        summary["teacher_family"] = resolve_model(teacher_model).family
 
     # Pins for later audit: data file, code commit, prompt, model, memory type.
     meta_out = {
@@ -276,6 +320,10 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
         "memory_max_chars": max_chars,
         "reader_provider": reader_name,
         "reader_model": reader.model_name,
+        "reader_family": resolve_model(reader.model_name).family,
+        "teacher_provider": teacher_provider,
+        "teacher_model": teacher_model,
+        "teacher_family": resolve_model(teacher_model).family if teacher_model else None,
         "temperature": rate_cfg.get("temperature", 0.0),
         "max_tokens": rate_cfg.get("max_tokens", 64),
         "max_retries": rate_cfg.get("max_retries", 8),
@@ -288,7 +336,7 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
         "n_disk_cache_hits": n_cache,
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
-        "package_version": "0.1.3",
+        "package_version": "0.1.4",
         "memory_schema_version": "memory_io.v1",
         "memory_audit_dir": "memory",
     }
@@ -317,10 +365,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (c0_raw, c1_session_summary; aliases c0, c1)",
+        help="Override pipeline.memory builder id (c0_raw, c1_session_summary, c1_teacher; aliases c0, c1, teacher)",
     )
     p.add_argument("--reader", default=None, help="openai | mock")
-    p.add_argument("--model", default=None, help="Model name, e.g. gpt-4.1-mini")
+    p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
+    p.add_argument("--teacher", default=None, help="Teacher provider: openai | mock (c1_teacher only)")
+    p.add_argument(
+        "--teacher-model",
+        default=None,
+        help="Teacher model id (c1_teacher), e.g. gpt-4.1-mini or gpt-5.6-luna",
+    )
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)

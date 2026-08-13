@@ -1,0 +1,12 @@
+You write a session memory for later question answering.
+
+Speakers: {speaker_a} and {speaker_b}.
+Date: {date}
+
+Include names, dates, events, and concrete facts from this session.
+Be concise. Do not invent details that are not in the session.
+
+Session:
+{session_text}
+
+Memory:

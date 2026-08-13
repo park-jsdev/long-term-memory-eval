@@ -26,7 +26,7 @@ Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 
 Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-memory aggregation, C4 claim-level fusion.
 
-**Now:** `c0_raw` and `c1_session_summary` builders inject alternative `Memory.text` with frozen reader/metrics. C1 draft uses LoCoMo-provided summaries (not a live teacher API yet).
+**Now:** `c0_raw` and `c1_session_summary` builders inject alternative `Memory.text` with frozen reader/metrics. `c1_teacher` is a live single-teacher seam (swap `teacher.model` within a family). Dataset-provided C1 summaries remain the default C1. Reader model can also be swapped (`gpt-4.1-mini` vs `gpt-5.6-luna`) as a **separate** robustness axis — do not mix that with a C0 vs C1 memory claim.
 
 ---
 
@@ -37,9 +37,13 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 | `configs/baseline.yaml` | CLI default; currently C1. Standalone (not a parent of c0/c1) |
 | `configs/c0_raw.yaml` | C0 raw dialog memory |
 | `configs/c1_session_summary.yaml` | C1 session-summary memory (same condition as baseline.yaml) |
+| `configs/c1_reader_gpt56_luna.yaml` | C1 memory + GPT-5.6 Luna answer model |
+| `configs/c1_teacher.yaml` | Live single-teacher memory (`c1_teacher`) |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
+| `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
+| `scripts/compare_cross_model.py` | Cross-model robustness (reader or teacher axis) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -53,9 +57,11 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 |------|----------------|
 | `schemas.py` | Conversation, Question, Memory, Prediction |
 | `dataset.py` | Load LoCoMo JSON → objects |
-| `memory.py` | MemoryBuilder interface + SessionSummary |
+| `memory.py` | MemoryBuilder interface + C0 / C1 / c1_teacher |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
+| `models.py` | Model ids / families / Chat Completions kwargs |
+| `teachers.py` | Single teacher (session summaries) |
 | `cache.py` | Content-addressed API memo (not the run checkpoint) |
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
@@ -84,9 +90,13 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_s
 python -m src.locomo_eval.evaluate --predictions experiments/<run_id>/predictions.jsonl
 
 # Unit tests (parse, memory builders, metrics — not C1-only)
-python -m pytest tests/test_pipeline_sanity.py -q
-# or
-python -m unittest tests.test_pipeline_sanity
+python -m pytest tests/test_pipeline_sanity.py tests/test_integration_sanity.py -q
+# or (file path avoids a site-packages module named `tests` shadowing this folder)
+python -m unittest tests/test_pipeline_sanity.py tests/test_integration_sanity.py
+
+# Cross-model robustness (after two runs that differ by reader or teacher model)
+python scripts/compare_cross_model.py --runs experiments/c1_mini experiments/c1_luna --axis reader --out experiments/compare_reader_mini_luna
+python scripts/compare_cross_model.py --runs experiments/teacher_luna experiments/teacher_terra --axis teacher --out experiments/compare_teacher_family
 ```
 
 Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
@@ -102,7 +112,7 @@ Each run under `experiments/<run_id>/` must include:
 - `predictions.csv` — spreadsheet-friendly + scores + memory preview
 - `metrics.json` — overall + by-category
 - `metrics_by_category.csv`
-- `run_meta.json` — model, prompt, data hash, git hash, timestamp
+- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp
 - `plots/` — overall + category bars
 
 Agents must not silently skip CSV/plots when code paths change.
@@ -111,7 +121,7 @@ Agents must not silently skip CSV/plots when code paths change.
 
 ## Design rules for agents
 
-1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed.
+1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed for C0 vs C1. Reader-model and teacher-model swaps are a **different** axis (`compare_cross_model.py`).
 2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
@@ -136,7 +146,7 @@ From review. Follow these when adding or renaming code.
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
 
-**Experiments.** One YAML per `run.py` call. Compare C0 vs C1 with two runs, then `scripts/compare_runs.py` (no API).
+**Experiments.** One YAML per `run.py` call. Compare C0 vs C1 with two runs, then `scripts/compare_runs.py` (no API). Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API).
 
 ---
 
@@ -155,7 +165,7 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
 - [ ] Memory builder swappable without changing reader/evaluator  
-- [ ] Tests for parse, memory, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] Tests for parse, memory, normalize, **and** model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---

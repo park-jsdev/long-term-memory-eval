@@ -28,13 +28,14 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** (default in `c0`/`c1`/`baseline` YAML); **`gpt-4.1`** when explicitly set | `reader.model`, CLI `--model` | `OpenAIReader` in `readers.py` |
+| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** (default reader in c0/c1/baseline YAML); **`gpt-5.6-luna`** (`configs/c1_reader_gpt56_luna.yaml`); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`** when set | `reader.model`, `teacher.model`, CLI `--model` / `--teacher-model` | `OpenAIReader` / `OpenAITeacher` via `models.py` |
 
 **Request shape (answer LLM):**
 
 - System: `You answer questions using only the provided memory.`
 - User: text from `prompts/qa_v1.txt` filled with memory + question
-- `temperature=0.0`, `max_tokens=64` unless config overridden
+- GPT-4.1: `temperature=0.0`, `max_tokens=64` unless config overridden
+- GPT-5.6 (Luna/Terra/Sol): `max_completion_tokens` (min 16), `reasoning_effort=none`, no temperature (see `src/locomo_eval/models.py`)
 
 **Commands that call OpenAI:**
 
@@ -43,6 +44,8 @@ Keep this list current when providers/models change.
 python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --run-id cmp_c0_n20
 python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
 python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id ...
+python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
+python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
 ```
 
 **Commands that do *not* call OpenAI:**
@@ -51,6 +54,7 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --r
 python -m src.locomo_eval.run --reader mock ...
 python -m src.locomo_eval.evaluate --predictions experiments/<run>/predictions.jsonl
 python scripts/compare_runs.py --runs ... --out ...
+python scripts/compare_cross_model.py --runs ... --axis reader --out ...
 python scripts/prepare_data.py --split all --no-jsonl
 python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 ```
@@ -116,18 +120,19 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 |----|--------------|------------------------------|-------------------|
 | **C0** | `c0_raw` | Full raw dialog turns (chronological), optional char cap | Does structure help at all? |
 | **C1** | `c1_session_summary` | LoCoMo-released session summaries (dataset “memory”) | How strong is a structured session-memory bank? |
+| **C1 teacher** | `c1_teacher` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
 | C2 | (future) | Top-1 of K teacher memories | Selection enough? |
 | C3 | (future) | Aggregated whole memories | Synthesis enough? |
 | C4 | (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
 
-**C1 draft note:** first cut uses **provided** LoCoMo session summaries rather than a live single-teacher API. That puts the **component seam** in place (same inject path as a real teacher memory) without multi-call generation cost. A true “single teacher LLM generates memory” can replace the builder body later without retouching reader/metrics.
+**C1 draft note:** default C1 still uses **provided** LoCoMo session summaries. `c1_teacher` is the live single-teacher replacement (same inject path). Multi-teacher fusion is still out of scope.
 
 Aliases for convenience:
 
 | Alias | Resolves to |
 |-------|-------------|
 | `raw` / `raw_dialog` | `c0_raw` |
-| `session_summary` | `c1_session_summary` |
+| `teacher` | `c1_teacher` |
 
 ---
 
@@ -161,6 +166,10 @@ Do **not** fork prompts per condition for the main table. If you ablate prompts,
 2. Register it in `get_memory_builder`.
 3. Prefer writing long intermediates to `experiments/<run_id>/memories/` later; still end by filling `Memory.text`.
 4. Run with the **same** `--prompt` / reader model as other C’s.
+
+**Teacher (`c1_teacher`):** YAML `teacher.model` (or `--teacher-model`) selects the write-path LLM. Logged on `Memory.teacher_model`, `run_meta.json`, and each prediction row. Do not change `reader.model` in the same comparison if you want the delta attributed to the teacher.
+
+**Reader-model robustness:** YAML `reader.model` / `--model` / `configs/c1_reader_gpt56_luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a C0 vs C1 claim.
 
 ### 4.3 True multi-teacher write path (later, still middle)
 
@@ -262,9 +271,15 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 configs/baseline.yaml              # default (C1-compatible)
 configs/c0_raw.yaml
 configs/c1_session_summary.yaml
+configs/c1_reader_gpt56_luna.yaml  # C1 + GPT-5.6 Luna reader
+configs/c1_teacher.yaml            # live single teacher
 prompts/qa_v1.txt
-src/locomo_eval/memory.py          # C0/C1 builders + registry
+prompts/teacher_session_v1.txt
+src/locomo_eval/models.py          # model catalog / API kwargs
+src/locomo_eval/teachers.py        # Mock + OpenAI teacher
+src/locomo_eval/memory.py          # C0/C1/c1_teacher builders + registry
 src/locomo_eval/run.py             # wires builder → reader → report
-scripts/compare_runs.py            # metrics side-by-side
+scripts/compare_runs.py            # C0 vs C1 metrics side-by-side
+scripts/compare_cross_model.py     # reader/teacher model robustness
 docs/reports/engineering_notebook.md  # this file
 ```
