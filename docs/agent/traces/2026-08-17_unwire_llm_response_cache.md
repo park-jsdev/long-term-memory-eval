@@ -1,3 +1,187 @@
+# Trace: 2026-08-17 — before unwiring LlmResponseCache
+
+Snapshot of AGENTS.md and HUMANS.md. Cache moves to src/locomo_eval/utils/
+and is disconnected from the live pipeline (future optimization).
+
+---
+
+# AGENTS.md (previous)
+
+# AGENTS.md — agent operating notes (v0.1)
+
+**Audience:** coding agents working in this repo.  
+**Length target:** 2–3 pages.  
+**Update rule:** change this file on every meaningful behavior or layout change; snapshot to `docs/agent/traces/` first.
+
+---
+
+## Mission
+
+Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
+
+**Current phase:** end-to-end read path with **draft C0 vs C1** memory builders.  
+See `docs/reports/engineering_notebook.md` for freeze/extend rules.
+
+Do **not** implement multi-teacher fusion or claim schema unless the human expands scope.
+
+---
+
+## North star (later)
+
+```
+Write: conversation → teachers → fusion/validate → memory store
+Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
+```
+
+Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-memory aggregation, C4 claim-level fusion.
+
+**Now:** `c0_raw` and `c1_session_summary` builders inject alternative `Memory.text` with frozen reader/metrics. C1 draft uses LoCoMo-provided summaries (not a live teacher API yet).
+
+---
+
+## Repo map (v0.1)
+
+| Path | Role |
+|------|------|
+| `configs/baseline.yaml` | CLI default; currently C1. Standalone (not a parent of c0/c1) |
+| `configs/c0_raw.yaml` | C0 raw dialog memory |
+| `configs/c1_session_summary.yaml` | C1 session-summary memory (same condition as baseline.yaml) |
+| `prompts/qa_v1.txt` | Fixed answer prompt |
+| `docs/reports/engineering_notebook.md` | System map / extension points |
+| `src/locomo_eval/` | Baseline package |
+| `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
+| `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
+| `experiments/<run_id>/` | Human-auditable run pack |
+| `docs/agent/SPEC_v1.md` | Phase 1 requirements |
+| `docs/agent/HUMANS.md` | Human-facing brief |
+| `docs/agent/traces/` | Doc version history |
+
+### Package modules (`src/locomo_eval/`)
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Conversation, Question, Memory, Prediction |
+| `dataset.py` | Load LoCoMo JSON → objects |
+| `memory.py` | MemoryBuilder interface + SessionSummary |
+| `prompts.py` | Load/render prompt text |
+| `readers.py` | OpenAI + Mock readers, temp=0 |
+| `llm_response_cache.py` | Content-addressed LLM reply memo (`LlmResponseCache`; stage=`answer_reader` today). Not JSONL resume. Teacher/autorater stages reserved. |
+| `metrics.py` | EM, token F1, LoCoMo F1 |
+| `report.py` | JSONL/CSV/plots |
+| `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
+| `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
+
+---
+
+## Commands agents should use
+
+```bash
+conda activate distillation
+pip install -r requirements.txt
+python scripts/fetch_locomo.py
+
+# Offline smoke (no API key)
+python -m src.locomo_eval.run --config configs/baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
+
+# Live OpenAI (needs OPENAI_API_KEY in repo-root .env or shell)
+python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
+
+# Full baseline (costly)
+python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
+
+# Offline rescore (string metrics only; not an LLM autorater)
+python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
+
+# Unit tests — evaluation pipeline (HLD iv) + sandwich regression locks
+python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
+# or (file path avoids a site-packages module named `tests` shadowing this folder)
+python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+```
+
+Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
+Never commit keys or `.env`. `src/locomo_eval/env.py` loads `.env` at run start / OpenAI reader init.
+
+---
+
+## Run audit package (always write)
+
+Each run under `experiments/<run_id>/` must include:
+
+- `predictions.jsonl` — one row per question (incl. memory text)
+- `predictions.csv` — spreadsheet-friendly + scores + memory preview
+- `metrics.json` — overall + by-category
+- `metrics_by_category.csv`
+- `run_meta.json` — model, prompt, data hash, git hash, timestamp
+- `plots/` — overall + category bars
+
+Agents must not silently skip CSV/plots when code paths change.
+
+---
+
+## Design rules for agents
+
+1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed.
+2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
+3. **Prefer small pure functions** over frameworks.
+4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
+5. **Memoize LLM replies** via `LlmResponseCache` (`experiments/cache/`, content-addressed, keyed with `pipeline_stage`). Wired today only on the **answer reader** (`OpenAIReader.answer`). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
+6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
+7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
+
+---
+
+## Code, tests, and comments
+
+From review. Follow these when adding or renaming code.
+
+**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseCache` vs JSONL resume; baseline YAML vs C0/C1).
+
+**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseCache` vs JSONL resume; `offline_evaluate.py` vs `run.py`; later LLM autoraters vs this string scorer).
+
+**Schemas / data-model classes.** The module docstring should map how types connect and which pipeline step uses them (load → memory → reader → prediction → score). Each class gets a short “what it is / who consumes it” note. Label gold answers as scorer-only (never in the reader prompt).
+
+**Tests.**
+- One unit test focuses on one function (`exact_match` tests stay separate from `token_f1` tests).
+- Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
+- Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
+
+**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare C0 vs C1 with two runs, then `scripts/compare_runs.py` (no API). Do not fold A vs B into `run.py`.
+
+---
+
+## Out of scope (v0.1)
+
+Multi-teacher, claim fusion, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks.
+
+Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
+
+---
+
+## Acceptance checklist for agent PRs
+
+- [ ] Dataset loads without editing source JSON  
+- [ ] One-question and full-run share the same command  
+- [ ] Predictions JSONL deterministic fields  
+- [ ] Metrics include EM, token F1, LoCoMo F1 by category  
+- [ ] Memory builder swappable without changing reader/evaluator  
+- [ ] Tests for parse, memory, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
+- [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
+
+---
+
+## Traceability
+
+- Spec: `docs/agent/SPEC_v1.md`  
+- LoCoMo pin: `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`  
+- Paper: Maharana et al., arXiv:2402.17753  
+- Sandwich idea: Bowman et al. 2022 scalable oversight  
+
+
+---
+
+# HUMANS.md (previous)
+
 # HUMANS.md — how to run and review (v0.1)
 
 **Audience:** you (the researcher).  
@@ -85,7 +269,6 @@ gold answer ──────────────────────�
 
 - **C0** today: dump raw dialog as the memory string (little structure).  
 - **C1** draft: dump released session summaries (structured-ish, still not a multi-teacher schema).  
-- **C1 teacher (`c1_teacher`):** one LLM summarizes each session; swap `teacher.model` within a family.  
 - **Later (C2–C4):** teacher outputs, fusion, claim-level schema — still the same idea: **produce a better memory payload for the same fixed Q + fixed answer LLM.**
 
 The experimental claim is almost always: *under a frozen answer model and prompt, does condition A’s memory make QA better than condition B’s?*
@@ -134,38 +317,6 @@ python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
 
 ---
 
-## Cross-model robustness (reader or teacher)
-
-This is **not** a C0 vs C1 memory comparison. Freeze memory (or freeze the reader) and swap one model slot.
-
-**Answer / eval model** (`gpt-4.1-mini` vs `gpt-5.6-luna`):
-
-```bash
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 5 --run-id cmp_reader_mini_n5
-python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
-python scripts/compare_cross_model.py --runs experiments/cmp_reader_mini_n5 experiments/cmp_reader_luna_n5 --axis reader --out experiments/compare_reader_mini_luna
-```
-
-**Teacher model within GPT-5.6** (live `c1_teacher`; freeze the reader):
-
-```bash
-python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id cmp_teacher_luna
-python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model gpt-5.6-terra --max-questions 3 --run-id cmp_teacher_terra
-python scripts/compare_cross_model.py --runs experiments/cmp_teacher_luna experiments/cmp_teacher_terra --axis teacher --out experiments/compare_teacher_family
-```
-
-Offline teacher smoke (no API):
-
-```bash
-python -m src.locomo_eval.run --config configs/c1_teacher.yaml --reader mock --teacher mock --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
-```
-
-`compare_cross_model.py` writes `overall.csv`, `paired_questions.csv`, `SUMMARY.md`, `compare.json`. Check `run_meta.json` for `reader_model` / `teacher_model` / `*_family`.
-
-Unit tests for these seams (no API): `python -m unittest tests/test_integration_sanity.py`.
-
----
-
 ## Run the baseline
 
 **Offline smoke (no money / no key):**
@@ -180,17 +331,16 @@ python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --reader 
 python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
 ```
 
-**Full QA set** (many API calls; resume unfinished questions via `predictions.jsonl`):
+**Full QA set** (many API calls; resume unfinished questions via `predictions.jsonl`; identical answer-reader prompts reuse `LlmResponseCache` under `experiments/cache/`):
 
 ```bash
 python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
 ```
 
-Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For GPT-5.6 Luna as the **answer** model (robustness axis, not a memory claim):
+Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For a stronger fixed answer model (your intended GPT-4.1 class):
 
 ```bash
-python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
-python scripts/compare_cross_model.py --runs experiments/smoke_openai experiments/cmp_reader_luna_n5 --axis reader --out experiments/compare_reader_mini_luna
+python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id baseline_gpt41
 ```
 
 Config knobs live only in YAML + CLI overrides — no hidden flags.
@@ -213,8 +363,8 @@ Everything for one experiment is under `experiments/<run_id>/`:
 
 Two stores that are easy to mix up:
 
-- **`predictions.jsonl`** — per-run resume (skip finished questions). This is what the live pipeline uses.
-- **`experiments/cache/`** — `LlmResponseCache` (under `src/locomo_eval/utils/`). Implemented, **not wired** into `run.py` until E2E validation is done. Re-enable by passing a cache to `get_reader`.
+- **`predictions.jsonl`** — per-run resume (skip finished questions).
+- **`experiments/cache/`** — `LlmResponseCache` of **answer-reader** LLM replies (shared across run_ids). Teacher / autorater stages are reserved, not wired. `offline_evaluate.py` does not use this store.
 
 Recompute string metrics without re-calling the API (not an LLM autorater):
 
@@ -242,9 +392,9 @@ If LoCoMo F1 is low but answers “feel” right, check:
 ```
 locomo10.json                 # official: dialog + summaries + gold QA
     → dataset.py              # Conversation / Question objects (gold kept for scorer only)
-    → memory.py               # experimental: Memory.text (C0 / C1 / c1_teacher)
-    → prompts/qa_v1.txt       # frozen answer prompt
-    → readers.py              # answer LLM (no LlmResponseCache in this phase) (swap only for robustness, not C0 vs C1)
+    → memory.py               # experimental: Memory.text (gold never enters here for the LLM)
+    → prompts/qa_v1.txt       # fixed: Memory + Question only
+    → readers.py              # fixed answer LLM (LlmResponseCache, stage=answer_reader)
     → metrics + report        # scorer uses gold; reports for humans
 ```
 
@@ -268,7 +418,7 @@ Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this basel
 
 ## What you should ask agents to do (and not)
 
-**Do:** extend memory builders, swap reader/teacher models for robustness checks, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
+**Do:** extend memory builders, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
 
 **Don’t (yet):** multi-LLM fusion, training loops, silent metric changes, deleting `experiments/cache/` or data, committing secrets.
 

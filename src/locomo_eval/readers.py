@@ -3,8 +3,9 @@
 OpenAI is the Phase 1 implementation; Claude can replace it for answer/eval later.
 MockReader supports offline dry-runs and unit tests.
 
-OpenAI free-tier accounts often cap at ~50 requests/day (RPD). Each uncached QA
-item is one request. Use the disk cache + min_request_interval + 429 retries.
+OpenAI free-tier accounts often cap at ~50 requests/day (RPD). Each QA item is
+one request unless a cache is passed. LlmResponseCache is a future optimization
+(utils/); run.py does not pass one. Pace with min_request_interval + 429 retries.
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .cache import ResponseCache
+from .utils.llm_response_cache import (
+    PIPELINE_STAGE_ANSWER_READER,
+    LlmResponseCache,
+)
 from .env import load_env
 from .models import chat_create_kwargs, resolve_model
 from .prompts import render_qa_prompt
@@ -25,7 +29,8 @@ from .prompts import render_qa_prompt
 class Reader(ABC):
     """Sandwich bottom: Memory.text + question → predicted answer.
 
-    Called once per unanswered question in run_condition. Must not see gold.
+    Called once per unanswered question in run_locomo_pipeline_with_memory_config.
+    Must not see gold.
     """
 
     model_name: str
@@ -85,11 +90,12 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     return None
 
 
-class OpenAIChatCaller:
-    """Shared Chat Completions helper for the answer reader and the teacher.
+class OpenAIReader(Reader):
+    """Live answer LLM (Chat Completions).
 
-    Model id is resolved through models.py so GPT-4.1 vs GPT-5.6 request
-    shapes stay in one place (max_tokens vs max_completion_tokens, etc.).
+    Optional ``llm_response_cache`` (stage=answer_reader) is implemented but not
+    passed from run.py — future optimization. Re-enable by constructing
+    LlmResponseCache and passing it to get_reader.
     """
 
     def __init__(
@@ -98,7 +104,7 @@ class OpenAIChatCaller:
         temperature: float = 0.0,
         max_tokens: int = 64,
         api_key_env: str = "OPENAI_API_KEY",
-        cache: ResponseCache | None = None,
+        llm_response_cache: LlmResponseCache | None = None,  # future optimization; run.py leaves None
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
@@ -108,7 +114,7 @@ class OpenAIChatCaller:
         self.model_name = self.spec.model_id
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.cache = cache
+        self.llm_response_cache = llm_response_cache
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.min_request_interval_s = min_request_interval_s
@@ -143,6 +149,7 @@ class OpenAIChatCaller:
     ) -> tuple[str, dict[str, Any]]:
         """Return (text, call_meta). Cache key includes model id + cache_extra."""
         cache_payload = {
+            "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
             "provider": "openai",
             "model": self.model_name,
             "family": self.spec.family,
@@ -152,16 +159,17 @@ class OpenAIChatCaller:
             "reasoning_effort": self.spec.reasoning_effort,
             **cache_extra,
         }
-        key = ResponseCache.make_key(cache_payload) if self.cache else None
+        key = LlmResponseCache.make_key(cache_payload) if self.llm_response_cache else None
 
-        if self.cache and key:
-            hit = self.cache.get(key)
+        if self.llm_response_cache and key:
+            hit = self.llm_response_cache.get(key)
             if hit is not None:
                 return hit["answer"], {
                     "cached": True,
                     "latency_s": 0.0,
                     "usage": hit.get("usage", {}),
                     "cache_key": key,
+                    "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
                     "model": self.model_name,
                     "family": self.spec.family,
                 }
@@ -189,8 +197,8 @@ class OpenAIChatCaller:
                         "total_tokens": resp.usage.total_tokens,
                     }
 
-                if self.cache and key:
-                    self.cache.set(key, {"answer": text, "usage": usage})
+                if self.llm_response_cache and key:
+                    self.llm_response_cache.set(key, {"answer": text, "usage": usage})
 
                 return text, {
                     "cached": False,
@@ -198,6 +206,7 @@ class OpenAIChatCaller:
                     "usage": usage,
                     "cache_key": key,
                     "attempts": attempt + 1,
+                    "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
                     "model": self.model_name,
                     "family": self.spec.family,
                 }
@@ -268,11 +277,12 @@ def get_reader(
     model: str,
     temperature: float = 0.0,
     max_tokens: int = 64,
-    cache: ResponseCache | None = None,
+    llm_response_cache: LlmResponseCache | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
 ) -> Reader:
+    """Build a mock or OpenAI reader. ``llm_response_cache`` defaults to None (unwired)."""
     name = name.lower()
     if name == "mock":
         # Resolve aliases (luna → gpt-5.6-luna) so mock logs match live ids.
@@ -283,7 +293,7 @@ def get_reader(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            cache=cache,
+            llm_response_cache=llm_response_cache,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

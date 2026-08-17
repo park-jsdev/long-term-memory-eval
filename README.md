@@ -23,7 +23,7 @@ flowchart TB
 
   subgraph CLI["Entry points"]
     RUN["src/locomo_eval/run.py"]
-    EVAL["src/locomo_eval/evaluate.py"]
+    EVAL["src/locomo_eval/offline_evaluate.py"]
     PREP["scripts/prepare_data.py"]
     CMP["scripts/compare_runs.py"]
     FETCH["scripts/fetch_locomo.py"]
@@ -35,7 +35,7 @@ flowchart TB
     MEM["memory.py"]
     PR["prompts.py"]
     RD["readers.py"]
-    CACHE["cache.py"]
+    CACHE["utils/llm_response_cache.py\n(unwired)"]
     MET["metrics.py"]
     REP["report.py"]
   end
@@ -58,7 +58,7 @@ flowchart TB
   RUN --> REP
   DS --> SCH
   MEM --> SCH
-  RD --> CACHE
+  RD -.-> CACHE
   RD --> PR
   MET --> LOCOMO
   REP --> OUT
@@ -166,7 +166,7 @@ flowchart TB
 
 ### 4. Memory + LLM lifecycle — builder, schema, prompts
 
-Request path from build to cache key (one QA item).
+Request path for one QA item. `LlmResponseCache` exists under `utils/` but is **not** used by `run.py` yet.
 
 ```mermaid
 sequenceDiagram
@@ -175,7 +175,6 @@ sequenceDiagram
   participant Mem as Memory schema
   participant Pr as prompts.py + qa_v1.txt
   participant Rd as OpenAIReader
-  participant C as disk cache
   participant API as OpenAI API
   participant Sc as metrics + report
 
@@ -183,15 +182,9 @@ sequenceDiagram
   MB-->>Mem: memory_type, text, source_ids
   Run->>Pr: render_qa_prompt(template, memory.text, question)
   Pr-->>Rd: full user prompt
-  Rd->>C: key = hash(model, temp, max_tokens, prompt)
-  alt cache hit
-    C-->>Rd: answer
-  else cache miss
-    Rd->>API: chat.completions
-    API-->>Rd: predicted_answer
-    Rd->>C: store answer
-  end
-  Rd-->>Run: answer + meta(cached, usage)
+  Rd->>API: chat.completions
+  API-->>Rd: predicted_answer
+  Rd-->>Run: answer + meta(usage)
   Run->>Sc: Prediction row → score → CSV/JSONL/plots
 ```
 
@@ -202,7 +195,7 @@ sequenceDiagram
 | Builder → `Memory.text` | No | condition |
 | Prompt template file | Yes (after lock) | `prompts/qa_*.txt` |
 | Reader model / decode | Yes | `reader.*` in YAML |
-| Cache | Side-effect | same key ⇔ same payload only |
+| Cache | Off (future optimization) | `utils/llm_response_cache.py`; pass to `get_reader` to re-enable |
 | Metrics | Always | `metrics.py` / LoCoMo F1 |
 
 ---
@@ -233,9 +226,9 @@ Update this section when you add Claude, Gemini, local HF, etc.
 
 | Command | API? | Notes |
 |---------|------|--------|
-| `python -m src.locomo_eval.run --config configs/c0_raw.yaml ...` | Yes if `reader.provider: openai` | One Chat Completions call per *uncached* QA |
+| `python -m src.locomo_eval.run --config configs/c0_raw.yaml ...` | Yes if `reader.provider: openai` | One Chat Completions call per unanswered QA (JSONL resume skips finished) |
 | `... --reader mock` | No | Offline plumbing |
-| `python -m src.locomo_eval.evaluate --predictions ...` | No | Rescore only |
+| `python -m src.locomo_eval.offline_evaluate --predictions ...` | No | String-metric rescore only (not an LLM autorater) |
 | `python scripts/compare_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
 | `python scripts/prepare_data.py ...` | No | Local JSON → CSV/JSONL |
 | `python scripts/fetch_locomo.py` | GitHub raw HTTP | Dataset file only, not OpenAI |
@@ -265,11 +258,11 @@ python -m src.locomo_eval.run --config configs/c1_session_summary.yaml \
 
 | Topic | Detail |
 |-------|--------|
-| Billing unit | 1 Chat Completions request per uncached question |
-| Full LoCoMo | ~1986 Qs per condition → ~1986 requests if cache cold |
-| Free/low tier | Can hit **RPD ~50/day** → use `max_questions`, resume same `--run-id`, disk cache |
+| Billing unit | 1 Chat Completions request per unanswered question (JSONL resume skips finished Qs) |
+| Full LoCoMo | ~1986 Qs per condition → ~1986 requests if starting cold |
+| Free/low tier | Can hit **RPD ~50/day** → use `max_questions`, resume same `--run-id` |
 | Prompt size | C0 raw can be ~tens of k chars (truncated by `memory_max_chars` on C0); drives **input tokens** not request count |
-| Cache key | `hash(provider, model, temperature, max_tokens, full_prompt)` under `experiments/cache/` |
+| LLM cache | Implemented in `utils/llm_response_cache.py`, **not wired**. Re-enable later via `get_reader(..., llm_response_cache=...)` |
 | Raising limits | [Billing](https://platform.openai.com/account/billing) + [Rate limits](https://platform.openai.com/account/rate-limits) |
 
 ### Planned swaps (not wired)
@@ -323,16 +316,16 @@ Flatten the dataset for inspection:
 python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.csv
 ```
 
-Rescore without API:
+Rescore with string metrics only (no API, not an LLM autorater):
 
 ```bash
-python -m src.locomo_eval.evaluate --predictions experiments/<run_id>/predictions.jsonl
+python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 ```
 
 Tests:
 
 ```bash
-python -m unittest tests.test_pipeline_sanity -q
+python -m unittest tests/test_evaluation_pipeline.py -q
 ```
 
 ## Layout

@@ -1,8 +1,17 @@
-"""Re-score stored predictions without calling the API.
+"""Offline scorer CLI: recompute EM / token F1 / LoCoMo F1 from stored predictions.
 
-Use this when the scorer changes (F1, EM, plots). Memory, prompt, or model
-changes need ``run.py``. Holding predictions fixed keeps new numbers comparable
-and avoids re-billing / rate limits."""
+This module is **metrics-only**. It never calls an LLM. Use it when the
+string scorer or plots change and you want new numbers on the same
+``predictions.jsonl`` without re-billing.
+
+Not an LLM-as-judge / autorater. Autoraters (model grades the
+answer) belongs in a separate module so this path stays deterministic
+and gold-reference-based.
+
+Memory, prompt, or model changes still need ``run_locomo_pipeline_with_memory_config``
+in ``run.py`` (those alter the stored predictions). Holding predictions fixed
+keeps new scores comparable and avoids rate limits.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +40,10 @@ def load_jsonl(path: Path) -> list[dict]:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
-        description="Rescore predictions.jsonl (metrics only; no API)"
+        description=(
+            "Offline rescore of predictions.jsonl "
+            "(EM / token F1 / LoCoMo F1 only; no API, not an LLM autorater)"
+        )
     )
     p.add_argument("--predictions", required=True, help="predictions.jsonl from a run")
     p.add_argument("--output-dir", default=None, help="Where to write metrics (default: beside predictions)")

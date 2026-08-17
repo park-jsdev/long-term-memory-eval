@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 class MemoryBuilder(ABC):
     """Sandwich middle: Conversation (+ Question) → Memory.
 
-    Called from run_condition. Swap the subclass (C0/C1) without touching
-    the reader or metrics.
+    Called from run_locomo_pipeline_with_memory_config (one YAML per call).
+    Swap the subclass (C0/C1) without touching the reader or metrics.
     """
 
     name: str = "base"

@@ -1,14 +1,20 @@
-"""Run one LoCoMo QA experiment from a YAML config.
+"""CLI: run the LoCoMo QA pipeline for **one** memory config.
 
-Each --config file is standalone (no includes). ``pipeline.memory`` is a
-builder id in memory.py (``c0_raw`` / ``c1_session_summary``), not another YAML.
+This module does not compare conditions and is not a multi-run orchestrator.
+Typical sandwich experiment:
 
-    python -m src.locomo_eval.run --config configs/baseline.yaml              # default = C1
-    python -m src.locomo_eval.run --config configs/c0_raw.yaml
-    python -m src.locomo_eval.run --config configs/c1_session_summary.yaml
+1. Call this once with config A (e.g. ``configs/c0_raw.yaml``) → ``experiments/<run_id_A>/``
+2. Call this once with config B (e.g. ``configs/c1_session_summary.yaml``) → ``experiments/<run_id_B>/``
+3. Compare the two audit packs offline:
+   ``python scripts/compare_runs.py --runs experiments/<run_id_A> experiments/<run_id_B> ...``
+   (memory axis) or ``scripts/compare_cross_model.py`` (reader/teacher model axis)
 
-CLI flags (--memory, --model, ...) override that file. Compare two runs with
-scripts/compare_runs.py.
+Each ``--config`` YAML is standalone. ``pipeline.memory`` is a builder id in
+memory.py (``c0_raw`` / ``c1_session_summary``), not a path to another YAML.
+
+    python -m src.locomo_eval.run --config configs/c0_raw.yaml --run-id cmp_c0
+    python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --run-id cmp_c1
+    python scripts/compare_runs.py --runs experiments/cmp_c0 experiments/cmp_c1 --out experiments/compare_c0_c1
 """
 
 from __future__ import annotations
@@ -26,7 +32,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.locomo_eval.cache import ResponseCache
 from src.locomo_eval.dataset import iter_questions, load_conversations
 from src.locomo_eval.env import load_env
 from src.locomo_eval.memory import get_memory_builder, is_question_independent, resolve_memory_name
@@ -98,7 +103,7 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, c
 def _load_existing_predictions(path: Path) -> dict[str, dict]:
     """Run checkpoint: question_id -> row so the same --run-id can resume.
 
-    Distinct from ResponseCache, which memos API answers by request hash across runs.
+    Distinct from LlmResponseCache (utils/; future optimization, not wired here).
     """
     if not path.is_file():
         return {}
@@ -115,11 +120,14 @@ def _load_existing_predictions(path: Path) -> dict[str, dict]:
     return out
 
 
-def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
-    """Run one experimental condition from a loaded YAML.
+def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namespace) -> Path:
+    """Run load → memory builder → answer LLM → string metrics for one YAML.
 
-    Builds memory, calls the reader, writes ``experiments/<run_id>/``.
-    Which condition (C0, C1, ...) is ``cfg["pipeline"]["memory"]``, unless
+    Returns the ``experiments/<run_id>/`` audit directory. Call this once per
+    memory config; do not pass two builders here. A vs B is two invocations
+    plus ``scripts/compare_runs.py`` (or ``compare_cross_model.py``).
+
+    Which memory builder runs is ``cfg["pipeline"]["memory"]``, unless
     ``--memory`` overrides it. Not tied to ``configs/baseline.yaml``.
     """
     data_path = Path(overrides.data or cfg["data"]["raw_path"])
@@ -144,21 +152,16 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
-    cache = ResponseCache(cfg["run"].get("cache_dir", "experiments/cache"))
     teacher = _build_teacher(cfg, overrides, memory_name, cache, reader_name)
     builder = get_memory_builder(memory_name, max_chars=max_chars, teacher=teacher)
 
     rate_cfg = cfg.get("reader") or {}
-    if model:
-        reader_model = resolve_model(model).model_id
-    else:
-        reader_model = "mock" if reader_name.lower() == "mock" else "gpt-4.1-mini"
+    reader_model = "mock" if reader_name.lower() == "mock" else model
     reader = get_reader(
         reader_name,
         model=reader_model,
         temperature=float(rate_cfg.get("temperature", 0.0)),
         max_tokens=int(rate_cfg.get("max_tokens", 64)),
-        cache=cache,
         max_retries=int(rate_cfg.get("max_retries", 8)),
         min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
         max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
@@ -198,7 +201,6 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
 
     prediction_rows: list[dict] = []
     n_api = 0
-    n_cache = 0
     n_skip = 0
     used_memories: dict[str, Memory] = {}
     example_question: str | None = None
@@ -231,10 +233,7 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
                 example_question = q.question
 
             answer, meta = reader.answer(memory.text, q.question, prompt_template)
-            if meta.get("cached"):
-                n_cache += 1
-            else:
-                n_api += 1
+            n_api += 1
 
             pred = Prediction(
                 sample_id=q.sample_id,
@@ -265,8 +264,7 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
 
             if i % 10 == 0 or i == len(pairs):
                 print(
-                    f"  [{i}/{len(pairs)}] {q.question_id} "
-                    f"cached={meta.get('cached')} api_calls_this_run={n_api}"
+                    f"  [{i}/{len(pairs)}] {q.question_id} api_calls_this_run={n_api}"
                 )
     except Exception as exc:
         write_jsonl(pred_path, prediction_rows)
@@ -281,9 +279,8 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
         print(
             f"\nStopped early ({type(exc).__name__}: {exc})\n"
             f"Saved {len(prediction_rows)} rows to {pred_path}\n"
-            f"  resume={n_skip} disk_cache={n_cache} new_api={n_api}\n"
-            f"Re-run the same --run-id to resume (finished Qs skip; "
-            f"API cache also avoids re-billing identical prompts).\n"
+            f"  resume={n_skip} new_api={n_api}\n"
+            f"Re-run the same --run-id to resume (finished Qs skip the API).\n"
             f"If error is RPD rate limit, wait for the daily window to reset "
             f"or add payment method / raise limits at platform.openai.com."
         )
@@ -333,7 +330,6 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
         "max_questions": max_questions,
         "n_predictions": len(prediction_rows),
         "n_resumed": n_skip,
-        "n_disk_cache_hits": n_cache,
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
         "package_version": "0.1.4",
@@ -346,7 +342,7 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
     for k, v in paths.items():
         print(f"  {k}: {v}")
     print(
-        f"API stats: resume={n_skip} disk_cache={n_cache} new_api={n_api}"
+        f"API stats: resume={n_skip} new_api={n_api}"
     )
     print("Metrics:", summary["metrics"])
     return run_dir
@@ -354,7 +350,10 @@ def run_condition(cfg: dict, overrides: argparse.Namespace) -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Run one LoCoMo QA experiment from a standalone YAML config"
+        description=(
+            "Run the LoCoMo QA pipeline for one memory YAML "
+            "(not a comparison; run twice then scripts/compare_runs.py)"
+        )
     )
     p.add_argument(
         "--config",
@@ -384,12 +383,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Argparse wrapper: load one YAML, run one pipeline, exit. No comparison."""
     loaded = load_env()
     if loaded is not None:
         print(f"Loaded env from {loaded}")
     args = build_parser().parse_args(argv)
     cfg = load_config(args.config)
-    run_condition(cfg, args)
+    run_locomo_pipeline_with_memory_config(cfg, args)
 
 
 if __name__ == "__main__":

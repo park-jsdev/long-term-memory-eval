@@ -3,6 +3,10 @@
 Two layers:
 1. Simple token EM / F1 (SPEC_v1) — easy to explain in writeups.
 2. LoCoMo category-aware F1 (src.metrics.locomo_qa) — apples-to-apples with paper.
+
+Called from run_locomo_pipeline_with_memory_config after predictions are stored,
+and from offline_evaluate.py to rescore JSONL with no API. This is not an LLM
+autorater; a model-as-judge path would be a separate module.
 """
 
 from __future__ import annotations
