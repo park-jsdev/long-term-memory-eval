@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.distillation/schemas/memory_io.v1.json",
+  "title": "LoCoMo runtime Memory (memory_io.v1)",
+  "description": "Object produced by MemoryBuilder and optionally logged under experiments/<run>/memory/",
+  "type": "object",
+  "required": ["schema_version", "memory_type", "text", "source_ids"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "memory_io.v1"
+    },
+    "memory_type": {
+      "type": "string",
+      "description": "Condition / builder id (c0_raw, c1_session_summary, …)"
+    },
+    "text": {
+      "type": "string",
+      "description": "Full string injected as {memory} in the answer prompt"
+    },
+    "source_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Provenance keys (dia_id or session_k_summary)"
+    }
+  },
+  "additionalProperties": false
+}

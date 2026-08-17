@@ -1,0 +1,27 @@
+# C1 experiment. Standalone YAML — same condition as configs/baseline.yaml (CLI default).
+#   python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --run-id ...
+# Freeze reader/prompt when comparing to configs/c0_raw.yaml.
+
+data:
+  raw_path: data/raw/locomo10.json
+  locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+
+pipeline:
+  memory: c1_session_summary
+  prompt_path: prompts/qa_v1.txt
+  max_questions: null
+
+reader:
+  provider: openai
+  model: gpt-4.1-mini
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+
+run:
+  run_id: null
+  output_dir: experiments
+  # Future optimization (unwired): src/locomo_eval/utils/llm_response_cache.py
+  # llm_response_cache_dir: experiments/cache

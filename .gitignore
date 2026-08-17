@@ -1,26 +1,48 @@
-# Python
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+
+# --- Python / env ---
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+.eggs/
+dist/
+build/
 .venv/
 venv/
-.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg
 
-# Data (fetch LoCoMo separately; CC BY-NC 4.0)
+# --- Experimental data (fetched / derived; not source of truth in git) ---
+# LoCoMo raw release (CC BY-NC 4.0) — use scripts/fetch_locomo.py
 data/raw/*
 !data/raw/.gitkeep
+# Flattened QA / processed tables
 data/processed/*
 !data/processed/.gitkeep
 
-# Runs
+# --- Run artifacts, API cache, local logs ---
+# Per-run preds, metrics, plots, memory dumps
 experiments/*
 !experiments/.gitkeep
+# Shared LlmResponseCache files (future optimization; not used by run.py yet)
 logs/*
 !logs/.gitkeep
+outputs/
+*.log
 
-# IDE / OS
+# Optional local notebooks outputs (keep .ipynb source if intentionally tracked)
+.ipynb_checkpoints/
+
+# --- IDE / OS ---
 .idea/
 .vscode/
 *.swp
+*~
 .DS_Store
 Thumbs.db

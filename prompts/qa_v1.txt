@@ -1,0 +1,13 @@
+You are answering a question about a conversation.
+
+Use only the supplied memory.
+If the answer is not supported by the memory, say "Unknown."
+Answer concisely.
+
+Memory:
+{memory}
+
+Question:
+{question}
+
+Answer:
