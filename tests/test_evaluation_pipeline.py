@@ -1,6 +1,18 @@
-"""Pipeline sanity: parse LoCoMo JSON, build C0/C1 memory, score with EM/F1.
+"""Evaluation-pipeline tests (HLD component: evaluation).
 
-Not a C1-baseline-only suite — covers the shared read path used by any YAML.
+HLD components (not yet separate packages — do not invent new ones here):
+  i)   pre-processing
+  ii)  teacher memory / teacher orchestration
+  iii) post-processing
+  iv)  evaluation  ← this file (string metrics + LoCoMo F1)
+
+Online / LLM autoraters are out of scope until that split is designed.
+
+Parse and C0/C1 memory checks remain in this module as the frozen *inputs*
+to the scorer, including a C0 vs C1 cache-key sanity check (different memories
+must not hash to the same answer-reader payload). Dedicated pre-processing /
+teacher-memory test modules wait on HLD lock-in — do not rename production
+classes to match an unfinished LLD.
 """
 
 from __future__ import annotations
@@ -21,7 +33,17 @@ from src.locomo_eval.memory import (
     resolve_memory_name,
 )
 from src.locomo_eval.metrics import exact_match, normalize_answer, token_f1
+from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt
+from src.locomo_eval.utils.llm_response_cache import (
+    PIPELINE_STAGE_ANSWER_READER,
+    LlmResponseCache,
+)
 from src.metrics.locomo_qa import score_prediction
+
+# Must match OpenAIReader.answer cache_payload + configs/baseline.yaml reader knobs.
+_ANSWER_READER_CACHE_MODEL = "gpt-4.1-mini"
+_ANSWER_READER_CACHE_TEMPERATURE = 0.0
+_ANSWER_READER_CACHE_MAX_TOKENS = 64
 
 
 MINI = {
@@ -125,6 +147,54 @@ class TestRawConversationMemoryBuilder(unittest.TestCase):
         mem = RawConversationMemoryBuilder(max_chars=40).build(conv, conv.questions[0])
         self.assertIn("truncated", mem.text.lower())
         self.assertLessEqual(len(mem.text), 40 + len("[... earlier turns truncated to max_chars ...]\n"))
+
+
+def _answer_reader_cache_key(memory_text: str, question: str, template: str) -> str:
+    """Hash the payload OpenAIReader would use if LlmResponseCache were wired."""
+    prompt = render_qa_prompt(template, memory=memory_text, question=question)
+    return LlmResponseCache.make_key(
+        {
+            "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+            "provider": "openai",
+            "model": _ANSWER_READER_CACHE_MODEL,
+            "temperature": _ANSWER_READER_CACHE_TEMPERATURE,
+            "max_tokens": _ANSWER_READER_CACHE_MAX_TOKENS,
+            "prompt": prompt,
+        }
+    )
+
+
+class TestC0AndC1WouldNotShareAnswerReaderCacheKeys(unittest.TestCase):
+    """Different conditions → different memory → different prompts → different keys.
+
+    LlmResponseCache is unwired; this is the confound lock for when it returns.
+    Keep here until a memory-component test module exists.
+    """
+
+    def setUp(self):
+        conv = parse_sample(MINI)
+        self.question = conv.questions[0]
+        self.mem_c0 = RawConversationMemoryBuilder().build(conv, self.question)
+        self.mem_c1 = SessionSummaryMemoryBuilder().build(conv, self.question)
+        _, self.template = load_prompt_template(ROOT / "prompts" / "qa_v1.txt")
+
+    def test_c0_and_c1_builders_produce_different_memory_text_for_the_same_question(self):
+        self.assertNotEqual(self.mem_c0.text, self.mem_c1.text)
+        self.assertIn("I started painting", self.mem_c0.text)
+        self.assertIn("Alice said she started painting", self.mem_c1.text)
+
+    def test_same_c1_memory_and_question_hash_to_the_same_answer_reader_cache_key(self):
+        key_a = _answer_reader_cache_key(self.mem_c1.text, self.question.question, self.template)
+        key_b = _answer_reader_cache_key(self.mem_c1.text, self.question.question, self.template)
+        self.assertEqual(key_a, key_b)
+
+    def test_c0_and_c1_rendered_prompts_hash_to_different_answer_reader_cache_keys(self):
+        prompt_c0 = render_qa_prompt(self.template, self.mem_c0.text, self.question.question)
+        prompt_c1 = render_qa_prompt(self.template, self.mem_c1.text, self.question.question)
+        self.assertNotEqual(prompt_c0, prompt_c1)
+        key_c0 = _answer_reader_cache_key(self.mem_c0.text, self.question.question, self.template)
+        key_c1 = _answer_reader_cache_key(self.mem_c1.text, self.question.question, self.template)
+        self.assertNotEqual(key_c0, key_c1)
 
 
 class TestResolveMemoryName(unittest.TestCase):

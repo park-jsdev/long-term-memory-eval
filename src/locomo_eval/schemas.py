@@ -1,7 +1,8 @@
 """Typed records that move through one LoCoMo QA run.
 
 Load (dataset.py) → Memory (memory.py) → Reader (readers.py) → Prediction
-→ score (metrics.py / evaluate.py). Orchestrated by run.py.
+→ score (metrics.py / offline_evaluate.py). Orchestrated by
+run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
 
     locomo10.json
          │
@@ -103,7 +104,7 @@ class Prediction:
     """One scored QA row written to experiments/<run_id>/predictions.jsonl.
 
     Snapshot of question, gold, model answer, and the memory that was used.
-    evaluate.py rescores these without calling the API.
+    offline_evaluate.py rescores these with string metrics only (no LLM).
     """
 
     sample_id: str
@@ -118,7 +119,7 @@ class Prediction:
     prompt_version: str
     evidence: list[str] = field(default_factory=list)
     run_id: str = ""
-    cached: bool = False
+    cached: bool = False  # LlmResponseCache hit if a cache is passed; run.py currently does not
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

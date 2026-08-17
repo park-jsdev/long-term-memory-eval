@@ -49,7 +49,7 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --r
 
 ```bash
 python -m src.locomo_eval.run --reader mock ...
-python -m src.locomo_eval.evaluate --predictions experiments/<run>/predictions.jsonl
+python -m src.locomo_eval.offline_evaluate --predictions experiments/<run>/predictions.jsonl
 python scripts/compare_runs.py --runs ... --out ...
 python scripts/prepare_data.py --split all --no-jsonl
 python scripts/fetch_locomo.py   # HTTP to GitHub raw only
@@ -59,10 +59,10 @@ python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 
 | Concern | Practice |
 |---------|----------|
-| Rate limits / RPD | Low tiers (~50/day): small `max_questions`, same `--run-id` resume, `experiments/cache/` |
-| Cost | Tokens ∝ memory string length (C0 >> C1 typically); requests ∝ uncached Q count |
+| Rate limits / RPD | Low tiers (~50/day): small `max_questions`, same `--run-id` resume (`predictions.jsonl`) |
+| Cost | Tokens ∝ memory string length (C0 >> C1 typically); requests ∝ unanswered Q count |
 | Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json` |
-| Cache semantics | Key includes full rendered prompt → different memories ≠ shared hits |
+| Cache | `LlmResponseCache` in `utils/` is implemented but **not wired** (future optimization after E2E) |
 | Security | Never commit `.env`; example only in `.env.example` |
 
 ### Planned (not implemented)
@@ -100,11 +100,15 @@ Conversation + Question
   experiments/<run_id>/  CSV · JSONL · plots · run_meta
 ```
 
-Single line that injects condition into the answer LLM (`run.py`):
+Single-config runner (`run_locomo_pipeline_with_memory_config` in `run.py`)
+injects that condition into the answer LLM:
 
 ```text
 reader.answer(memory.text, q.question, prompt_template)
 ```
+
+A vs B is two of those calls (different YAML / `--run-id`), then
+`scripts/compare_runs.py`. This function never compares.
 
 The reader is intentionally dumb about teachers, fusion, and stores.
 
@@ -184,10 +188,10 @@ Orchestrator stays **software** (prompts, parallel IO, JSON checks), not one mon
 
 | Item | Location | Notes |
 |------|----------|--------|
-| OpenAI / mock | `readers.py` | API cache: `experiments/cache/` |
+| OpenAI / mock | `readers.py` | Optional `LlmResponseCache` hook (unwired from `run.py`; see `utils/llm_response_cache.py`) |
 | Env / keys | `.env` + `env.py` | never commit secrets |
 | Scoring | `metrics.py`, `src/metrics/locomo_qa.py` | dual: SPEC + LoCoMo F1 |
-| Rescore only | `python -m src.locomo_eval.evaluate ...` | no API |
+| Offline rescore | `python -m src.locomo_eval.offline_evaluate ...` | string metrics only; no API; not an LLM autorater |
 | Audit pack | `report.py` → `experiments/<run_id>/` | CSV/JSON/plots |
 
 ---
@@ -228,7 +232,7 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 - [ ] Same `reader_model`, `temperature`, `prompt_version`
 - [ ] Same question subset (`max_questions` / sample filter)
 - [ ] Differ only in `memory_type` / builder
-- [ ] Cache may speed re-runs; clear cache if you change prompt or model
+- [ ] Resume via same `--run-id` / `predictions.jsonl`. Do not wire `LlmResponseCache` until E2E is trusted.
 
 ---
 
@@ -264,6 +268,7 @@ configs/c0_raw.yaml
 configs/c1_session_summary.yaml
 prompts/qa_v1.txt
 src/locomo_eval/memory.py          # C0/C1 builders + registry
+src/locomo_eval/utils/llm_response_cache.py  # LLM reply memo (unwired; future optimization)
 src/locomo_eval/run.py             # wires builder → reader → report
 scripts/compare_runs.py            # metrics side-by-side
 docs/reports/engineering_notebook.md  # this file

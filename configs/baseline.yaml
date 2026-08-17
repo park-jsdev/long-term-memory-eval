@@ -26,4 +26,5 @@ reader:
 run:
   run_id: null              # auto timestamp if null
   output_dir: experiments
-  cache_dir: experiments/cache
+  # Future optimization (unwired): src/locomo_eval/utils/llm_response_cache.py
+  # llm_response_cache_dir: experiments/cache

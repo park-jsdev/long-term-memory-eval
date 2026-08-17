@@ -30,7 +30,7 @@ data/processed/*
 # Per-run preds, metrics, plots, memory dumps
 experiments/*
 !experiments/.gitkeep
-# Shared OpenAI response cache lives under experiments/cache/ (covered above)
+# Shared LlmResponseCache files (future optimization; not used by run.py yet)
 logs/*
 !logs/.gitkeep
 outputs/

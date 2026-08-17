@@ -1,4 +1,4 @@
-"""Compare freeze-bottom / vary-middle runs: tables, plots, text report, cache sanity."""
+"""Compare freeze-bottom / vary-middle runs: tables, plots, text report, prompt-hash sanity."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.cache import ResponseCache
+from src.locomo_eval.utils.llm_response_cache import PIPELINE_STAGE_ANSWER_READER, LlmResponseCache
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt
 
@@ -64,7 +64,7 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
         "exact_match",
         "token_f1",
         "locomo_f1",
-        "n_disk_cache_hits",
+        "n_llm_response_cache_hits",
         "n_new_api_calls",
         "n_resumed",
         "cached_rate_in_predictions",
@@ -89,7 +89,8 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
                     "exact_match": overall.get("exact_match"),
                     "token_f1": overall.get("token_f1"),
                     "locomo_f1": overall.get("locomo_f1"),
-                    "n_disk_cache_hits": meta.get("n_disk_cache_hits"),
+                    "n_llm_response_cache_hits": meta.get("n_llm_response_cache_hits")
+                    or meta.get("n_disk_cache_hits"),
                     "n_new_api_calls": meta.get("n_new_api_calls"),
                     "n_resumed": meta.get("n_resumed"),
                     "cached_rate_in_predictions": (
@@ -172,6 +173,7 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
             temp = float(a["meta"].get("temperature", 0.0) or 0.0)
             max_tok = int(a["meta"].get("max_tokens", 64) or 64)
             pay_a = {
+                "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
                 "provider": "openai",
                 "model": model_a,
                 "temperature": temp,
@@ -179,14 +181,15 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
                 "prompt": render_qa_prompt(template, ma, ra.get("question", "")),
             }
             pay_b = {
+                "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
                 "provider": "openai",
                 "model": model_b,
                 "temperature": float(b["meta"].get("temperature", 0.0) or 0.0),
                 "max_tokens": int(b["meta"].get("max_tokens", 64) or 64),
                 "prompt": render_qa_prompt(template, mb, rb.get("question", "")),
             }
-            key_a = ResponseCache.make_key(pay_a)
-            key_b = ResponseCache.make_key(pay_b)
+            key_a = LlmResponseCache.make_key(pay_a)
+            key_b = LlmResponseCache.make_key(pay_b)
             if key_a == key_b:
                 same_cache_key += 1
 
@@ -237,10 +240,9 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
             if common and template
             else None,
             "note": (
-                "same_cache_key~0 means C0/C1 did not share API cache entries "
-                "(memory differed). High same_memory_text implies a builder bug. "
-                "n_disk_cache_hits in run_meta is within-run resume/cache reuse, "
-                "not cross-condition pollution."
+                "same_cache_key is a theoretical hash of the answer-reader payload "
+                "(LlmResponseCache is not wired into run.py). ~0 means C0/C1 "
+                "prompts differed. High same_memory_text implies a builder bug."
             ),
         },
         "paired_rows": paired_rows,
@@ -390,7 +392,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "| Answer LLM | OpenAI Chat Completions; `reader.model` e.g. `gpt-4.1-mini` |",
         "| Reader impl | `src/locomo_eval/readers.py` (`OpenAIReader`) |",
         "| Metrics | `src/locomo_eval/metrics.py` + `src/metrics/locomo_qa.py` |",
-        "| Run orchestration | `src/locomo_eval/run.py` |",
+        "| Run (one memory YAML) | `run_locomo_pipeline_with_memory_config` in `src/locomo_eval/run.py` |",
         "",
         "### Variable middle only",
         "",
@@ -409,7 +411,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "### How config selects the builder",
         "",
         "1. YAML sets `pipeline.memory` (`c0_raw` or `c1_session_summary`).",
-        "2. `run.py` calls `get_memory_builder(...)` in `src/locomo_eval/memory.py`.",
+        "2. `run_locomo_pipeline_with_memory_config` in `run.py` calls `get_memory_builder(...)`.",
         "3. `builder.build(conversation, question)` -> `Memory.text`.",
         "4. That text fills `{memory}` in `prompts/qa_v1.txt`; gold **answer is never** sent to the LLM.",
         "",
@@ -469,7 +471,7 @@ def write_text_report(
         )
         lines.append(
             f"- API/meta: new_api={meta.get('n_new_api_calls')}, "
-            f"disk_cache_hits={meta.get('n_disk_cache_hits')}, "
+            f"llm_response_cache_hits={meta.get('n_llm_response_cache_hits') or meta.get('n_disk_cache_hits')}, "
             f"resumed={meta.get('n_resumed')}"
         )
         preds = pack["predictions"]
@@ -545,11 +547,16 @@ def write_text_report(
             lines.append(f"- `{p}`")
         lines.append("")
 
-    lines.append("## How to read cache hits")
+    lines.append("## How to read cache-key sanity")
     lines.append(
-        "1. **Within a run** (`n_disk_cache_hits` / `prediction.cached`): "
-        "re-used identical request bodies (same memory+question+model). "
-        "High rates on *re*-runs are good (saves quota)."
+        "Live `LlmResponseCache` is **not wired** into `run.py` (future optimization). "
+        "`fraction_same_cache_key` still hashes what the answer-reader payload *would* "
+        "have been, so C0 vs C1 distinctness can be checked without a disk cache."
+    )
+    lines.append(
+        "1. **Within a run** (`prediction.cached` / `n_llm_response_cache_hits`): "
+        "expect unused/absent until the cache is passed to `get_reader`. "
+        "JSONL resume is `n_resumed`, not this field."
     )
     lines.append(
         "2. **Across C0 vs C1**: recompute cache keys from stored `memory_text`. "

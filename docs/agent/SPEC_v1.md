@@ -194,7 +194,7 @@ python -m locomo_eval.run \
 A separate evaluation command is acceptable:
 
 ```bash
-python -m locomo_eval.evaluate \
+python -m locomo_eval.offline_evaluate \
   --predictions outputs/baseline.jsonl
 ```
 
@@ -219,7 +219,7 @@ locomo-memory-research/
 │       ├── readers.py
 │       ├── metrics.py
 │       ├── run.py
-│       └── evaluate.py
+│       └── offline_evaluate.py
 ├── tests/
 │   ├── test_dataset.py
 │   ├── test_memory.py
