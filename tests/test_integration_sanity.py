@@ -42,7 +42,7 @@ from src.locomo_eval.schemas import Prediction
 from src.locomo_eval.teachers import MockTeacher, get_teacher
 from src.metrics.locomo_qa import score_prediction
 from scripts.compare_cross_model import cross_model_analysis, theoretical_cache_key
-from scripts.compare_runs import load_pack
+from scripts.compare_full_runs import load_pack
 
 
 MINI = {

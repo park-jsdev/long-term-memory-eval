@@ -53,7 +53,7 @@ python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model g
 ```bash
 python -m src.locomo_eval.run --reader mock ...
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run>/predictions.jsonl
-python scripts/compare_runs.py --runs ... --out ...
+python scripts/compare_full_runs.py --runs ... --out ...
 python scripts/compare_cross_model.py --runs ... --axis reader --out ...
 python scripts/prepare_data.py --split all --no-jsonl
 python scripts/fetch_locomo.py   # HTTP to GitHub raw only
@@ -112,7 +112,7 @@ reader.answer(memory.text, q.question, prompt_template)
 ```
 
 A vs B is two of those calls (different YAML / `--run-id`), then
-`scripts/compare_runs.py`. This function never compares.
+`scripts/compare_full_runs.py`. This function never compares.
 
 The reader is intentionally dumb about teachers, fusion, and stores.
 
@@ -201,6 +201,7 @@ Orchestrator stays **software** (prompts, parallel IO, JSON checks), not one mon
 | Env / keys | `.env` + `env.py` | never commit secrets |
 | Scoring | `metrics.py`, `src/metrics/locomo_qa.py` | dual: SPEC + LoCoMo F1 |
 | Offline rescore | `python -m src.locomo_eval.offline_evaluate ...` | string metrics only; no API; not an LLM autorater |
+| Two-run compare | `scripts/analysis/compare_predictions.py` | paired LoCoMo F1 boxplot + histograms |
 | Audit pack | `report.py` → `experiments/<run_id>/` | CSV/JSON/plots |
 
 ---
@@ -215,12 +216,20 @@ python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --
 python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
 
 # Side-by-side metrics table
-python scripts/compare_runs.py \
+python scripts/compare_full_runs.py \
   --runs experiments/cmp_c0_n20 experiments/cmp_c1_n20 \
   --out experiments/compare_c0_c1
 ```
 
-Writes `overall.csv`, `by_category.csv`, `paired_questions.csv`, `SUMMARY.md`, `plots/`, and cache/memory **sanity** (`fraction_same_cache_key` ≈ 0 means conditions are distinct).
+Writes `overall.csv`, `by_category.csv`, `paired_questions.csv`, `SUMMARY.md`, `plots/` (including LoCoMo F1 **boxplot** + side-by-side **histograms**), and cache/memory **sanity** (`fraction_same_cache_key` ≈ 0 means conditions are distinct).
+
+Two-pack LoCoMo F1 plots alone (no sandwich SUMMARY):
+
+```bash
+python -m scripts.analysis.compare_predictions \
+  --a experiments/cmp_c0_n20 --b experiments/cmp_c1_n20 \
+  --out experiments/compare_c0_c1
+```
 
 ### Inspect the flattened QA table
 
@@ -284,7 +293,8 @@ src/locomo_eval/teachers.py        # Mock + OpenAI teacher
 src/locomo_eval/memory.py          # C0/C1/c1_teacher builders + registry
 src/locomo_eval/utils/llm_response_cache.py  # LLM reply memo (unwired; future optimization)
 src/locomo_eval/run.py             # wires builder → reader → report
-scripts/compare_runs.py            # C0 vs C1 metrics side-by-side
+scripts/compare_full_runs.py            # C0 vs C1 metrics side-by-side
+scripts/analysis/compare_predictions.py  # two-pack LoCoMo F1 boxplot + histograms
 scripts/compare_cross_model.py     # reader/teacher model robustness
 docs/reports/engineering_notebook.md  # this file
 ```

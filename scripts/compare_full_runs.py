@@ -1,4 +1,13 @@
-"""Compare freeze-bottom / vary-middle runs: tables, plots, text report, prompt-hash sanity."""
+"""Sandwich experiment report for two (or more) full run packs.
+
+Use this after two ``python -m src.locomo_eval.run`` calls. It reads
+``experiments/<run_id>/`` (predictions + metrics + run_meta) and writes
+overall/category tables, memory/prompt-hash sanity, SUMMARY.md, and the
+LoCoMo F1 boxplot/histograms from ``scripts.analysis.compare_predictions``.
+
+For JSONL-only LoCoMo F1 plots (no sandwich SUMMARY), use
+``python -m scripts.analysis.compare_predictions`` instead.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.analysis.compare_predictions import write_compare_prediction_plots
 from src.locomo_eval.utils.llm_response_cache import PIPELINE_STAGE_ANSWER_READER, LlmResponseCache
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt
@@ -271,28 +281,7 @@ def make_compare_plots(packs: list[dict], paired: dict, out_dir: Path) -> list[P
 
     written: list[Path] = []
 
-    # Overall metric bars per run
-    labels = [p["run_id"] for p in packs]
-    metrics_names = ["locomo_f1", "token_f1", "exact_match"]
-    fig, ax = plt.subplots(figsize=(7, 4))
-    x = np.arange(len(labels))
-    width = 0.25
-    for i, name in enumerate(metrics_names):
-        vals = [(p["metrics"].get("metrics") or {}).get(name) or 0 for p in packs]
-        ax.bar(x + (i - 1) * width, vals, width, label=name)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=15, ha="right")
-    ax.set_ylim(0, 1.05)
-    ax.set_ylabel("Score")
-    ax.set_title("Overall metrics by run")
-    ax.legend()
-    fig.tight_layout()
-    p = out_dir / "overall_metrics.png"
-    fig.savefig(p, dpi=150)
-    plt.close(fig)
-    written.append(p)
-
-    # Category grouped (use first pack's category names for order)
+    # LoCoMo F1 by paper category (colors = runs / conditions).
     cats = list((packs[0]["metrics"].get("by_category") or {}).keys())
     if cats:
         fig, ax = plt.subplots(figsize=(9, 4.5))
@@ -366,6 +355,14 @@ def make_compare_plots(packs: list[dict], paired: dict, out_dir: Path) -> list[P
             fig.savefig(p, dpi=150)
             plt.close(fig)
             written.append(p)
+
+        extra = write_compare_prediction_plots(
+            paired.get("paired_rows") or [],
+            label_a=str(paired.get("run_a") or "A"),
+            label_b=str(paired.get("run_b") or "B"),
+            out_dir=out_dir,
+        )
+        written.extend(extra)
 
     return written
 

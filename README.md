@@ -25,7 +25,7 @@ flowchart TB
     RUN["src/locomo_eval/run.py"]
     EVAL["src/locomo_eval/offline_evaluate.py"]
     PREP["scripts/prepare_data.py"]
-    CMP["scripts/compare_runs.py"]
+    CMP["scripts/compare_full_runs.py"]
     FETCH["scripts/fetch_locomo.py"]
   end
 
@@ -140,7 +140,7 @@ flowchart TB
   subgraph Artifacts["experiments/"]
     A["run A: predictions + metrics"]
     B["run B: predictions + metrics"]
-    C["compare_runs.py → SUMMARY + plots"]
+    C["compare_full_runs.py → SUMMARY + plots"]
   end
 
   D --> M0
@@ -161,7 +161,7 @@ flowchart TB
 
 1. Same `prompt_path`, `reader.model`, `temperature`, `max_questions` / sample filter.  
 2. Differ only `pipeline.memory` (or config file).  
-3. Distinct `--run-id`s → then `scripts/compare_runs.py`.  
+3. Distinct `--run-id`s → then `scripts/compare_full_runs.py`.  
 4. Sanity: `fraction_same_cache_key ≈ 0` and different mean `memory_chars` in the compare report.
 
 ### 4. Memory + LLM lifecycle — builder, schema, prompts
@@ -229,7 +229,7 @@ Update this section when you add Claude, Gemini, local HF, etc.
 | `python -m src.locomo_eval.run --config configs/c0_raw.yaml ...` | Yes if `reader.provider: openai` | One Chat Completions call per unanswered QA (JSONL resume skips finished) |
 | `... --reader mock` | No | Offline plumbing |
 | `python -m src.locomo_eval.offline_evaluate --predictions ...` | No | String-metric rescore only (not an LLM autorater) |
-| `python scripts/compare_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
+| `python scripts/compare_full_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
 | `python scripts/prepare_data.py ...` | No | Local JSON → CSV/JSONL |
 | `python scripts/fetch_locomo.py` | GitHub raw HTTP | Dataset file only, not OpenAI |
 
@@ -304,7 +304,7 @@ python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --reader 
 # Live (same model/prompt; n=20 for a cheap comparison)
 python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --run-id cmp_c0_n20
 python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
-python scripts/compare_runs.py --runs experiments/cmp_c0_n20 experiments/cmp_c1_n20 --out experiments/compare_c0_c1
+python scripts/compare_full_runs.py --runs experiments/cmp_c0_n20 experiments/cmp_c1_n20 --out experiments/compare_c0_c1
 ```
 
 Outputs under `experiments/<run_id>/`: `predictions.csv`, `metrics.json`, `plots/`, `run_meta.json`, and **`memory/`** (exact `{memory}` texts + schema — see [`docs/schemas/memory_runtime.md`](docs/schemas/memory_runtime.md)).  
@@ -336,7 +336,7 @@ prompts/qa_v1.txt
 src/locomo_eval/          # run, memory, memory_log, readers, metrics, report
 docs/schemas/             # memory_runtime.md + memory_io.schema.json
 src/metrics/locomo_qa.py  # official LoCoMo F1
-scripts/                  # fetch, prepare_data, compare_runs
+scripts/                  # fetch, prepare_data, compare_full_runs
 docs/reports/             # engineering_notebook
 docs/agent/               # SPEC, AGENTS, HUMANS, traces
 docs/reflections/         # version audit writeups

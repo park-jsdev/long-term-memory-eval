@@ -6,7 +6,7 @@ Typical sandwich experiment:
 1. Call this once with config A (e.g. ``configs/c0_raw.yaml``) → ``experiments/<run_id_A>/``
 2. Call this once with config B (e.g. ``configs/c1_session_summary.yaml``) → ``experiments/<run_id_B>/``
 3. Compare the two audit packs offline:
-   ``python scripts/compare_runs.py --runs experiments/<run_id_A> experiments/<run_id_B> ...``
+   ``python scripts/compare_full_runs.py --runs experiments/<run_id_A> experiments/<run_id_B> ...``
    (memory axis) or ``scripts/compare_cross_model.py`` (reader/teacher model axis)
 
 Each ``--config`` YAML is standalone. ``pipeline.memory`` is a builder id in
@@ -14,7 +14,7 @@ memory.py (``c0_raw`` / ``c1_session_summary``), not a path to another YAML.
 
     python -m src.locomo_eval.run --config configs/c0_raw.yaml --run-id cmp_c0
     python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --run-id cmp_c1
-    python scripts/compare_runs.py --runs experiments/cmp_c0 experiments/cmp_c1 --out experiments/compare_c0_c1
+    python scripts/compare_full_runs.py --runs experiments/cmp_c0 experiments/cmp_c1 --out experiments/compare_c0_c1
 """
 
 from __future__ import annotations
@@ -75,8 +75,11 @@ def _file_sha256(path: Path) -> str | None:
     return h.hexdigest()
 
 
-def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, cache: ResponseCache, reader_name: str):
-    """Construct a Teacher only for c1_teacher. Other builders ignore teacher YAML."""
+def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
+    """Construct a Teacher only for c1_teacher. Other builders ignore teacher YAML.
+
+    LlmResponseCache is not passed (future optimization; same as the answer reader).
+    """
     if resolve_memory_name(memory_name) != "c1_teacher":
         return None
     tcfg = cfg.get("teacher") or {}
@@ -92,7 +95,7 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, c
         model=model,
         temperature=float(tcfg.get("temperature", 0.0)),
         max_tokens=int(tcfg.get("max_tokens", 512)),
-        cache=cache,
+        llm_response_cache=None,
         max_retries=int(tcfg.get("max_retries", 8)),
         min_request_interval_s=float(tcfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(tcfg.get("max_wait_s", 3600.0)),
@@ -125,7 +128,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
 
     Returns the ``experiments/<run_id>/`` audit directory. Call this once per
     memory config; do not pass two builders here. A vs B is two invocations
-    plus ``scripts/compare_runs.py`` (or ``compare_cross_model.py``).
+    plus ``scripts/compare_full_runs.py`` (or ``compare_cross_model.py``).
 
     Which memory builder runs is ``cfg["pipeline"]["memory"]``, unless
     ``--memory`` overrides it. Not tied to ``configs/baseline.yaml``.
@@ -152,7 +155,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
-    teacher = _build_teacher(cfg, overrides, memory_name, cache, reader_name)
+    teacher = _build_teacher(cfg, overrides, memory_name, reader_name)
     builder = get_memory_builder(memory_name, max_chars=max_chars, teacher=teacher)
 
     rate_cfg = cfg.get("reader") or {}
@@ -352,7 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
             "Run the LoCoMo QA pipeline for one memory YAML "
-            "(not a comparison; run twice then scripts/compare_runs.py)"
+            "(not a comparison; run twice then scripts/compare_full_runs.py)"
         )
     )
     p.add_argument(

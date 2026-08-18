@@ -19,6 +19,7 @@ from typing import Any
 
 from .utils.llm_response_cache import (
     PIPELINE_STAGE_ANSWER_READER,
+    PIPELINE_STAGE_TEACHER,
     LlmResponseCache,
 )
 from .env import load_env
@@ -90,12 +91,10 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     return None
 
 
-class OpenAIReader(Reader):
-    """Live answer LLM (Chat Completions).
+class OpenAIChatCaller:
+    """Shared Chat Completions helper for reader and teacher.
 
-    Optional ``llm_response_cache`` (stage=answer_reader) is implemented but not
-    passed from run.py — future optimization. Re-enable by constructing
-    LlmResponseCache and passing it to get_reader.
+    Optional ``llm_response_cache`` is implemented but not passed from run.py.
     """
 
     def __init__(
@@ -149,7 +148,6 @@ class OpenAIReader(Reader):
     ) -> tuple[str, dict[str, Any]]:
         """Return (text, call_meta). Cache key includes model id + cache_extra."""
         cache_payload = {
-            "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
             "provider": "openai",
             "model": self.model_name,
             "family": self.spec.family,
@@ -159,6 +157,12 @@ class OpenAIReader(Reader):
             "reasoning_effort": self.spec.reasoning_effort,
             **cache_extra,
         }
+        if "pipeline_stage" not in cache_payload:
+            cache_payload["pipeline_stage"] = (
+                PIPELINE_STAGE_TEACHER
+                if cache_payload.get("role") == "teacher"
+                else PIPELINE_STAGE_ANSWER_READER
+            )
         key = LlmResponseCache.make_key(cache_payload) if self.llm_response_cache else None
 
         if self.llm_response_cache and key:
@@ -230,7 +234,7 @@ class OpenAIReader(Reader):
 
 
 class OpenAIReader(Reader):
-    """Live answer LLM (Chat Completions). Uses ResponseCache; 429 backoff + pace."""
+    """Live answer LLM (Chat Completions). Optional cache hook; run.py does not pass one."""
 
     def __init__(
         self,
@@ -238,7 +242,7 @@ class OpenAIReader(Reader):
         temperature: float = 0.0,
         max_tokens: int = 64,
         api_key_env: str = "OPENAI_API_KEY",
-        cache: ResponseCache | None = None,
+        llm_response_cache: LlmResponseCache | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
@@ -249,7 +253,7 @@ class OpenAIReader(Reader):
             temperature=temperature,
             max_tokens=max_tokens,
             api_key_env=api_key_env,
-            cache=cache,
+            llm_response_cache=llm_response_cache,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
@@ -258,7 +262,7 @@ class OpenAIReader(Reader):
         self.model_name = self._chat.model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.cache = cache
+        self.llm_response_cache = llm_response_cache
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
         prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
@@ -269,7 +273,14 @@ class OpenAIReader(Reader):
             },
             {"role": "user", "content": prompt},
         ]
-        return self._chat.complete(messages, cache_extra={"role": "reader", "prompt": prompt})
+        return self._chat.complete(
+            messages,
+            cache_extra={
+                "role": "reader",
+                "prompt": prompt,
+                "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+            },
+        )
 
 
 def get_reader(

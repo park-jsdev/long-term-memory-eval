@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from .cache import ResponseCache
+from .utils.llm_response_cache import LlmResponseCache
 from .models import resolve_model
 from .prompts import load_prompt_template, render_teacher_session_prompt
 from .readers import OpenAIChatCaller
@@ -83,7 +83,7 @@ class OpenAITeacher(Teacher):
         model: str,
         temperature: float = 0.0,
         max_tokens: int = 512,
-        cache: ResponseCache | None = None,
+        llm_response_cache: LlmResponseCache | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
@@ -94,7 +94,7 @@ class OpenAITeacher(Teacher):
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            cache=cache,
+            llm_response_cache=llm_response_cache,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
@@ -143,7 +143,7 @@ def get_teacher(
     model: str,
     temperature: float = 0.0,
     max_tokens: int = 512,
-    cache: ResponseCache | None = None,
+    llm_response_cache: LlmResponseCache | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
@@ -157,7 +157,7 @@ def get_teacher(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            cache=cache,
+            llm_response_cache=llm_response_cache,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

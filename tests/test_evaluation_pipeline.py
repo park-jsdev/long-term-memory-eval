@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -249,6 +250,105 @@ class TestScorePrediction(unittest.TestCase):
 
     def test_score_prediction_returns_one_for_adversarial_not_mentioned(self):
         self.assertEqual(score_prediction("not mentioned", "anything", 5), 1.0)
+
+
+class TestPairPredictions(unittest.TestCase):
+    def test_pair_predictions_joins_on_question_id_and_attaches_locomo_f1_delta(self):
+        from scripts.analysis.compare_predictions import pair_predictions
+
+        rows_a = [
+            {
+                "question_id": "q0",
+                "category": 4,
+                "question": "hobby?",
+                "predicted_answer": "painting",
+                "reference_answer": "painting",
+            },
+            {
+                "question_id": "q_only_a",
+                "category": 4,
+                "question": "skip",
+                "predicted_answer": "x",
+                "reference_answer": "x",
+            },
+        ]
+        rows_b = [
+            {
+                "question_id": "q0",
+                "category": 4,
+                "question": "hobby?",
+                "predicted_answer": "nursing",
+                "reference_answer": "painting",
+            }
+        ]
+        paired = pair_predictions(rows_a, rows_b)
+        self.assertEqual(len(paired), 1)
+        self.assertEqual(paired[0]["question_id"], "q0")
+        self.assertEqual(paired[0]["locomo_f1_a"], 1.0)
+        self.assertLess(paired[0]["locomo_f1_b"], 1.0)
+        self.assertEqual(
+            paired[0]["delta_locomo_f1_b_minus_a"],
+            round(paired[0]["locomo_f1_b"] - paired[0]["locomo_f1_a"], 6),
+        )
+
+    def test_pair_predictions_returns_empty_when_question_ids_do_not_overlap(self):
+        from scripts.analysis.compare_predictions import pair_predictions
+
+        paired = pair_predictions(
+            [{"question_id": "a", "predicted_answer": "x", "reference_answer": "x", "category": 4}],
+            [{"question_id": "b", "predicted_answer": "x", "reference_answer": "x", "category": 4}],
+        )
+        self.assertEqual(paired, [])
+
+
+class TestResolvePredictionsJsonl(unittest.TestCase):
+    def test_load_prediction_rows_reads_jsonl_from_a_run_directory(self):
+        from scripts.analysis.compare_predictions import load_prediction_rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "cmp_c0"
+            run.mkdir()
+            row = {
+                "question_id": "q0",
+                "predicted_answer": "painting",
+                "reference_answer": "painting",
+                "category": 4,
+            }
+            (run / "predictions.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+            loaded = load_prediction_rows(run)
+            self.assertEqual(loaded[0]["question_id"], "q0")
+
+    def test_resolve_predictions_jsonl_raises_when_run_id_does_not_exist(self):
+        from scripts.analysis.compare_predictions import resolve_predictions_jsonl
+
+        with self.assertRaises(FileNotFoundError) as ctx:
+            resolve_predictions_jsonl("definitely_missing_run_xyz")
+        msg = str(ctx.exception)
+        self.assertIn("No predictions found", msg)
+        self.assertIn("--run-id", msg)
+
+
+class TestWriteLocomoF1ComparePlots(unittest.TestCase):
+    def test_write_compare_prediction_plots_writes_boxplot_and_histogram_pngs(self):
+        from scripts.analysis.compare_predictions import write_compare_prediction_plots
+
+        paired = [
+            {"locomo_f1_a": 1.0, "locomo_f1_b": 0.0},
+            {"locomo_f1_a": 0.5, "locomo_f1_b": 0.5},
+            {"locomo_f1_a": 0.0, "locomo_f1_b": 1.0},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            written = write_compare_prediction_plots(
+                paired, label_a="c0", label_b="c1", out_dir=Path(tmp)
+            )
+            if not written:
+                self.skipTest("matplotlib not installed")
+            names = {p.name for p in written}
+            self.assertIn("locomo_f1_overall.png", names)
+            self.assertIn("locomo_f1_boxplot.png", names)
+            self.assertIn("locomo_f1_histograms.png", names)
+            for p in written:
+                self.assertGreater(p.stat().st_size, 0)
 
 
 class TestRealLocomoIfPresent(unittest.TestCase):

@@ -43,7 +43,9 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 | `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
-| `scripts/compare_cross_model.py` | Cross-model robustness (reader or teacher axis) |
+| `scripts/compare_full_runs.py` | Sandwich report for two **finished** run packs (tables, SUMMARY, distinctness + F1 plots) |
+| `scripts/analysis/` | Reusable offline analyses + plots (no API) |
+| `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -93,6 +95,11 @@ python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/pr
 python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
 python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+
+# Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
+python -m scripts.analysis.compare_predictions --a experiments/cmp_c0 --b experiments/cmp_c1 --out experiments/compare_c0_c1
+python scripts/compare_full_runs.py --runs experiments/cmp_c0 experiments/cmp_c1 --out experiments/compare_c0_c1
+python scripts/compare_cross_model.py --runs experiments/c1_mini experiments/c1_luna --axis reader --out experiments/compare_reader_mini_luna
 ```
 
 Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
@@ -142,7 +149,7 @@ From review. Follow these when adding or renaming code.
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
 
-**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare C0 vs C1 with two runs, then `scripts/compare_runs.py` (no API). Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API).
+**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare C0 vs C1 with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
 
 ---
 

@@ -1,6 +1,6 @@
 """Compare runs that differ by reader and/or teacher model.
 
-Unlike ``compare_runs.py`` (freeze bottom, vary memory), this script *expects*
+Unlike ``compare_full_runs.py`` (freeze bottom, vary memory), this script *expects*
 model identity to change. It reports answer agreement, score deltas, cache-key
 distinctness, and whether logs recorded the swap.
 
@@ -29,8 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.compare_runs import load_pack  # noqa: E402
-from src.locomo_eval.cache import ResponseCache  # noqa: E402
+from scripts.compare_full_runs import load_pack  # noqa: E402
+from src.locomo_eval.utils.llm_response_cache import LlmResponseCache  # noqa: E402
 from src.locomo_eval.metrics import score_row  # noqa: E402
 from src.locomo_eval.models import resolve_model  # noqa: E402
 from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt  # noqa: E402
@@ -63,7 +63,7 @@ def theoretical_cache_key(row: dict, meta: dict, template: str) -> str:
             template, row.get("memory_text") or "", row.get("question") or ""
         ),
     }
-    return ResponseCache.make_key(payload)
+    return LlmResponseCache.make_key(payload)
 
 
 def cross_model_analysis(

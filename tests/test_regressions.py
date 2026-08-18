@@ -5,7 +5,7 @@ not a green-light to weaken the assertion.
 
 Frozen contracts:
   - run_locomo_pipeline_with_memory_config runs **one** memory YAML → one audit pack
-  - A vs B is two of those calls, then scripts/compare_runs.py
+  - A vs B is two of those calls, then scripts/compare_full_runs.py
   - Gold answers are scorer-only (never in Memory.text or the reader prompt)
   - Swapping C0/C1 changes memory, not reader_model / prompt_version / metric names
   - Audit pack, prediction fields, and dual metrics (EM / token F1 / LoCoMo F1)
@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.compare_runs import load_pack, pair_analysis
+from scripts.compare_full_runs import load_pack, pair_analysis
 from src.locomo_eval.utils.llm_response_cache import (
     PIPELINE_STAGE_ANSWER_READER,
     PIPELINE_STAGE_TEACHER,
@@ -329,7 +329,7 @@ class TestSandwichMemorySwapDoesNotRetouchReaderOrMetrics(unittest.TestCase):
 
 
 class TestCompareAndOfflineEvaluateAfterTwoPipelineRuns(unittest.TestCase):
-    def test_compare_runs_pair_analysis_marks_c0_and_c1_memory_as_distinct(self):
+    def test_compare_full_runs_pair_analysis_marks_c0_and_c1_memory_as_distinct(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             c0 = _run_one(root / "c0", run_id="c0", memory="c0_raw")
