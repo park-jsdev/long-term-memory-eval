@@ -1,18 +1,16 @@
 """Evaluation-pipeline tests (HLD component: evaluation).
 
-HLD components (not yet separate packages — do not invent new ones here):
-  i)   pre-processing
-  ii)  teacher memory / teacher orchestration
-  iii) post-processing
+HLD components:
+  i)   pre-processing — tests/test_preprocessing_pipeline.py (not wired into run.py)
+  ii)  teacher orchestrator — passthrough seam in teacher_orchestrator.py
+  iii) post-processing — not this file
   iv)  evaluation  ← this file (string metrics + LoCoMo F1)
 
 Online / LLM autoraters are out of scope until that split is designed.
 
 Parse and C0/C1 memory checks remain in this module as the frozen *inputs*
 to the scorer, including a C0 vs C1 cache-key sanity check (different memories
-must not hash to the same answer-reader payload). Dedicated pre-processing /
-teacher-memory test modules wait on HLD lock-in — do not rename production
-classes to match an unfinished LLD.
+must not hash to the same answer-reader payload).
 """
 
 from __future__ import annotations

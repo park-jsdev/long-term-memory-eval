@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.distillation/schemas/preprocess_io.v1.json",
+  "title": "LoCoMo preprocess SessionBlock (preprocess_io.v1)",
+  "description": "One session after PreprocessingPipeline; logged under experiments/<run>/preprocess/ when wired. Gold answers are not in this object.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sample_id",
+    "session_id",
+    "session_index",
+    "source_key",
+    "date_time_raw",
+    "date_time_normalized",
+    "speaker_a",
+    "speaker_b",
+    "turns"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "preprocess_io.v1"
+    },
+    "sample_id": { "type": "string" },
+    "session_id": { "type": "integer" },
+    "session_index": {
+      "type": "integer",
+      "description": "0-based order among non-empty sessions"
+    },
+    "source_key": {
+      "type": "string",
+      "description": "LoCoMo conversation key, e.g. session_1"
+    },
+    "date_time_raw": {
+      "type": "string",
+      "description": "Unmodified session_N_date_time string"
+    },
+    "date_time_normalized": {
+      "type": ["string", "null"],
+      "description": "ISO-8601 date or datetime when parseable; otherwise null"
+    },
+    "speaker_a": { "type": "string" },
+    "speaker_b": { "type": "string" },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "turn_id",
+          "source_dia_id",
+          "turn_index",
+          "speaker_raw",
+          "speaker_role",
+          "text"
+        ],
+        "properties": {
+          "turn_id": {
+            "type": "string",
+            "description": "{sample_id}:s{session_id}:t{iii}"
+          },
+          "source_dia_id": {
+            "type": "string",
+            "description": "LoCoMo dia_id (may be empty)"
+          },
+          "turn_index": { "type": "integer" },
+          "speaker_raw": { "type": "string" },
+          "speaker_role": {
+            "type": "string",
+            "enum": ["a", "b", "other"]
+          },
+          "text": { "type": "string" },
+          "blip_caption": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

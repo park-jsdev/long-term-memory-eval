@@ -11,9 +11,10 @@
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
 **Current phase:** end-to-end read path with **draft C0 vs C1** memory builders.  
+HLD **(i) pre-processing** exists as `src/locomo_eval/preprocess/` (`data_ingestor.py`, `preprocessing_pipeline.py`, `conversation_log.py`) and is **not wired** into `run.py`.  
 See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
-Do **not** implement multi-teacher fusion or claim schema unless the human expands scope.
+Do **not** implement multi-teacher fusion or claim schema unless the human expands scope. `teacher_orchestrator.py` is a passthrough seam (one session block at a time, no LLM).
 
 ---
 
@@ -39,6 +40,8 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 | `configs/c1_session_summary.yaml` | C1 session-summary memory (same condition as baseline.yaml) |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
+| `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
+| `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
 | `src/locomo_eval/` | Baseline package |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
@@ -51,9 +54,11 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 
 | File | Responsibility |
 |------|----------------|
-| `schemas.py` | Conversation, Question, Memory, Prediction |
-| `dataset.py` | Load LoCoMo JSON → objects |
-| `memory.py` | MemoryBuilder interface + SessionSummary |
+| `schemas.py` | Conversation, SessionBlock, Memory, Prediction |
+| `dataset.py` | Load LoCoMo JSON → Conversation (C0/C1 read path) |
+| `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` (unwired from run.py) |
+| `teacher_orchestrator.py` | HLD (ii) stub: one SessionBlock at a time, passthrough, no LLM |
+| `memory.py` | MemoryBuilder interface + C0/C1 |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
 | `utils/llm_response_cache.py` | LLM reply memo (implemented; **not wired** into run.py — future optimization) |
@@ -83,10 +88,8 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_s
 # Offline rescore (string metrics only; not an LLM autorater)
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 
-# Unit tests — evaluation pipeline (HLD iv) + sandwich regression locks
-python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
-# or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+# Unit tests — preprocess (HLD i) + evaluation (HLD iv) + sandwich regression locks
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py
 ```
 
 Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
@@ -112,7 +115,7 @@ Agents must not silently skip CSV/plots when code paths change.
 ## Design rules for agents
 
 1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed.
-2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
+2. **Orchestrator is software**, not one giant LLM call. `teacher_orchestrator.py` is a thin file (iterate session blocks). Do not grow a `write/` package until teachers generate memory.
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
 5. **Do not wire `LlmResponseCache` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_cache.py` (future optimization after E2E is trusted). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
@@ -155,7 +158,7 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
 - [ ] Memory builder swappable without changing reader/evaluator  
-- [ ] Tests for parse, memory, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] Tests for parse, memory, preprocess session blocks, normalize; names = behavior + expected outcome; one function per unit test  
 - [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 

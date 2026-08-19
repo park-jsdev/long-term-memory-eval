@@ -1,8 +1,11 @@
 """Typed records that move through one LoCoMo QA run.
 
-Load (dataset.py) → Memory (memory.py) → Reader (readers.py) → Prediction
-→ score (metrics.py / offline_evaluate.py). Orchestrated by
-run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
+Read path (wired in run.py):
+    locomo10.json → dataset.py Conversation → Memory → Reader → Prediction → score
+
+Write-path preprocess (HLD i; not wired into run.py yet):
+    locomo10.json → DataIngestor → PreprocessingPipeline
+        → ProcessedConversation / SessionBlock → TeacherOrchestrator (passthrough)
 
     locomo10.json
          │
@@ -11,6 +14,8 @@ run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
          │
          ├── Question[]          gold QA items (answer is for scoring only)
          └── session_summaries   C1 uses these; C0 uses sessions/turns instead
+         │
+         ├── preprocess/         SessionBlock[] (stable ids, normalized speakers/times)
          │
          ▼
     Memory.text                  sandwich middle — the one thing we vary
@@ -81,6 +86,69 @@ class Conversation:
 
     def chronological_summaries(self) -> list[tuple[int, str]]:
         return sorted(self.session_summaries.items(), key=lambda kv: kv[0])
+
+
+@dataclass
+class ProcessedTurn:
+    """One utterance inside a SessionBlock.
+
+    Built by PreprocessingPipeline. Consumed by TeacherOrchestrator and
+    later eval attribution. ``source_dia_id`` is LoCoMo's ``dia_id``; ``turn_id``
+    is ours so downstream can join even if ``dia_id`` is missing.
+    """
+
+    turn_id: str
+    source_dia_id: str
+    turn_index: int
+    speaker_raw: str
+    speaker_role: str
+    text: str
+    blip_caption: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SessionBlock:
+    """One LoCoMo session after preprocess — the unit for later teacher batching.
+
+    Segmentation follows dataset ``session_N`` keys (no new time-gap cuts).
+    Gold answers never live here. Schema: docs/schemas/preprocess_runtime.md
+    """
+
+    sample_id: str
+    session_id: int
+    session_index: int
+    source_key: str
+    date_time_raw: str
+    date_time_normalized: str | None
+    speaker_a: str
+    speaker_b: str
+    turns: list[ProcessedTurn] = field(default_factory=list)
+    schema_version: str = "preprocess_io.v1"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ProcessedConversation:
+    """Ingest + preprocess output for one sample.
+
+    ``question_ids`` are pass-through handles for later join; gold answers stay
+    on Conversation / Prediction (scorer-only). Not yet consumed by run.py.
+    """
+
+    sample_id: str
+    speaker_a: str
+    speaker_b: str
+    session_blocks: list[SessionBlock]
+    question_ids: list[str] = field(default_factory=list)
+    schema_version: str = "preprocess_io.v1"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
