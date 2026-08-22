@@ -17,7 +17,7 @@ SCHEMA_VERSION = "memory_io.v1"
 
 # Fixed layout grammars for known conditions (human + machine readable).
 CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
-    "c0_raw": {
+    "raw_chunks": {
         "builder": "RawConversationMemoryBuilder",
         "code": "src/locomo_eval/memory.py",
         "source_fields": [
@@ -36,7 +36,7 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
         ),
         "notes": "Optional memory_max_chars keeps the end (recent) of the dialog.",
     },
-    "c1_session_summary": {
+    "session_summaries": {
         "builder": "SessionSummaryMemoryBuilder",
         "code": "src/locomo_eval/memory.py",
         "source_fields": ["session_summary.session_k_summary"],
@@ -46,16 +46,41 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
         ),
         "notes": "LoCoMo-provided summaries; chronological by session id.",
     },
+    "teacher_session_summaries": {
+        "builder": "TeacherSessionMemoryBuilder",
+        "code": "src/locomo_eval/memory.py",
+        "source_fields": [
+            "conversation.session_k turns",
+            "teacher.model (per-session summarize)",
+        ],
+        "text_layout": (
+            "[Session {k}]\n{teacher summary of session k}\n\n"
+            "[Session {k+1}]\n…"
+        ),
+        "notes": (
+            "Live single teacher; swap teacher.model within a family. "
+            "Not multi-teacher fusion."
+        ),
+    },
 }
+# Older run packs may still log the numbered ids.
+CONDITION_LAYOUTS["c0_raw"] = CONDITION_LAYOUTS["raw_chunks"]
+CONDITION_LAYOUTS["c1_session_summary"] = CONDITION_LAYOUTS["session_summaries"]
+CONDITION_LAYOUTS["c1_teacher"] = CONDITION_LAYOUTS["teacher_session_summaries"]
 
 
 def memory_to_record(memory: Memory) -> dict[str, Any]:
-    return {
+    rec: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "memory_type": memory.memory_type,
         "text": memory.text,
         "source_ids": list(memory.source_ids),
     }
+    if memory.teacher_model:
+        rec["teacher_model"] = memory.teacher_model
+    if memory.teacher_provider:
+        rec["teacher_provider"] = memory.teacher_provider
+    return rec
 
 
 def _sha256_text(text: str) -> str:
@@ -111,7 +136,11 @@ def write_memory_run_log(
             "text": "full string injected as prompt {memory}",
             "source_ids": "provenance list",
             "schema_version": SCHEMA_VERSION,
+            "teacher_model": "write-path model id when memory_type is teacher_session_summaries",
+            "teacher_provider": "openai | mock",
         },
+        "teacher_model": first.teacher_model,
+        "teacher_provider": first.teacher_provider,
         "injection": {
             "prompt_placeholders": ["{memory}", "{question}"],
             "gold_answer_in_memory": False,
@@ -154,6 +183,8 @@ def write_memory_run_log(
                 "text_head": text[:400],
                 "text_tail": text[-200:] if len(text) > 200 else text,
                 "full_text_path": rel,
+                "teacher_model": memory.teacher_model,
+                "teacher_provider": memory.teacher_provider,
             }
             idx.write(__import__("json").dumps(row, ensure_ascii=False) + "\n")
 

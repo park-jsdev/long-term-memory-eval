@@ -5,9 +5,9 @@ not a green-light to weaken the assertion.
 
 Frozen contracts:
   - run_locomo_pipeline_with_memory_config runs **one** memory YAML → one audit pack
-  - A vs B is two of those calls, then scripts/compare_runs.py
+  - A vs B is two of those calls, then scripts/compare_full_runs.py
   - Gold answers are scorer-only (never in Memory.text or the reader prompt)
-  - Swapping C0/C1 changes memory, not reader_model / prompt_version / metric names
+  - Swapping raw_chunks/session_summaries changes memory, not reader_model / prompt_version / metric names
   - Audit pack, prediction fields, and dual metrics (EM / token F1 / LoCoMo F1)
   - Same function for 1 question or N; resume from predictions.jsonl
   - offline_evaluate.py rescores strings only (does not rewrite predicted answers)
@@ -29,13 +29,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.compare_runs import load_pack, pair_analysis
-from src.locomo_eval.utils.llm_response_cache import (
+from scripts.compare_full_runs import load_pack, pair_analysis
+from src.locomo_eval.utils.llm_request_hash import (
     PIPELINE_STAGE_ANSWER_READER,
     PIPELINE_STAGE_TEACHER,
-    LlmResponseCache,
-    llm_response_cache_dir_from_run_cfg,
+    llm_request_hash,
 )
+from src.locomo_eval.utils.llm_response_hash import llm_response_hash_dir_from_run_cfg
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
 from src.locomo_eval.run import run_locomo_pipeline_with_memory_config
 
@@ -185,7 +185,7 @@ class TestRunLocomoPipelineWithMemoryConfig(unittest.TestCase):
 
     def test_run_locomo_pipeline_with_memory_config_writes_required_audit_pack_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="lock_audit", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="lock_audit", memory="session_summaries")
             for name in FROZEN_AUDIT_FILES:
                 self.assertTrue((run_dir / name).is_file(), f"missing {name}")
             self.assertTrue((run_dir / "plots").is_dir())
@@ -193,23 +193,23 @@ class TestRunLocomoPipelineWithMemoryConfig(unittest.TestCase):
 
     def test_run_locomo_pipeline_with_memory_config_returns_a_directory_named_only_by_run_id(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="lock_one_id", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="lock_one_id", memory="session_summaries")
             self.assertEqual(run_dir.name, "lock_one_id")
             self.assertEqual(len(list(run_dir.parent.iterdir())), 1)
 
     def test_run_locomo_pipeline_with_memory_config_records_exactly_one_memory_type(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="lock_mem", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="lock_mem", memory="session_summaries")
             meta = _load_json(run_dir / "run_meta.json")
             metrics = _load_json(run_dir / "metrics.json")
-            self.assertEqual(meta["memory_type"], "c1_session_summary")
-            self.assertEqual(metrics["memory_type"], "c1_session_summary")
+            self.assertEqual(meta["memory_type"], "session_summaries")
+            self.assertEqual(metrics["memory_type"], "session_summaries")
             rows = _load_jsonl(run_dir / "predictions.jsonl")
-            self.assertEqual({r["memory_type"] for r in rows}, {"c1_session_summary"})
+            self.assertEqual({r["memory_type"] for r in rows}, {"session_summaries"})
 
     def test_prediction_jsonl_rows_include_frozen_audit_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="lock_fields", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="lock_fields", memory="session_summaries")
             rows = _load_jsonl(run_dir / "predictions.jsonl")
             self.assertTrue(rows)
             for field in FROZEN_PREDICTION_FIELDS:
@@ -217,14 +217,14 @@ class TestRunLocomoPipelineWithMemoryConfig(unittest.TestCase):
 
     def test_metrics_json_reports_exact_match_token_f1_and_locomo_f1(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="lock_metrics", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="lock_metrics", memory="session_summaries")
             overall = _load_json(run_dir / "metrics.json")["metrics"]
             for name in FROZEN_METRIC_NAMES:
                 self.assertIn(name, overall)
 
     def test_memory_text_and_filled_prompt_do_not_contain_the_gold_answer(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="lock_gold", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="lock_gold", memory="session_summaries")
             row = _load_jsonl(run_dir / "predictions.jsonl")[0]
             self.assertEqual(row["reference_answer"], GOLD_LOCK)
             self.assertNotIn(GOLD_LOCK, row["memory_text"])
@@ -237,47 +237,59 @@ class TestRunLocomoPipelineWithMemoryConfig(unittest.TestCase):
     def test_max_questions_one_and_two_both_call_run_locomo_pipeline_with_memory_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            one = _run_one(root / "n1", run_id="n1", memory="c1_session_summary", max_questions=1)
-            two = _run_one(root / "n2", run_id="n2", memory="c1_session_summary", max_questions=2)
+            one = _run_one(root / "n1", run_id="n1", memory="session_summaries", max_questions=1)
+            two = _run_one(root / "n2", run_id="n2", memory="session_summaries", max_questions=2)
             self.assertEqual(_load_json(one / "run_meta.json")["n_predictions"], 1)
             self.assertEqual(_load_json(two / "run_meta.json")["n_predictions"], 2)
 
     def test_second_call_with_the_same_run_id_resumes_finished_questions(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            first = _run_one(root, run_id="resume_lock", memory="c1_session_summary", max_questions=1)
+            first = _run_one(root, run_id="resume_lock", memory="session_summaries", max_questions=1)
             n_first = _load_json(first / "run_meta.json")["n_new_api_calls"]
-            second = _run_one(root, run_id="resume_lock", memory="c1_session_summary", max_questions=1)
+            second = _run_one(root, run_id="resume_lock", memory="session_summaries", max_questions=1)
             meta = _load_json(second / "run_meta.json")
             self.assertGreaterEqual(n_first, 1)
             self.assertEqual(meta["n_resumed"], 1)
             self.assertEqual(meta["n_new_api_calls"], 0)
             self.assertEqual(second, first)
 
-    def test_run_meta_omits_llm_response_cache_fields_while_cache_is_unwired(self):
+    def test_run_meta_omits_llm_response_hash_fields_while_store_is_unwired(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = _run_one(Path(tmp), run_id="no_cache", memory="c1_session_summary")
+            run_dir = _run_one(Path(tmp), run_id="no_cache", memory="session_summaries")
             meta = _load_json(run_dir / "run_meta.json")
             row = _load_jsonl(run_dir / "predictions.jsonl")[0]
+            self.assertNotIn("n_llm_response_hash_hits", meta)
+            self.assertNotIn("llm_response_hash_dir", meta)
             self.assertNotIn("n_llm_response_cache_hits", meta)
             self.assertNotIn("llm_response_cache_dir", meta)
             self.assertFalse(row.get("cached"))
 
 
-class TestLlmResponseCacheIsStageSpecific(unittest.TestCase):
-    """Locks the unused-but-kept cache utility (not wired into run.py)."""
+class TestLlmRequestHashIsStageSpecific(unittest.TestCase):
+    """Locks the unused-but-kept store utility (not wired into run.py)."""
 
-    def test_llm_response_cache_dir_from_run_cfg_prefers_new_key_over_legacy_cache_dir(self):
-        path = llm_response_cache_dir_from_run_cfg(
+    def test_llm_response_hash_dir_from_run_cfg_prefers_hash_dir_over_legacy_keys(self):
+        path = llm_response_hash_dir_from_run_cfg(
+            {
+                "llm_response_hash_dir": "experiments/llm_hash",
+                "llm_response_cache_dir": "experiments/llm_cache",
+                "cache_dir": "experiments/old",
+            }
+        )
+        self.assertEqual(path, "experiments/llm_hash")
+
+    def test_llm_response_hash_dir_from_run_cfg_falls_back_to_llm_response_cache_dir(self):
+        path = llm_response_hash_dir_from_run_cfg(
             {"llm_response_cache_dir": "experiments/llm_cache", "cache_dir": "experiments/old"}
         )
         self.assertEqual(path, "experiments/llm_cache")
 
-    def test_llm_response_cache_dir_from_run_cfg_falls_back_to_legacy_cache_dir(self):
-        path = llm_response_cache_dir_from_run_cfg({"cache_dir": "experiments/old"})
+    def test_llm_response_hash_dir_from_run_cfg_falls_back_to_legacy_cache_dir(self):
+        path = llm_response_hash_dir_from_run_cfg({"cache_dir": "experiments/old"})
         self.assertEqual(path, "experiments/old")
 
-    def test_make_key_differs_when_pipeline_stage_is_answer_reader_vs_teacher(self):
+    def test_llm_request_hash_differs_when_pipeline_stage_is_answer_reader_vs_teacher(self):
         shared = {
             "provider": "openai",
             "model": "gpt-4.1-mini",
@@ -285,65 +297,66 @@ class TestLlmResponseCacheIsStageSpecific(unittest.TestCase):
             "max_tokens": 64,
             "prompt": "same body",
         }
-        reader_key = LlmResponseCache.make_key(
+        reader_key = llm_request_hash(
             {"pipeline_stage": PIPELINE_STAGE_ANSWER_READER, **shared}
         )
-        teacher_key = LlmResponseCache.make_key(
+        teacher_key = llm_request_hash(
             {"pipeline_stage": PIPELINE_STAGE_TEACHER, **shared}
         )
         self.assertNotEqual(reader_key, teacher_key)
 
 
 class TestSandwichMemorySwapDoesNotRetouchReaderOrMetrics(unittest.TestCase):
-    def test_c0_and_c1_runs_share_reader_model_and_prompt_version(self):
+    def test_raw_chunks_and_session_summaries_runs_share_reader_model_and_prompt_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            c0 = _run_one(root / "c0", run_id="c0", memory="c0_raw")
-            c1 = _run_one(root / "c1", run_id="c1", memory="c1_session_summary")
-            m0 = _load_json(c0 / "run_meta.json")
-            m1 = _load_json(c1 / "run_meta.json")
+            raw = _run_one(root / "raw", run_id="raw", memory="raw_chunks")
+            summ = _run_one(root / "summaries", run_id="summaries", memory="session_summaries")
+            m0 = _load_json(raw / "run_meta.json")
+            m1 = _load_json(summ / "run_meta.json")
             self.assertEqual(m0["reader_model"], m1["reader_model"])
             self.assertEqual(m0["prompt_version"], m1["prompt_version"])
             self.assertEqual(m0["prompt_version"], "qa_v1")
 
-    def test_c0_and_c1_runs_produce_different_memory_text_for_the_same_question(self):
+    def test_raw_chunks_and_session_summaries_runs_produce_different_memory_text_for_the_same_question(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            c0 = _run_one(root / "c0", run_id="c0", memory="c0_raw")
-            c1 = _run_one(root / "c1", run_id="c1", memory="c1_session_summary")
-            t0 = _load_jsonl(c0 / "predictions.jsonl")[0]["memory_text"]
-            t1 = _load_jsonl(c1 / "predictions.jsonl")[0]["memory_text"]
+            raw = _run_one(root / "raw", run_id="raw", memory="raw_chunks")
+            summ = _run_one(root / "summaries", run_id="summaries", memory="session_summaries")
+            t0 = _load_jsonl(raw / "predictions.jsonl")[0]["memory_text"]
+            t1 = _load_jsonl(summ / "predictions.jsonl")[0]["memory_text"]
             self.assertNotEqual(t0, t1)
             self.assertIn("I started painting", t0)
             self.assertIn("Alice said she started painting", t1)
 
-    def test_c0_and_c1_metrics_json_use_the_same_metric_names(self):
+    def test_raw_chunks_and_session_summaries_metrics_json_use_the_same_metric_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            c0 = _run_one(root / "c0", run_id="c0", memory="c0_raw")
-            c1 = _run_one(root / "c1", run_id="c1", memory="c1_session_summary")
-            k0 = set(_load_json(c0 / "metrics.json")["metrics"])
-            k1 = set(_load_json(c1 / "metrics.json")["metrics"])
+            raw = _run_one(root / "raw", run_id="raw", memory="raw_chunks")
+            summ = _run_one(root / "summaries", run_id="summaries", memory="session_summaries")
+            k0 = set(_load_json(raw / "metrics.json")["metrics"])
+            k1 = set(_load_json(summ / "metrics.json")["metrics"])
             self.assertEqual(k0, k1)
             self.assertTrue(set(FROZEN_METRIC_NAMES) <= k0)
 
 
 class TestCompareAndOfflineEvaluateAfterTwoPipelineRuns(unittest.TestCase):
-    def test_compare_runs_pair_analysis_marks_c0_and_c1_memory_as_distinct(self):
+    def test_compare_full_runs_pair_analysis_marks_raw_chunks_and_session_summaries_as_distinct(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            c0 = _run_one(root / "c0", run_id="c0", memory="c0_raw")
-            c1 = _run_one(root / "c1", run_id="c1", memory="c1_session_summary")
-            packs = [load_pack(c0), load_pack(c1)]
+            raw = _run_one(root / "raw", run_id="raw", memory="raw_chunks")
+            summ = _run_one(root / "summaries", run_id="summaries", memory="session_summaries")
+            packs = [load_pack(raw), load_pack(summ)]
             paired = pair_analysis(packs, ROOT / "prompts" / "qa_v1.txt")
             self.assertEqual(paired["n_common"], 1)
             self.assertEqual(paired["fraction_same_memory_text"], 0.0)
+            self.assertEqual(paired["fraction_same_llm_request_hash"], 0.0)
             self.assertNotEqual(packs[0]["meta"]["memory_type"], packs[1]["meta"]["memory_type"])
 
     def test_offline_evaluate_rewrites_metrics_but_not_predicted_answers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run_dir = _run_one(root, run_id="rescore", memory="c1_session_summary")
+            run_dir = _run_one(root, run_id="rescore", memory="session_summaries")
             before = _load_jsonl(run_dir / "predictions.jsonl")
             out = root / "rescored"
             with redirect_stdout(io.StringIO()):

@@ -13,12 +13,12 @@ You compare **how memory is built** for long multi-session chats (LoCoMo). The e
 | Layer | Fixed or variable? | Notes |
 |-------|--------------------|--------|
 | Top | Fixed | LoCoMo conversations + questions |
-| Middle | Variable (later C0–C4) | How candidate memory is constructed / fused |
+| Middle | Variable (`raw_chunks`, `session_summaries`, later teacher/fusion methods) | How candidate memory is constructed / fused |
 | Bottom | Fixed | Retrieval budget, answer LLM + prompt, metrics |
 
 **v0.1 goal:** ship the **bottom + I/O skeleton** using LoCoMo’s own **session summaries** as memory, answered by one fixed OpenAI model, scored with LoCoMo-compatible metrics, and with **auditable logs/plots**.
 
-You are not yet running multi-teacher fusion. **C0** (`c0_raw`) vs **C1** (`c1_session_summary`) compare how much structure helps under one fixed answer model. Full system map: `docs/reports/engineering_notebook.md`.
+You are not yet running multi-teacher fusion. **`raw_chunks`** vs **`session_summaries`** compare how much structure helps under one fixed answer model. Full system map: `docs/reports/engineering_notebook.md`.
 
 ---
 
@@ -74,7 +74,7 @@ So we do not literally “mask columns on the dataset file.” We **construct a 
 **Memory design = how we build the `Memory.text` (and later structure/schema) that is glued to the question for the answer model.**
 
 ```text
-LoCoMo conversation  ──►  MemoryBuilder (C0 / C1 / …)  ──►  Memory.text
+LoCoMo conversation  ──►  MemoryBuilder (raw_chunks / session_summaries / …)  ──►  Memory.text
                                                                   │
 question  ────────────────────────────────────────────────────────┤
                                                                   ▼
@@ -83,9 +83,10 @@ question  ───────────────────────�
 gold answer ──────────────────────────────────────────────────────► scorer
 ```
 
-- **C0** today: dump raw dialog as the memory string (little structure).  
-- **C1** draft: dump released session summaries (structured-ish, still not a multi-teacher schema).  
-- **Later (C2–C4):** teacher outputs, fusion, claim-level schema — still the same idea: **produce a better memory payload for the same fixed Q + fixed answer LLM.**
+- **`raw_chunks`:** dump raw dialog as the memory string (little structure).  
+- **`session_summaries`:** dump released session summaries (structured-ish, still not a multi-teacher schema).  
+- **`teacher_session_summaries`:** one LLM summarizes each session; swap `teacher.model` within a family.  
+- **Later:** `top1_teacher`, `whole_memory_aggregation`, `claim_fusion` — still the same idea: **produce a better memory payload for the same fixed Q + fixed answer LLM.**
 
 The experimental claim is almost always: *under a frozen answer model and prompt, does condition A’s memory make QA better than condition B’s?*
 
@@ -113,17 +114,25 @@ The pipeline loads `.env` automatically on start. Shell export still works and w
 
 ---
 
-## Compare C0 vs C1
+## Compare raw_chunks vs session_summaries
 
 Each `python -m src.locomo_eval.run` call is **one** memory config (`run_locomo_pipeline_with_memory_config`). Freeze answer model + prompt; swap only the memory YAML; then compare the two run folders:
 
 ```bash
-python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --run-id cmp_c0_n20
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
-python scripts/compare_runs.py --runs experiments/cmp_c0_n20 experiments/cmp_c1_n20 --out experiments/compare_c0_c1
+python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
+python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks_n20 experiments/cmp_session_summaries_n20 --out experiments/compare_raw_chunks_session_summaries
 ```
 
-Open `experiments/compare_c0_c1/overall.csv` and the two `predictions.csv` files side by side (same `question_id`).
+`compare_full_runs.py` is the **sandwich report** (needs two finished run folders: metrics, run_meta, predictions). `compare_predictions` is the **two-JSONL LoCoMo F1 plotter** it uses internally; you can call it alone if you only want boxplot + histograms:
+
+```bash
+python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks_n20 --b experiments/cmp_session_summaries_n20 --out experiments/compare_raw_chunks_session_summaries
+```
+
+Both need those `--run-id` folders to exist first (the error names the `run` command if they do not).
+
+Open `experiments/compare_raw_chunks_session_summaries/overall.csv` (from `compare_full_runs.py`) and `plots/locomo_f1_boxplot.png` / `plots/locomo_f1_histograms.png`. Pairwise rows: `paired_questions.csv` or `paired_locomo_f1.csv`.
 
 Evaluation-pipeline unit tests (string metrics / LoCoMo F1) live in `tests/test_evaluation_pipeline.py`. Sandwich contracts that must not drift are locked in `tests/test_regressions.py` (mock only):
 
@@ -133,12 +142,44 @@ python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
 
 ---
 
+## Cross-model robustness (reader or teacher)
+
+This is **not** a memory-condition comparison. Freeze memory (or freeze the reader) and swap one model slot.
+
+**Answer / eval model** (`gpt-4.1-mini` vs `gpt-5.6-luna`):
+
+```bash
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 5 --run-id cmp_reader_mini_n5
+python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
+python scripts/compare_cross_model.py --runs experiments/cmp_reader_mini_n5 experiments/cmp_reader_luna_n5 --axis reader --out experiments/compare_reader_mini_luna
+```
+
+**Teacher model within GPT-5.6** (live `teacher_session_summaries`; freeze the reader):
+
+```bash
+python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id cmp_teacher_luna
+python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-terra --max-questions 3 --run-id cmp_teacher_terra
+python scripts/compare_cross_model.py --runs experiments/cmp_teacher_luna experiments/cmp_teacher_terra --axis teacher --out experiments/compare_teacher_family
+```
+
+Offline teacher smoke (no API):
+
+```bash
+python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --reader mock --teacher mock --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
+```
+
+`compare_cross_model.py` writes `overall.csv`, `paired_questions.csv`, `SUMMARY.md`, `compare.json`. Check `run_meta.json` for `reader_model` / `teacher_model` / `*_family`. Distinctness uses `fraction_same_llm_request_hash` (SHA-256 of the intended reader request; **not** a live store hit).
+
+Unit tests for these seams (no API): `python -m unittest tests/test_integration_sanity.py`.
+
+---
+
 ## Run the baseline
 
 **Offline smoke (no money / no key):**
 
 ```bash
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --reader mock --max-questions 5 --run-id smoke_mock
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --reader mock --max-questions 5 --run-id smoke_mock
 ```
 
 **Small live check:**
@@ -153,10 +194,11 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 -
 python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
 ```
 
-Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For a stronger fixed answer model (your intended GPT-4.1 class):
+Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For GPT-5.6 Luna as the **answer** model (robustness axis, not a memory claim):
 
 ```bash
-python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id baseline_gpt41
+python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
+python scripts/compare_cross_model.py --runs experiments/smoke_openai experiments/cmp_reader_luna_n5 --axis reader --out experiments/compare_reader_mini_luna
 ```
 
 Config knobs live only in YAML + CLI overrides — no hidden flags.
@@ -180,7 +222,7 @@ Everything for one experiment is under `experiments/<run_id>/`:
 Two stores that are easy to mix up:
 
 - **`predictions.jsonl`** — per-run resume (skip finished questions). This is what the live pipeline uses.
-- **`experiments/cache/`** — `LlmResponseCache` (under `src/locomo_eval/utils/`). Implemented, **not wired** into `run.py` until E2E validation is done. Re-enable by passing a cache to `get_reader`.
+- **`experiments/cache/`** — `LlmResponseHash` (under `src/locomo_eval/utils/`). Implemented, **not wired** into `run.py` until E2E validation is done. Re-enable by passing a store to `get_reader`.
 
 Recompute string metrics without re-calling the API (not an LLM autorater):
 
@@ -208,9 +250,9 @@ If LoCoMo F1 is low but answers “feel” right, check:
 ```
 locomo10.json                 # official: dialog + summaries + gold QA
     → dataset.py              # Conversation / Question objects (gold kept for scorer only)
-    → memory.py               # experimental: Memory.text (gold never enters here for the LLM)
-    → prompts/qa_v1.txt       # fixed: Memory + Question only
-    → readers.py              # fixed answer LLM (no LlmResponseCache in this phase)
+    → memory.py               # experimental: Memory.text (raw_chunks / session_summaries / teacher_session_summaries)
+    → prompts/qa_v1.txt       # frozen answer prompt
+    → readers.py              # answer LLM (no LlmResponseHash in this phase) (swap only for robustness, not a memory claim)
     → metrics + report        # scorer uses gold; reports for humans
 ```
 
@@ -220,13 +262,14 @@ Later swaps should only replace **memory builders** (and eventually teacher/fusi
 
 ## Roadmap sketch (not in v0.1)
 
-| ID | Middle layer | Question |
-|----|--------------|----------|
-| C0 | Raw / chunked dialog | Does structure help? |
-| C1 | Single teacher memory | Standard pipeline strength |
-| C2 | Top-1 of K teachers | Selection enough? |
-| C3 | Aggregate whole memories | Synthesis enough? |
-| C4 | Claim-level fusion + validation | Evidence-grounded fusion win? |
+| Condition | Middle layer | Question |
+|-----------|--------------|----------|
+| `raw_chunks` | Raw / chunked dialog | Does structure help? |
+| `session_summaries` | LoCoMo-provided session summaries | How strong is a structured session-memory bank? |
+| `teacher_session_summaries` | Live single-teacher session summaries | Does a live teacher beat released summaries? |
+| `top1_teacher` | Top-1 of K teachers (later) | Selection enough? |
+| `whole_memory_aggregation` | Aggregate whole memories (later) | Synthesis enough? |
+| `claim_fusion` | Claim-level fusion + validation (later) | Evidence-grounded fusion win? |
 
 Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this baseline is trustworthy.
 
@@ -234,7 +277,7 @@ Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this basel
 
 ## What you should ask agents to do (and not)
 
-**Do:** extend memory builders, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
+**Do:** extend memory builders, swap reader/teacher models for robustness checks, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
 
 **Don’t (yet):** multi-LLM fusion, training loops, silent metric changes, deleting `experiments/cache/` or data, committing secrets.
 

@@ -10,7 +10,7 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase:** end-to-end read path with **draft C0 vs C1** memory builders.  
+**Current phase:** end-to-end read path with **raw_chunks vs session_summaries** memory builders.  
 See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
 Do **not** implement multi-teacher fusion or claim schema unless the human expands scope.
@@ -24,9 +24,9 @@ Write: conversation → teachers → fusion/validate → memory store
 Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 ```
 
-Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-memory aggregation, C4 claim-level fusion.
+Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
 
-**Now:** `c0_raw` and `c1_session_summary` builders inject alternative `Memory.text` with frozen reader/metrics. C1 draft uses LoCoMo-provided summaries (not a live teacher API yet).
+**Now:** `raw_chunks` and `session_summaries` builders inject alternative `Memory.text` with frozen reader/metrics. `teacher_session_summaries` is a live single-teacher seam (swap `teacher.model` within a family). Dataset-provided session summaries remain the default memory condition. Reader model can also be swapped (`gpt-4.1-mini` vs `gpt-5.6-luna`) as a **separate** robustness axis — do not mix that with a memory-condition claim.
 
 ---
 
@@ -34,12 +34,18 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 
 | Path | Role |
 |------|------|
-| `configs/baseline.yaml` | CLI default; currently C1. Standalone (not a parent of c0/c1) |
-| `configs/c0_raw.yaml` | C0 raw dialog memory |
-| `configs/c1_session_summary.yaml` | C1 session-summary memory (same condition as baseline.yaml) |
+| `configs/baseline.yaml` | CLI default; currently `session_summaries`. Standalone (not a parent of other configs) |
+| `configs/raw_chunks.yaml` | Raw dialog memory (`raw_chunks`) |
+| `configs/session_summaries.yaml` | LoCoMo session-summary memory (same condition as baseline.yaml) |
+| `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
+| `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
+| `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
+| `scripts/compare_full_runs.py` | Sandwich report for two **finished** run packs (tables, SUMMARY, distinctness + F1 plots) |
+| `scripts/analysis/` | Reusable offline analyses + plots (no API) |
+| `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -53,10 +59,13 @@ Conditions planned: C0 raw/chunk, C1 single teacher, C2 top-1 routing, C3 whole-
 |------|----------------|
 | `schemas.py` | Conversation, Question, Memory, Prediction |
 | `dataset.py` | Load LoCoMo JSON → objects |
-| `memory.py` | MemoryBuilder interface + SessionSummary |
+| `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_session_summaries |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
-| `utils/llm_response_cache.py` | LLM reply memo (implemented; **not wired** into run.py — future optimization) |
+| `models.py` | Model ids / families / Chat Completions kwargs |
+| `teachers.py` | Single teacher (session summaries) |
+| `utils/llm_response_hash.py` | Disk memo of LLM replies, keyed by `llm_request_hash` (implemented; **not wired** into run.py — future optimization) |
+| `utils/llm_request_hash.py` | SHA-256 of the intended LLM request; offline distinctness (not a live store lookup) |
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
@@ -87,6 +96,11 @@ python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/pr
 python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
 python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+
+# Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
+python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
+python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
+python scripts/compare_cross_model.py --runs experiments/session_summaries_mini experiments/session_summaries_luna --axis reader --out experiments/compare_reader_mini_luna
 ```
 
 Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
@@ -102,7 +116,7 @@ Each run under `experiments/<run_id>/` must include:
 - `predictions.csv` — spreadsheet-friendly + scores + memory preview
 - `metrics.json` — overall + by-category
 - `metrics_by_category.csv`
-- `run_meta.json` — model, prompt, data hash, git hash, timestamp
+- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp
 - `plots/` — overall + category bars
 
 Agents must not silently skip CSV/plots when code paths change.
@@ -111,11 +125,11 @@ Agents must not silently skip CSV/plots when code paths change.
 
 ## Design rules for agents
 
-1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed.
+1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed for `raw_chunks` vs `session_summaries`. Reader-model and teacher-model swaps are a **different** axis (`compare_cross_model.py`).
 2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
-5. **Do not wire `LlmResponseCache` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_cache.py` (future optimization after E2E is trusted). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
+5. **Do not wire `LlmResponseHash` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_hash.py` (future optimization after E2E is trusted). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
 
@@ -125,9 +139,9 @@ Agents must not silently skip CSV/plots when code paths change.
 
 From review. Follow these when adding or renaming code.
 
-**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseCache` vs JSONL resume; baseline YAML vs C0/C1).
+**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseHash` vs JSONL resume vs `llm_request_hash`; baseline YAML vs `session_summaries`). Condition ids are descriptive (`raw_chunks`), not numbered (`C0`).
 
-**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseCache` vs JSONL resume; `offline_evaluate.py` vs `run.py`; later LLM autoraters vs this string scorer).
+**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseHash` vs JSONL resume vs `llm_request_hash`; `offline_evaluate.py` vs `run.py`; later LLM autoraters vs this string scorer).
 
 **Schemas / data-model classes.** The module docstring should map how types connect and which pipeline step uses them (load → memory → reader → prediction → score). Each class gets a short “what it is / who consumes it” note. Label gold answers as scorer-only (never in the reader prompt).
 
@@ -136,7 +150,7 @@ From review. Follow these when adding or renaming code.
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
 
-**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare C0 vs C1 with two runs, then `scripts/compare_runs.py` (no API). Do not fold A vs B into `run.py`.
+**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
 
 ---
 
@@ -155,7 +169,7 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
 - [ ] Memory builder swappable without changing reader/evaluator  
-- [ ] Tests for parse, memory, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] Tests for parse, memory, normalize, **and** model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
 - [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 

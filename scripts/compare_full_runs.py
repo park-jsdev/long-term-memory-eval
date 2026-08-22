@@ -1,4 +1,13 @@
-"""Compare freeze-bottom / vary-middle runs: tables, plots, text report, prompt-hash sanity."""
+"""Sandwich experiment report for two (or more) full run packs.
+
+Use this after two ``python -m src.locomo_eval.run`` calls. It reads
+``experiments/<run_id>/`` (predictions + metrics + run_meta) and writes
+overall/category tables, memory/prompt-hash sanity, SUMMARY.md, and the
+LoCoMo F1 boxplot/histograms from ``scripts.analysis.compare_predictions``.
+
+For JSONL-only LoCoMo F1 plots (no sandwich SUMMARY), use
+``python -m scripts.analysis.compare_predictions`` instead.
+"""
 
 from __future__ import annotations
 
@@ -14,9 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.utils.llm_response_cache import PIPELINE_STAGE_ANSWER_READER, LlmResponseCache
+from scripts.analysis.compare_predictions import write_compare_prediction_plots
 from src.locomo_eval.metrics import score_row
-from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt
+from src.locomo_eval.prompts import load_prompt_template
+from src.locomo_eval.utils.llm_request_hash import (
+    llm_request_hash_from_prediction,
+)
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -64,7 +76,7 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
         "exact_match",
         "token_f1",
         "locomo_f1",
-        "n_llm_response_cache_hits",
+        "n_llm_response_hash_hits",
         "n_new_api_calls",
         "n_resumed",
         "cached_rate_in_predictions",
@@ -89,7 +101,8 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
                     "exact_match": overall.get("exact_match"),
                     "token_f1": overall.get("token_f1"),
                     "locomo_f1": overall.get("locomo_f1"),
-                    "n_llm_response_cache_hits": meta.get("n_llm_response_cache_hits")
+                    "n_llm_response_hash_hits": meta.get("n_llm_response_hash_hits")
+                    or meta.get("n_llm_response_cache_hits")
                     or meta.get("n_disk_cache_hits"),
                     "n_new_api_calls": meta.get("n_new_api_calls"),
                     "n_resumed": meta.get("n_resumed"),
@@ -133,7 +146,11 @@ def write_category_csv(path: Path, packs: list[dict]) -> None:
 
 
 def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]:
-    """Pairwise sanity for first two runs: memory / answer / theoretical cache keys."""
+    """Pairwise sanity for first two runs: memory / answer / request-hash distinctness.
+
+    The request hash is rebuilt offline from stored memory + question + reader
+    model. It is not a live cache lookup.
+    """
     if len(packs) < 2:
         return {"note": "Need ≥2 runs for pairwise analysis."}
 
@@ -149,7 +166,7 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
 
     same_memory = 0
     same_answer = 0
-    same_cache_key = 0
+    same_request_hash = 0
     mem_chars_a = []
     mem_chars_b = []
     deltas = []
@@ -166,32 +183,14 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
         mem_chars_a.append(len(ma))
         mem_chars_b.append(len(mb))
 
-        key_a = key_b = None
+        hash_a = hash_b = None
         if template is not None:
-            model_a = ra.get("reader_model") or a["meta"].get("reader_model")
-            model_b = rb.get("reader_model") or b["meta"].get("reader_model")
-            temp = float(a["meta"].get("temperature", 0.0) or 0.0)
-            max_tok = int(a["meta"].get("max_tokens", 64) or 64)
-            pay_a = {
-                "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
-                "provider": "openai",
-                "model": model_a,
-                "temperature": temp,
-                "max_tokens": max_tok,
-                "prompt": render_qa_prompt(template, ma, ra.get("question", "")),
-            }
-            pay_b = {
-                "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
-                "provider": "openai",
-                "model": model_b,
-                "temperature": float(b["meta"].get("temperature", 0.0) or 0.0),
-                "max_tokens": int(b["meta"].get("max_tokens", 64) or 64),
-                "prompt": render_qa_prompt(template, mb, rb.get("question", "")),
-            }
-            key_a = LlmResponseCache.make_key(pay_a)
-            key_b = LlmResponseCache.make_key(pay_b)
-            if key_a == key_b:
-                same_cache_key += 1
+            # Offline distinctness: same SHA-256 ⇒ same intended reader request.
+            # Not a disk lookup (LlmResponseHash is unwired from run.py).
+            hash_a = llm_request_hash_from_prediction(ra, a["meta"], template)
+            hash_b = llm_request_hash_from_prediction(rb, b["meta"], template)
+            if hash_a == hash_b:
+                same_request_hash += 1
 
         sa = score_row(pa, str(ra.get("reference_answer", "")), int(ra.get("category", 0)))
         sb = score_row(pb, str(rb.get("reference_answer", "")), int(rb.get("category", 0)))
@@ -212,9 +211,11 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
                 "locomo_f1_a": round(sa["locomo_f1"], 4),
                 "locomo_f1_b": round(sb["locomo_f1"], 4),
                 "delta_locomo_f1_b_minus_a": round(delta_f1, 4),
-                "cache_key_a": key_a,
-                "cache_key_b": key_b,
-                "same_cache_key": key_a == key_b if key_a else None,
+                "llm_request_hash_a": hash_a,
+                "llm_request_hash_b": hash_b,
+                "same_llm_request_hash": (
+                    hash_a == hash_b if hash_a else None
+                ),
             }
         )
 
@@ -230,19 +231,23 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
         "prompt_version": prompt_version,
         "fraction_same_memory_text": round(same_memory / n, 4) if common else None,
         "fraction_same_answer": round(same_answer / n, 4) if common else None,
-        "fraction_same_cache_key": round(same_cache_key / n, 4) if common and template else None,
+        "fraction_same_llm_request_hash": (
+            round(same_request_hash / n, 4) if common and template else None
+        ),
         "mean_memory_chars_a": round(sum(mem_chars_a) / n, 1) if common else None,
         "mean_memory_chars_b": round(sum(mem_chars_b) / n, 1) if common else None,
         "mean_delta_locomo_f1_b_minus_a": round(sum(deltas) / n, 4) if common else None,
         "sanity": {
             "conditions_look_distinct": (same_memory / n < 0.05) if common else None,
-            "cross_condition_cache_collision_ok": (same_cache_key / n < 0.05)
+            "cross_condition_request_hash_collision_ok": (same_request_hash / n < 0.05)
             if common and template
             else None,
             "note": (
-                "same_cache_key is a theoretical hash of the answer-reader payload "
-                "(LlmResponseCache is not wired into run.py). ~0 means C0/C1 "
-                "prompts differed. High same_memory_text implies a builder bug."
+                "same_llm_request_hash is a SHA-256 of the LLM request "
+                "(model + filled QA prompt). LlmResponseHash is not wired "
+                "into run.py; this is an offline distinctness check. ~0 means "
+                "raw_chunks vs session_summaries prompts differed. High same_memory_text "
+                "implies a builder bug."
             ),
         },
         "paired_rows": paired_rows,
@@ -271,28 +276,7 @@ def make_compare_plots(packs: list[dict], paired: dict, out_dir: Path) -> list[P
 
     written: list[Path] = []
 
-    # Overall metric bars per run
-    labels = [p["run_id"] for p in packs]
-    metrics_names = ["locomo_f1", "token_f1", "exact_match"]
-    fig, ax = plt.subplots(figsize=(7, 4))
-    x = np.arange(len(labels))
-    width = 0.25
-    for i, name in enumerate(metrics_names):
-        vals = [(p["metrics"].get("metrics") or {}).get(name) or 0 for p in packs]
-        ax.bar(x + (i - 1) * width, vals, width, label=name)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=15, ha="right")
-    ax.set_ylim(0, 1.05)
-    ax.set_ylabel("Score")
-    ax.set_title("Overall metrics by run")
-    ax.legend()
-    fig.tight_layout()
-    p = out_dir / "overall_metrics.png"
-    fig.savefig(p, dpi=150)
-    plt.close(fig)
-    written.append(p)
-
-    # Category grouped (use first pack's category names for order)
+    # LoCoMo F1 by paper category (colors = runs / conditions).
     cats = list((packs[0]["metrics"].get("by_category") or {}).keys())
     if cats:
         fig, ax = plt.subplots(figsize=(9, 4.5))
@@ -335,12 +319,12 @@ def make_compare_plots(packs: list[dict], paired: dict, out_dir: Path) -> list[P
 
         frac_same_m = paired.get("fraction_same_memory_text") or 0
         frac_same_a = paired.get("fraction_same_answer") or 0
-        frac_same_k = paired.get("fraction_same_cache_key")
+        frac_same_h = paired.get("fraction_same_llm_request_hash")
         names = ["same\nmemory", "same\nanswer"]
         vals = [frac_same_m, frac_same_a]
-        if frac_same_k is not None:
-            names.append("same\ncache key")
-            vals.append(frac_same_k)
+        if frac_same_h is not None:
+            names.append("same\nrequest hash")
+            vals.append(frac_same_h)
         axes[1].bar(names, vals, color="#54A24B")
         axes[1].set_ylim(0, 1.05)
         axes[1].set_title("Condition distinctness (lower ≈ better)")
@@ -367,11 +351,19 @@ def make_compare_plots(packs: list[dict], paired: dict, out_dir: Path) -> list[P
             plt.close(fig)
             written.append(p)
 
+        extra = write_compare_prediction_plots(
+            paired.get("paired_rows") or [],
+            label_a=str(paired.get("run_a") or "A"),
+            label_b=str(paired.get("run_b") or "B"),
+            out_dir=out_dir,
+        )
+        written.extend(extra)
+
     return written
 
 
 def condition_diff_lines(packs: list[dict]) -> list[str]:
-    """Document what differed between conditions (C0/C1 builders + configs)."""
+    """Document what differed between memory conditions (builders + configs)."""
     mems = []
     for pack in packs:
         m = pack["metrics"].get("memory_type") or pack["meta"].get("memory_type")
@@ -383,7 +375,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "Sandwich view: **same** LoCoMo questions, answer prompt, answer model, and metrics; "
         "only the **MemoryBuilder** (middle layer) changes what string is pasted into the prompt.",
         "",
-        "### Frozen (identical across C0 / C1 in this suite)",
+        "### Frozen (identical across raw_chunks / session_summaries in this suite)",
         "",
         "| Piece | File / setting |",
         "|-------|----------------|",
@@ -396,10 +388,10 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "",
         "### Variable middle only",
         "",
-        "| | **C0 raw dialog** | **C1 session summaries** |",
+        "| | **raw_chunks** | **session_summaries** |",
         "|--|--------------------|---------------------------|",
-        "| **memory_type** | `c0_raw` | `c1_session_summary` |",
-        "| **Config** | `configs/c0_raw.yaml` | `configs/c1_session_summary.yaml` |",
+        "| **memory_type** | `raw_chunks` | `session_summaries` |",
+        "| **Config** | `configs/raw_chunks.yaml` | `configs/session_summaries.yaml` |",
         "| **Builder class** | `RawConversationMemoryBuilder` | `SessionSummaryMemoryBuilder` |",
         "| **Code** | `src/locomo_eval/memory.py` | same file |",
         "| **Source fields** | `conversation.session_*` turns + dates | `session_summary.session_*_summary` from LoCoMo release |",
@@ -410,7 +402,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "",
         "### How config selects the builder",
         "",
-        "1. YAML sets `pipeline.memory` (`c0_raw` or `c1_session_summary`).",
+        "1. YAML sets `pipeline.memory` (`raw_chunks` or `session_summaries`).",
         "2. `run_locomo_pipeline_with_memory_config` in `run.py` calls `get_memory_builder(...)`.",
         "3. `builder.build(conversation, question)` -> `Memory.text`.",
         "4. That text fills `{memory}` in `prompts/qa_v1.txt`; gold **answer is never** sent to the LLM.",
@@ -432,11 +424,11 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
     lines.append("")
 
     # Optional: flag if non-standard memory labels
-    known = {"c0_raw", "c1_session_summary"}
+    known = {"raw_chunks", "session_summaries"}
     for m in mems:
         if m and m not in known:
             lines.append(
-                f"- Note: memory_type `{m}` is outside the canned C0/C1 table above; "
+                f"- Note: memory_type `{m}` is outside the canned raw_chunks / session_summaries table above; "
                 f"see `src/locomo_eval/memory.py` registry."
             )
             lines.append("")
@@ -471,7 +463,7 @@ def write_text_report(
         )
         lines.append(
             f"- API/meta: new_api={meta.get('n_new_api_calls')}, "
-            f"llm_response_cache_hits={meta.get('n_llm_response_cache_hits') or meta.get('n_disk_cache_hits')}, "
+            f"llm_response_hash_hits={meta.get('n_llm_response_hash_hits') or meta.get('n_llm_response_cache_hits') or meta.get('n_disk_cache_hits')}, "
             f"resumed={meta.get('n_resumed')}"
         )
         preds = pack["predictions"]
@@ -490,7 +482,7 @@ def write_text_report(
         lines.append(bottom_warn)
         lines.append("")
 
-    lines.append("## Paired condition sanity (cache / memory)")
+    lines.append("## Paired condition sanity (memory / request hash)")
     if paired.get("n_common") is None and "note" in paired:
         lines.append(paired["note"])
     else:
@@ -505,15 +497,15 @@ def write_text_report(
         )
         lines.append(
             f"- fraction same memory text: **{paired.get('fraction_same_memory_text')}** "
-            f"(want ~0 for C0 vs C1)"
+            f"(want ~0 for raw_chunks vs session_summaries)"
         )
         lines.append(
             f"- fraction same predicted answer: **{paired.get('fraction_same_answer')}**"
         )
         lines.append(
-            f"- fraction same theoretical API cache key: "
-            f"**{paired.get('fraction_same_cache_key')}** "
-            f"(want ~0; if high, conditions would share experiments/cache entries)"
+            f"- fraction same llm request hash: "
+            f"**{paired.get('fraction_same_llm_request_hash')}** "
+            f"(want ~0; SHA-256 of model + filled QA prompt, not a live store lookup)"
         )
         lines.append(
             f"- mean delta LoCoMo F1 (B-A): **{paired.get('mean_delta_locomo_f1_b_minus_a')}**"
@@ -523,8 +515,8 @@ def write_text_report(
             f"- conditions_look_distinct: {san.get('conditions_look_distinct')}"
         )
         lines.append(
-            f"- cross_condition_cache_collision_ok: "
-            f"{san.get('cross_condition_cache_collision_ok')}"
+            f"- cross_condition_request_hash_collision_ok: "
+            f"{san.get('cross_condition_request_hash_collision_ok')}"
         )
         lines.append(f"- note: {san.get('note')}")
     lines.append("")
@@ -547,25 +539,25 @@ def write_text_report(
             lines.append(f"- `{p}`")
         lines.append("")
 
-    lines.append("## How to read cache-key sanity")
+    lines.append("## How to read request-hash sanity")
     lines.append(
-        "Live `LlmResponseCache` is **not wired** into `run.py` (future optimization). "
-        "`fraction_same_cache_key` still hashes what the answer-reader payload *would* "
-        "have been, so C0 vs C1 distinctness can be checked without a disk cache."
+        "Live `LlmResponseHash` is **not wired** into `run.py` (future optimization). "
+        "`fraction_same_llm_request_hash` still hashes what the LLM request "
+        "would have been, so memory-condition distinctness can be checked without a disk store."
     )
     lines.append(
-        "1. **Within a run** (`prediction.cached` / `n_llm_response_cache_hits`): "
-        "expect unused/absent until the cache is passed to `get_reader`. "
-        "JSONL resume is `n_resumed`, not this field."
+        "1. **Within a run** (`prediction.cached` / `n_llm_response_hash_hits`): "
+        "expect unused/absent until the store is passed to `get_reader`. "
+        "JSONL resume is `n_resumed`, not this hash."
     )
     lines.append(
-        "2. **Across C0 vs C1**: recompute cache keys from stored `memory_text`. "
-        "Fraction same_cache_key ≈ 0 means the experimental middle layer changed "
-        "the prompt payload — conditions did something different."
+        "2. **Across memory conditions**: recompute SHA-256 hashes from stored `memory_text`. "
+        "Fraction same_llm_request_hash ≈ 0 means the experimental middle "
+        "layer changed the prompt payload — conditions did something different."
     )
     lines.append(
         "3. Shared `experiments/cache/` directory is normal; keys are content hashes, "
-        "not condition labels."
+        "not condition labels. That directory is unused until the store is wired."
     )
     lines.append("")
 
@@ -584,7 +576,7 @@ def main() -> None:
     p.add_argument(
         "--prompt",
         default="prompts/qa_v1.txt",
-        help="Prompt used to reconstruct theoretical cache keys",
+        help="Prompt used to rebuild llm_request_hash values for distinctness",
     )
     args = p.parse_args()
 
@@ -635,9 +627,9 @@ def main() -> None:
     print(f"Wrote {out / 'compare.json'}")
     for plot in plot_paths:
         print(f"Plot: {plot}")
-    if paired_slim.get("fraction_same_cache_key") is not None:
+    if paired_slim.get("fraction_same_llm_request_hash") is not None:
         print(
-            f"Sanity same_cache_key={paired_slim['fraction_same_cache_key']} "
+            f"Sanity same_request_hash={paired_slim['fraction_same_llm_request_hash']} "
             f"same_memory={paired_slim.get('fraction_same_memory_text')}"
         )
 

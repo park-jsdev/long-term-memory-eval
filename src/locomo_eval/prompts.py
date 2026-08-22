@@ -19,3 +19,20 @@ def load_prompt_template(path: str | Path) -> tuple[str, str]:
 
 def render_qa_prompt(template: str, memory: str, question: str) -> str:
     return template.format(memory=memory, question=question)
+
+
+def render_teacher_session_prompt(
+    template: str,
+    *,
+    date: str,
+    session_text: str,
+    speaker_a: str,
+    speaker_b: str,
+) -> str:
+    """Fill prompts/teacher_session_v1.txt. Gold answers must not appear here."""
+    return template.format(
+        date=date,
+        session_text=session_text,
+        speaker_a=speaker_a,
+        speaker_b=speaker_b,
+    )
