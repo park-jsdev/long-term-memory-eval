@@ -1,8 +1,8 @@
 # LoCoMo multi-teacher memory research
 
 conda + plain YAML + plain JSON + CSV/plots.  
-**Now (v0.1):** sandwich **read path** with draft conditions **C0** (raw dialog) and **C1** (session summaries), fixed OpenAI answer model.  
-**Later:** multi-teacher fusion (C2–C4). Maps: [`docs/reports/engineering_notebook.md`](docs/reports/engineering_notebook.md), [`docs/agent/HUMANS.md`](docs/agent/HUMANS.md).
+**Now (v0.1):** sandwich **read path** with draft conditions **`raw_chunks`** (raw dialog) and **`session_summaries`**, fixed OpenAI answer model.  
+**Later:** `teacher_session_summaries`, then `top1_teacher` / `whole_memory_aggregation` / `claim_fusion`. Maps: [`docs/reports/engineering_notebook.md`](docs/reports/engineering_notebook.md), [`docs/agent/HUMANS.md`](docs/agent/HUMANS.md).
 
 ---
 
@@ -25,7 +25,7 @@ flowchart TB
     RUN["src/locomo_eval/run.py"]
     EVAL["src/locomo_eval/offline_evaluate.py"]
     PREP["scripts/prepare_data.py"]
-    CMP["scripts/compare_runs.py"]
+    CMP["scripts/compare_full_runs.py"]
     FETCH["scripts/fetch_locomo.py"]
   end
 
@@ -35,7 +35,7 @@ flowchart TB
     MEM["memory.py"]
     PR["prompts.py"]
     RD["readers.py"]
-    CACHE["utils/llm_response_cache.py\n(unwired)"]
+    HASH["utils/llm_response_hash.py\n(unwired)"]
     MET["metrics.py"]
     REP["report.py"]
   end
@@ -58,7 +58,7 @@ flowchart TB
   RUN --> REP
   DS --> SCH
   MEM --> SCH
-  RD -.-> CACHE
+  RD -.-> HASH
   RD --> PR
   MET --> LOCOMO
   REP --> OUT
@@ -74,7 +74,7 @@ Experimental **middle** = choose a `MemoryBuilder`. Everything else reads `Memor
 ```mermaid
 flowchart LR
   subgraph Inputs
-    CFG["YAML: pipeline.memory\nc0_raw | c1_session_summary"]
+    CFG["YAML: pipeline.memory\nraw_chunks | session_summaries"]
     JSON["locomo10.json"]
   end
 
@@ -84,9 +84,9 @@ flowchart LR
   end
 
   subgraph Builders["memory.py"]
-    C0["c0_raw\nRawConversationMemoryBuilder"]
-    C1["c1_session_summary\nSessionSummaryMemoryBuilder"]
-    CX["c2…c4 later"]
+    Raw["raw_chunks\nRawConversationMemoryBuilder"]
+    Summ["session_summaries\nSessionSummaryMemoryBuilder"]
+    Later["teacher / fusion later"]
   end
 
   subgraph OutMem["schemas.Memory"]
@@ -97,22 +97,22 @@ flowchart LR
 
   JSON --> CONV
   JSON --> Q
-  CFG --> C0
-  CFG --> C1
-  CFG --> CX
-  CONV --> C0
-  CONV --> C1
-  Q -.->|"optional later\nquery-aware"| C0
-  C0 --> OutMem
-  C1 --> OutMem
-  CX --> OutMem
+  CFG --> Raw
+  CFG --> Summ
+  CFG --> Later
+  CONV --> Raw
+  CONV --> Summ
+  Q -.->|"optional later\nquery-aware"| Raw
+  Raw --> OutMem
+  Summ --> OutMem
+  Later --> OutMem
 ```
 
 | Condition | Config | Input from dataset | Output (`Memory.text`) |
 |-----------|--------|--------------------|-------------------------|
-| C0 | `configs/c0_raw.yaml` | session turns + dates | chronological raw dialog |
-| C1 | `configs/c1_session_summary.yaml` | `session_summary` | concatenated session summaries |
-| C2–C4 | *(future)* | teachers / store | fused or selected memory string |
+| `raw_chunks` | `configs/raw_chunks.yaml` | session turns + dates | chronological raw dialog |
+| `session_summaries` | `configs/session_summaries.yaml` | `session_summary` | concatenated session summaries |
+| later | *(future)* | teachers / store | fused or selected memory string |
 
 ### 3. Evaluation experiment pipeline — changing conditions
 
@@ -126,8 +126,8 @@ flowchart TB
 
   subgraph Variable["VARIABLE MIDDLE — change this"]
     direction LR
-    M0["--memory c0_raw\nor c0_raw.yaml"]
-    M1["--memory c1_session_summary\nor c1_*.yaml"]
+    M0["--memory raw_chunks\nor raw_chunks.yaml"]
+    M1["--memory session_summaries\nor session_summaries.yaml"]
     MX["future conditions"]
   end
 
@@ -140,7 +140,7 @@ flowchart TB
   subgraph Artifacts["experiments/"]
     A["run A: predictions + metrics"]
     B["run B: predictions + metrics"]
-    C["compare_runs.py → SUMMARY + plots"]
+    C["compare_full_runs.py → SUMMARY + plots"]
   end
 
   D --> M0
@@ -161,12 +161,12 @@ flowchart TB
 
 1. Same `prompt_path`, `reader.model`, `temperature`, `max_questions` / sample filter.  
 2. Differ only `pipeline.memory` (or config file).  
-3. Distinct `--run-id`s → then `scripts/compare_runs.py`.  
-4. Sanity: `fraction_same_cache_key ≈ 0` and different mean `memory_chars` in the compare report.
+3. Distinct `--run-id`s → then `scripts/compare_full_runs.py`.  
+4. Sanity: `fraction_same_llm_request_hash ≈ 0` and different mean `memory_chars` in the compare report. That hash is a SHA-256 of the intended LLM request (not a live store lookup).
 
 ### 4. Memory + LLM lifecycle — builder, schema, prompts
 
-Request path for one QA item. `LlmResponseCache` exists under `utils/` but is **not** used by `run.py` yet.
+Request path for one QA item. `LlmResponseHash` exists under `utils/` but is **not** used by `run.py` yet.
 
 ```mermaid
 sequenceDiagram
@@ -190,12 +190,12 @@ sequenceDiagram
 
 **What is frozen vs experimental in this lifecycle**
 
-| Stage | Freeze for C0–C4 tables? | Knob |
+| Stage | Freeze for memory-condition tables? | Knob |
 |-------|---------------------------|------|
 | Builder → `Memory.text` | No | condition |
 | Prompt template file | Yes (after lock) | `prompts/qa_*.txt` |
 | Reader model / decode | Yes | `reader.*` in YAML |
-| Cache | Off (future optimization) | `utils/llm_response_cache.py`; pass to `get_reader` to re-enable |
+| Store | Off (future optimization) | `utils/llm_response_hash.py`; pass to `get_reader` to re-enable |
 | Metrics | Always | `metrics.py` / LoCoMo F1 |
 
 ---
@@ -211,7 +211,7 @@ Update this section when you add Claude, Gemini, local HF, etc.
 |----------|---------|----------------|------|-------------------|------------|
 | **OpenAI** | Platform API ([platform.openai.com](https://platform.openai.com)) | Official Python SDK `openai` ≥1.30 — **Chat Completions** (`client.chat.completions.create`) | `OPENAI_API_KEY` in repo-root `.env` (auto-loaded) | **Default:** `gpt-4.1-mini` · **Paper-style option:** `gpt-4.1` (set `reader.model`) | `src/locomo_eval/readers.py` → `OpenAIReader` |
 
-| Decode defaults (frozen bottom for C0/C1 suite unless re-locked) | Value |
+| Decode defaults (frozen bottom unless re-locked) | Value |
 |-----------------------------------------------------------------|-------|
 | temperature | `0.0` |
 | max_tokens (completion) | `64` |
@@ -226,17 +226,17 @@ Update this section when you add Claude, Gemini, local HF, etc.
 
 | Command | API? | Notes |
 |---------|------|--------|
-| `python -m src.locomo_eval.run --config configs/c0_raw.yaml ...` | Yes if `reader.provider: openai` | One Chat Completions call per unanswered QA (JSONL resume skips finished) |
+| `python -m src.locomo_eval.run --config configs/raw_chunks.yaml ...` | Yes if `reader.provider: openai` | One Chat Completions call per unanswered QA (JSONL resume skips finished) |
 | `... --reader mock` | No | Offline plumbing |
 | `python -m src.locomo_eval.offline_evaluate --predictions ...` | No | String-metric rescore only (not an LLM autorater) |
-| `python scripts/compare_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
+| `python scripts/compare_full_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
 | `python scripts/prepare_data.py ...` | No | Local JSON → CSV/JSONL |
 | `python scripts/fetch_locomo.py` | GitHub raw HTTP | Dataset file only, not OpenAI |
 
 ### Config knobs
 
 ```yaml
-# configs/c0_raw.yaml, c1_session_summary.yaml, baseline.yaml
+# configs/raw_chunks.yaml, session_summaries.yaml, baseline.yaml
 reader:
   provider: openai          # or mock
   model: gpt-4.1-mini       # override: --model gpt-4.1
@@ -250,8 +250,8 @@ reader:
 CLI overrides:
 
 ```bash
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml \
-  --model gpt-4.1 --max-questions 20 --run-id cmp_c1_gpt41_n20
+python -m src.locomo_eval.run --config configs/session_summaries.yaml \
+  --model gpt-4.1 --max-questions 20 --run-id cmp_session_summaries_gpt41_n20
 ```
 
 ### Cost & quota considerations
@@ -261,8 +261,8 @@ python -m src.locomo_eval.run --config configs/c1_session_summary.yaml \
 | Billing unit | 1 Chat Completions request per unanswered question (JSONL resume skips finished Qs) |
 | Full LoCoMo | ~1986 Qs per condition → ~1986 requests if starting cold |
 | Free/low tier | Can hit **RPD ~50/day** → use `max_questions`, resume same `--run-id` |
-| Prompt size | C0 raw can be ~tens of k chars (truncated by `memory_max_chars` on C0); drives **input tokens** not request count |
-| LLM cache | Implemented in `utils/llm_response_cache.py`, **not wired**. Re-enable later via `get_reader(..., llm_response_cache=...)` |
+| Prompt size | `raw_chunks` can be ~tens of k chars (truncated by `memory_max_chars`); drives **input tokens** not request count |
+| LLM response hash | Implemented in `utils/llm_response_hash.py`, **not wired**. Re-enable later via `get_reader(..., llm_response_hash=...)` |
 | Raising limits | [Billing](https://platform.openai.com/account/billing) + [Rate limits](https://platform.openai.com/account/rate-limits) |
 
 ### Planned swaps (not wired)
@@ -292,23 +292,23 @@ For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (gitignor
 See **External APIs & models** above for the authoritative inventory. Short form: low-tier Orgs may see **~50 RPD** for `gpt-4.1-mini`; full eval needs higher limits or multi-day resume.
 ---
 
-## Phase 1 — C0 vs C1 (frozen reader/prompt, vary memory)
+## Phase 1 — raw_chunks vs session_summaries (frozen reader/prompt, vary memory)
 
 See [`docs/reports/engineering_notebook.md`](docs/reports/engineering_notebook.md).
 
 ```bash
 # Offline: both conditions mockable
-python -m src.locomo_eval.run --config configs/c0_raw.yaml --reader mock --max-questions 5 --run-id smoke_c0
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --reader mock --max-questions 5 --run-id smoke_c1
+python -m src.locomo_eval.run --config configs/raw_chunks.yaml --reader mock --max-questions 5 --run-id smoke_raw_chunks
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --reader mock --max-questions 5 --run-id smoke_session_summaries
 
 # Live (same model/prompt; n=20 for a cheap comparison)
-python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --run-id cmp_c0_n20
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
-python scripts/compare_runs.py --runs experiments/cmp_c0_n20 experiments/cmp_c1_n20 --out experiments/compare_c0_c1
+python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
+python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks_n20 experiments/cmp_session_summaries_n20 --out experiments/compare_raw_chunks_session_summaries
 ```
 
 Outputs under `experiments/<run_id>/`: `predictions.csv`, `metrics.json`, `plots/`, `run_meta.json`, and **`memory/`** (exact `{memory}` texts + schema — see [`docs/schemas/memory_runtime.md`](docs/schemas/memory_runtime.md)).  
-Compare also writes `SUMMARY.md`, `paired_questions.csv`, and cache/memory sanity plots under `experiments/compare_c0_c1/`.
+Compare also writes `SUMMARY.md`, `paired_questions.csv`, and cache/memory sanity plots under `experiments/compare_raw_chunks_session_summaries/`.
 
 Flatten the dataset for inspection:
 
@@ -331,12 +331,12 @@ python -m unittest tests/test_evaluation_pipeline.py -q
 ## Layout
 
 ```text
-configs/                  # baseline, c0_raw, c1_session_summary
+configs/                  # baseline, raw_chunks, session_summaries
 prompts/qa_v1.txt
 src/locomo_eval/          # run, memory, memory_log, readers, metrics, report
 docs/schemas/             # memory_runtime.md + memory_io.schema.json
 src/metrics/locomo_qa.py  # official LoCoMo F1
-scripts/                  # fetch, prepare_data, compare_runs
+scripts/                  # fetch, prepare_data, compare_full_runs
 docs/reports/             # engineering_notebook
 docs/agent/               # SPEC, AGENTS, HUMANS, traces
 docs/reflections/         # version audit writeups

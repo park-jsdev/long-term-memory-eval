@@ -1,13 +1,13 @@
-# C0 experiment. Standalone YAML — not a child of baseline.yaml.
-#   python -m src.locomo_eval.run --config configs/c0_raw.yaml --run-id ...
-# Freeze reader/prompt when comparing to configs/c1_session_summary.yaml.
+# Raw dialog turns (session chunks). Standalone YAML — not a child of baseline.yaml.
+#   python -m src.locomo_eval.run --config configs/raw_chunks.yaml --run-id ...
+# Freeze reader/prompt when comparing to configs/session_summaries.yaml.
 
 data:
   raw_path: data/raw/locomo10.json
   locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
 
 pipeline:
-  memory: c0_raw
+  memory: raw_chunks
   # Optional rough char budget for answer-model context (null = full dialog)
   memory_max_chars: 120000
   prompt_path: prompts/qa_v1.txt
@@ -25,5 +25,5 @@ reader:
 run:
   run_id: null
   output_dir: experiments
-  # Future optimization (unwired): src/locomo_eval/utils/llm_response_cache.py
-  # llm_response_cache_dir: experiments/cache
+  # Future optimization (unwired): src/locomo_eval/utils/llm_response_hash.py
+  # llm_response_hash_dir: experiments/cache

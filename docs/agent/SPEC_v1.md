@@ -63,7 +63,7 @@ Each row should contain:
   "reference_answer": "She began painting.",
   "predicted_answer": "Caroline began painting.",
   "category": "single-hop",
-  "memory_type": "session_summary",
+  "memory_type": "session_summaries",
   "memory_text": "...",
   "reader_model": "MODEL_NAME",
   "prompt_version": "v1"
@@ -75,7 +75,7 @@ Also produce one summary metrics file:
 ```json
 {
   "number_of_questions": 100,
-  "memory_type": "session_summary",
+  "memory_type": "session_summaries",
   "reader_model": "MODEL_NAME",
   "metrics": {
     "exact_match": 0.0,
@@ -186,7 +186,7 @@ The pipeline should run with one command:
 ```bash
 python -m locomo_eval.run \
   --data data/locomo10.json \
-  --memory session_summary \
+  --memory session_summaries \
   --reader MODEL_NAME \
   --output outputs/baseline.jsonl
 ```

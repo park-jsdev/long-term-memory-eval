@@ -4,7 +4,7 @@ OpenAI is the Phase 1 implementation; Claude can replace it for answer/eval late
 MockReader supports offline dry-runs and unit tests.
 
 OpenAI free-tier accounts often cap at ~50 requests/day (RPD). Each QA item is
-one request unless a cache is passed. LlmResponseCache is a future optimization
+one request unless a store is passed. LlmResponseHash is a future optimization
 (utils/); run.py does not pass one. Pace with min_request_interval + 429 retries.
 """
 
@@ -17,11 +17,10 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .utils.llm_response_cache import (
-    PIPELINE_STAGE_ANSWER_READER,
-    LlmResponseCache,
-)
+from .utils.llm_request_hash import llm_request_hash, llm_request_payload
+from .utils.llm_response_hash import PIPELINE_STAGE_ANSWER_READER, LlmResponseHash
 from .env import load_env
+from .models import chat_create_kwargs, resolve_model
 from .prompts import render_qa_prompt
 
 
@@ -47,7 +46,12 @@ class MockReader(Reader):
         self.model_name = model_name
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
-        return "Unknown.", {"cached": False, "latency_s": 0.0, "usage": {}}
+        return "Unknown.", {
+            "cached": False,
+            "latency_s": 0.0,
+            "usage": {},
+            "model": self.model_name,
+        }
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -84,12 +88,10 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     return None
 
 
-class OpenAIReader(Reader):
-    """Live answer LLM (Chat Completions).
+class OpenAIChatCaller:
+    """Shared Chat Completions helper for reader and teacher.
 
-    Optional ``llm_response_cache`` (stage=answer_reader) is implemented but not
-    passed from run.py — future optimization. Re-enable by constructing
-    LlmResponseCache and passing it to get_reader.
+    Optional ``llm_response_hash`` is implemented but not passed from run.py.
     """
 
     def __init__(
@@ -98,16 +100,17 @@ class OpenAIReader(Reader):
         temperature: float = 0.0,
         max_tokens: int = 64,
         api_key_env: str = "OPENAI_API_KEY",
-        llm_response_cache: LlmResponseCache | None = None,  # future optimization; run.py leaves None
+        llm_response_hash: LlmResponseHash | None = None,  # future optimization; run.py leaves None
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
     ):
-        self.model_name = model
+        self.spec = resolve_model(model)
+        self.model_name = self.spec.model_id
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.llm_response_cache = llm_response_cache
+        self.llm_response_hash = llm_response_hash
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.min_request_interval_s = min_request_interval_s
@@ -119,7 +122,7 @@ class OpenAIReader(Reader):
         if not api_key:
             raise RuntimeError(
                 f"Set {api_key_env} in a repo-root .env file "
-                f"(see .env.example) or export it in the shell before using OpenAIReader."
+                f"(see .env.example) or export it in the shell before using OpenAI."
             )
         try:
             from openai import OpenAI
@@ -134,46 +137,48 @@ class OpenAIReader(Reader):
         if self._last_request_t and elapsed < self.min_request_interval_s:
             time.sleep(self.min_request_interval_s - elapsed)
 
-    def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
-        prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
-        cache_payload = {
-            "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
-            "provider": "openai",
-            "model": self.model_name,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            "prompt": prompt,
-        }
-        key = LlmResponseCache.make_key(cache_payload) if self.llm_response_cache else None
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        request_extra: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        """Return (text, call_meta). Hash payload matches ``llm_request_hash``."""
+        # Same dict the offline SHA-256 helper hashes. No disk write unless a
+        # store was passed (run.py does not pass one).
+        request_payload = llm_request_payload(
+            spec=self.spec,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            extra=request_extra,
+        )
+        key = llm_request_hash(request_payload) if self.llm_response_hash else None
 
-        if self.llm_response_cache and key:
-            hit = self.llm_response_cache.get(key)
+        if self.llm_response_hash and key:
+            hit = self.llm_response_hash.get(key)
             if hit is not None:
                 return hit["answer"], {
                     "cached": True,
                     "latency_s": 0.0,
                     "usage": hit.get("usage", {}),
-                    "cache_key": key,
+                    "llm_request_hash": key,
                     "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+                    "model": self.model_name,
+                    "family": self.spec.family,
                 }
 
+        create_kwargs = chat_create_kwargs(
+            self.spec,
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
         last_exc: BaseException | None = None
         for attempt in range(self.max_retries + 1):
             self._pace()
             t0 = time.time()
             try:
-                resp = self._client.chat.completions.create(
-                    model=self.model_name,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You answer questions using only the provided memory.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                )
+                resp = self._client.chat.completions.create(**create_kwargs)
                 self._last_request_t = time.time()
                 latency = time.time() - t0
                 text = (resp.choices[0].message.content or "").strip()
@@ -185,16 +190,18 @@ class OpenAIReader(Reader):
                         "total_tokens": resp.usage.total_tokens,
                     }
 
-                if self.llm_response_cache and key:
-                    self.llm_response_cache.set(key, {"answer": text, "usage": usage})
+                if self.llm_response_hash and key:
+                    self.llm_response_hash.set(key, {"answer": text, "usage": usage})
 
                 return text, {
                     "cached": False,
                     "latency_s": round(latency, 3),
                     "usage": usage,
-                    "cache_key": key,
+                    "llm_request_hash": key,
                     "attempts": attempt + 1,
                     "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+                    "model": self.model_name,
+                    "family": self.spec.family,
                 }
             except Exception as exc:
                 last_exc = exc
@@ -203,7 +210,6 @@ class OpenAIReader(Reader):
 
                 wait = _retry_after_seconds(exc)
                 if wait is None:
-                    # Exponential backoff with jitter (caps below).
                     wait = min(2 ** attempt + random.uniform(0, 1), 300.0)
                 wait = min(wait, self.max_wait_s)
                 print(
@@ -216,26 +222,80 @@ class OpenAIReader(Reader):
         raise last_exc
 
 
+class OpenAIReader(Reader):
+    """Live answer LLM (Chat Completions). Optional store hook; run.py does not pass one."""
+
+    def __init__(
+        self,
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: int = 64,
+        api_key_env: str = "OPENAI_API_KEY",
+        llm_response_hash: LlmResponseHash | None = None,
+        timeout_s: float = 60.0,
+        max_retries: int = 8,
+        min_request_interval_s: float = 0.0,
+        max_wait_s: float = 3600.0,
+    ):
+        self._chat = OpenAIChatCaller(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_env=api_key_env,
+            llm_response_hash=llm_response_hash,
+            timeout_s=timeout_s,
+            max_retries=max_retries,
+            min_request_interval_s=min_request_interval_s,
+            max_wait_s=max_wait_s,
+        )
+        self.model_name = self._chat.model_name
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.llm_response_hash = llm_response_hash
+
+    def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
+        prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
+        messages = [
+            {
+                "role": "system",
+                "content": "You answer questions using only the provided memory.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+        return self._chat.complete(
+            messages,
+            request_extra={
+                # These fields complete llm_request_payload; offline compare
+                # rebuilds the same dict via llm_request_hash_from_prediction.
+                "role": "reader",
+                "prompt": prompt,
+                "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+            },
+        )
+
+
 def get_reader(
     name: str,
     model: str,
     temperature: float = 0.0,
     max_tokens: int = 64,
-    llm_response_cache: LlmResponseCache | None = None,
+    llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
 ) -> Reader:
-    """Build a mock or OpenAI reader. ``llm_response_cache`` defaults to None (unwired)."""
+    """Build a mock or OpenAI reader. ``llm_response_hash`` defaults to None (unwired)."""
     name = name.lower()
     if name == "mock":
-        return MockReader(model_name=model or "mock")
+        # Resolve aliases (luna → gpt-5.6-luna) so mock logs match live ids.
+        model_name = resolve_model(model).model_id if model else "mock"
+        return MockReader(model_name=model_name)
     if name == "openai":
         return OpenAIReader(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_cache=llm_response_cache,
+            llm_response_hash=llm_response_hash,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

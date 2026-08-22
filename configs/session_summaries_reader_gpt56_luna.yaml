@@ -1,0 +1,28 @@
+# Same session_summaries memory as baseline.yaml; only the frozen answer/eval model changes.
+# Use for cross-model robustness of the reader (not a memory-condition claim).
+#
+#   python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml \
+#       --max-questions 5 --run-id cmp_reader_luna_n5
+
+data:
+  raw_path: data/raw/locomo10.json
+  locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+
+pipeline:
+  memory: session_summaries
+  prompt_path: prompts/qa_v1.txt
+  max_questions: null
+
+reader:
+  provider: openai
+  model: gpt-5.6-luna
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+
+run:
+  run_id: null
+  output_dir: experiments
+  cache_dir: experiments/cache
