@@ -12,7 +12,7 @@
     },
     "memory_type": {
       "type": "string",
-      "description": "Condition / builder id (c0_raw, c1_session_summary, c1_teacher, …)"
+      "description": "Condition / builder id (raw_chunks, session_summaries, teacher_session_summaries, …)"
     },
     "text": {
       "type": "string",
@@ -25,7 +25,7 @@
     },
     "teacher_model": {
       "type": ["string", "null"],
-      "description": "Write-path teacher model id when memory_type is c1_teacher"
+      "description": "Write-path teacher model id when memory_type is teacher_session_summaries"
     },
     "teacher_provider": {
       "type": ["string", "null"],

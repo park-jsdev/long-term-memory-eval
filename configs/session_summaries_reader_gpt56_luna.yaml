@@ -1,7 +1,7 @@
-# Same C1 memory as baseline.yaml; only the frozen answer/eval model changes.
-# Use for cross-model robustness of the reader (not a C0 vs C1 memory claim).
+# Same session_summaries memory as baseline.yaml; only the frozen answer/eval model changes.
+# Use for cross-model robustness of the reader (not a memory-condition claim).
 #
-#   python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml \
+#   python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml \
 #       --max-questions 5 --run-id cmp_reader_luna_n5
 
 data:
@@ -9,7 +9,7 @@ data:
   locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
 
 pipeline:
-  memory: c1_session_summary
+  memory: session_summaries
   prompt_path: prompts/qa_v1.txt
   max_questions: null
 

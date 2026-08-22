@@ -1,14 +1,14 @@
 """Compare runs that differ by reader and/or teacher model.
 
 Unlike ``compare_full_runs.py`` (freeze bottom, vary memory), this script *expects*
-model identity to change. It reports answer agreement, score deltas, cache-key
-distinctness, and whether logs recorded the swap.
+model identity to change. It reports answer agreement, score deltas, llm-request
+hash distinctness, and whether logs recorded the swap.
 
 Foundation for later cross-model robustness tables (same memory, different
 answer LLM; or same reader, different teacher within a family).
 
     python scripts/compare_cross_model.py \\
-        --runs experiments/c1_mini experiments/c1_luna \\
+        --runs experiments/session_summaries_mini experiments/session_summaries_luna \\
         --axis reader --out experiments/compare_reader_mini_luna
 
     python scripts/compare_cross_model.py \\
@@ -30,10 +30,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.compare_full_runs import load_pack  # noqa: E402
-from src.locomo_eval.utils.llm_response_cache import LlmResponseCache  # noqa: E402
 from src.locomo_eval.metrics import score_row  # noqa: E402
 from src.locomo_eval.models import resolve_model  # noqa: E402
-from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt  # noqa: E402
+from src.locomo_eval.prompts import load_prompt_template  # noqa: E402
+from src.locomo_eval.utils.llm_request_hash import (  # noqa: E402
+    llm_request_hash_from_prediction,
+)
 
 
 def _meta_model(pack: dict, field: str) -> str | None:
@@ -44,26 +46,6 @@ def _meta_model(pack: dict, field: str) -> str | None:
     if preds and preds[0].get(field):
         return str(preds[0][field])
     return None
-
-
-def theoretical_cache_key(row: dict, meta: dict, template: str) -> str:
-    """Rebuild the reader cache key from stored memory + model (no API)."""
-    model = row.get("reader_model") or meta.get("reader_model")
-    spec = resolve_model(str(model))
-    payload = {
-        "provider": "openai",
-        "model": spec.model_id,
-        "family": spec.family,
-        "temperature": float(meta.get("temperature", 0.0) or 0.0),
-        "max_tokens": int(meta.get("max_tokens", 64) or 64),
-        "max_tokens_field": spec.max_tokens_field,
-        "reasoning_effort": spec.reasoning_effort,
-        "role": "reader",
-        "prompt": render_qa_prompt(
-            template, row.get("memory_text") or "", row.get("question") or ""
-        ),
-    }
-    return LlmResponseCache.make_key(payload)
 
 
 def cross_model_analysis(
@@ -86,7 +68,7 @@ def cross_model_analysis(
     teacher_a = _meta_model(a, "teacher_model")
     teacher_b = _meta_model(b, "teacher_model")
 
-    same_memory = same_answer = same_cache = 0
+    same_memory = same_answer = same_request_hash = 0
     deltas: list[float] = []
     paired_rows: list[dict[str, Any]] = []
 
@@ -98,12 +80,14 @@ def cross_model_analysis(
             same_memory += 1
         if pa == pb:
             same_answer += 1
-        key_a = key_b = None
+        hash_a = hash_b = None
         if template is not None:
-            key_a = theoretical_cache_key(ra, a["meta"], template)
-            key_b = theoretical_cache_key(rb, b["meta"], template)
-            if key_a == key_b:
-                same_cache += 1
+            # Offline distinctness: same SHA-256 ⇒ same intended reader request.
+            # Not a disk lookup (LlmResponseHash is unwired from run.py).
+            hash_a = llm_request_hash_from_prediction(ra, a["meta"], template)
+            hash_b = llm_request_hash_from_prediction(rb, b["meta"], template)
+            if hash_a == hash_b:
+                same_request_hash += 1
         sa = score_row(pa, str(ra.get("reference_answer", "")), int(ra.get("category", 0)))
         sb = score_row(pb, str(rb.get("reference_answer", "")), int(rb.get("category", 0)))
         delta = sb["locomo_f1"] - sa["locomo_f1"]
@@ -125,14 +109,18 @@ def cross_model_analysis(
                 "reader_model_b": rb.get("reader_model") or reader_b,
                 "teacher_model_a": ra.get("teacher_model") or teacher_a,
                 "teacher_model_b": rb.get("teacher_model") or teacher_b,
-                "same_cache_key": key_a == key_b if key_a else None,
+                "same_llm_request_hash": (
+                    hash_a == hash_b if hash_a else None
+                ),
             }
         )
 
     n = len(common) or 1
     frac_same_mem = round(same_memory / n, 4) if common else None
     frac_same_ans = round(same_answer / n, 4) if common else None
-    frac_same_key = round(same_cache / n, 4) if common and template else None
+    frac_same_hash = (
+        round(same_request_hash / n, 4) if common and template else None
+    )
 
     reader_differ = bool(reader_a and reader_b and reader_a != reader_b)
     teacher_differ = bool(teacher_a and teacher_b and teacher_a != teacher_b)
@@ -154,12 +142,14 @@ def cross_model_analysis(
         "logs_record_teacher_models": bool(teacher_a or teacher_b),
         "teacher_models_differ": teacher_differ,
         "same_teacher_family": same_teacher_family,
-        "cache_keys_mostly_distinct": (frac_same_key is not None and frac_same_key < 0.05),
+        "request_hashes_mostly_distinct": (
+            frac_same_hash is not None and frac_same_hash < 0.05
+        ),
     }
     if axis == "reader":
         sanity["expected"] = (
             "Same memory (frozen middle); different reader_model in logs; "
-            "different cache keys; answers/scores may differ."
+            "different llm_request_hash values; answers/scores may differ."
         )
         sanity["memory_held_fixed"] = frac_same_mem == 1.0 if common else None
     elif axis == "teacher":
@@ -183,7 +173,7 @@ def cross_model_analysis(
         "n_common": len(common),
         "fraction_same_memory_text": frac_same_mem,
         "fraction_same_answer": frac_same_ans,
-        "fraction_same_cache_key": frac_same_key,
+        "fraction_same_llm_request_hash": frac_same_hash,
         "n_answer_disagreements": (len(common) - same_answer) if common else 0,
         "mean_delta_locomo_f1_b_minus_a": round(sum(deltas) / n, 4) if common else None,
         "sanity": sanity,
@@ -261,8 +251,19 @@ def write_text_report(path: Path, packs: list[dict], paired: dict) -> None:
         lines.append(f"- fraction_same_memory_text: {paired.get('fraction_same_memory_text')}")
         lines.append(f"- fraction_same_answer: {paired.get('fraction_same_answer')}")
         lines.append(f"- n_answer_disagreements: {paired.get('n_answer_disagreements')}")
-        lines.append(f"- fraction_same_cache_key: {paired.get('fraction_same_cache_key')}")
+        lines.append(
+            f"- fraction_same_llm_request_hash: "
+            f"{paired.get('fraction_same_llm_request_hash')}"
+        )
         lines.append(f"- mean_delta_locomo_f1 (B−A): {paired.get('mean_delta_locomo_f1_b_minus_a')}")
+        lines.append("")
+        lines.append("## How to read the request hash")
+        lines.append(
+            "`fraction_same_llm_request_hash` is a SHA-256 of the "
+            "intended LLM request (model + filled QA prompt). It is "
+            "**not** a live `LlmResponseHash` lookup (`run.py` does not pass a "
+            "store). ≈ 0 means the two runs would not have been the same API call."
+        )
         lines.append("")
         lines.append("## Sanity")
         for k, v in (paired.get("sanity") or {}).items():
@@ -302,7 +303,7 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"axis={args.axis} same_answer={slim.get('fraction_same_answer')} "
         f"same_memory={slim.get('fraction_same_memory_text')} "
-        f"same_cache_key={slim.get('fraction_same_cache_key')}"
+        f"same_request_hash={slim.get('fraction_same_llm_request_hash')}"
     )
 
 

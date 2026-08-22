@@ -17,7 +17,7 @@ SCHEMA_VERSION = "memory_io.v1"
 
 # Fixed layout grammars for known conditions (human + machine readable).
 CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
-    "c0_raw": {
+    "raw_chunks": {
         "builder": "RawConversationMemoryBuilder",
         "code": "src/locomo_eval/memory.py",
         "source_fields": [
@@ -36,7 +36,7 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
         ),
         "notes": "Optional memory_max_chars keeps the end (recent) of the dialog.",
     },
-    "c1_session_summary": {
+    "session_summaries": {
         "builder": "SessionSummaryMemoryBuilder",
         "code": "src/locomo_eval/memory.py",
         "source_fields": ["session_summary.session_k_summary"],
@@ -46,7 +46,7 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
         ),
         "notes": "LoCoMo-provided summaries; chronological by session id.",
     },
-    "c1_teacher": {
+    "teacher_session_summaries": {
         "builder": "TeacherSessionMemoryBuilder",
         "code": "src/locomo_eval/memory.py",
         "source_fields": [
@@ -63,6 +63,10 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
         ),
     },
 }
+# Older run packs may still log the numbered ids.
+CONDITION_LAYOUTS["c0_raw"] = CONDITION_LAYOUTS["raw_chunks"]
+CONDITION_LAYOUTS["c1_session_summary"] = CONDITION_LAYOUTS["session_summaries"]
+CONDITION_LAYOUTS["c1_teacher"] = CONDITION_LAYOUTS["teacher_session_summaries"]
 
 
 def memory_to_record(memory: Memory) -> dict[str, Any]:
@@ -132,7 +136,7 @@ def write_memory_run_log(
             "text": "full string injected as prompt {memory}",
             "source_ids": "provenance list",
             "schema_version": SCHEMA_VERSION,
-            "teacher_model": "write-path model id when memory_type is c1_teacher",
+            "teacher_model": "write-path model id when memory_type is teacher_session_summaries",
             "teacher_provider": "openai | mock",
         },
         "teacher_model": first.teacher_model,

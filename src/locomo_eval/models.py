@@ -1,6 +1,6 @@
 """Known answer/teacher model ids, families, and Chat Completions kwargs.
 
-The sandwich still treats the *reader* as frozen for C0 vs C1 claims.
+The sandwich still treats the *reader* as frozen for raw_chunks vs session_summaries claims.
 This catalog exists so a *separate* axis can swap models within a family
 (cross-model robustness) without scattering API quirks through run.py.
 

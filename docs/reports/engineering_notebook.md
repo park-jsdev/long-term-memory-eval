@@ -13,7 +13,7 @@ Borrowed from Bowman et al. (2022) “scalable oversight” sandwich: fix top + 
 | Layer | Role | Status in this repo |
 |-------|------|---------------------|
 | **Top (fixed)** | LoCoMo conversations + questions | `dataset.py` + `data/raw/locomo10.json` |
-| **Middle (variable)** | How “memory” text is produced (C0–C4) | `memory.py` (+ later write/fusion/store) |
+| **Middle (variable)** | How “memory” text is produced (`raw_chunks`, `session_summaries`, later teacher/fusion) | `memory.py` (+ later write/fusion/store) |
 | **Bottom (fixed)** | Answer prompt, answer LLM, metrics, reporting | `prompts/`, `readers.py`, `metrics.py`, `report.py` |
 
 **Attribution rule:** if you change prompt *or* model *and* memory between two runs, you cannot cleanly attribute the score delta to memory design alone.
@@ -28,7 +28,7 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** (default reader in c0/c1/baseline YAML); **`gpt-5.6-luna`** (`configs/c1_reader_gpt56_luna.yaml`); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`** when set | `reader.model`, `teacher.model`, CLI `--model` / `--teacher-model` | `OpenAIReader` / `OpenAITeacher` via `models.py` |
+| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** (default reader in raw_chunks / session_summaries / baseline YAML); **`gpt-5.6-luna`** (`configs/session_summaries_reader_gpt56_luna.yaml`); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`** when set | `reader.model`, `teacher.model`, CLI `--model` / `--teacher-model` | `OpenAIReader` / `OpenAITeacher` via `models.py` |
 
 **Request shape (answer LLM):**
 
@@ -41,11 +41,11 @@ Keep this list current when providers/models change.
 
 ```bash
 # Live answer generation (bills uncached Qs)
-python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --run-id cmp_c0_n20
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
+python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
 python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id ...
-python -m src.locomo_eval.run --config configs/c1_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
-python -m src.locomo_eval.run --config configs/c1_teacher.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
+python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
+python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
 ```
 
 **Commands that do *not* call OpenAI:**
@@ -64,9 +64,9 @@ python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 | Concern | Practice |
 |---------|----------|
 | Rate limits / RPD | Low tiers (~50/day): small `max_questions`, same `--run-id` resume (`predictions.jsonl`) |
-| Cost | Tokens ∝ memory string length (C0 >> C1 typically); requests ∝ unanswered Q count |
+| Cost | Tokens ∝ memory string length (`raw_chunks` >> `session_summaries` typically); requests ∝ unanswered Q count |
 | Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json` |
-| Cache | `LlmResponseCache` in `utils/` is implemented but **not wired** (future optimization after E2E) |
+| Cache | `LlmResponseHash` in `utils/` is implemented but **not wired** (future optimization after E2E) |
 | Security | Never commit `.env`; example only in `.env.example` |
 
 ### Planned (not implemented)
@@ -89,10 +89,10 @@ Conversation + Question
         │
         │   .text is the only payload the answer model sees
         ▼
-  prompts/*.txt  {memory} + {question}   ← FREEZE for fair C comparisons
+  prompts/*.txt  {memory} + {question}   ← FREEZE for fair memory-condition comparisons
         │
         ▼
-  Reader (OpenAI / mock, temp=0)         ← FREEZE for fair C comparisons
+  Reader (OpenAI / mock, temp=0)         ← FREEZE for fair memory-condition comparisons
         │
         ▼
   predicted_answer
@@ -120,23 +120,24 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 
 ## 3. Conditions (draft set)
 
-| ID | Name in code | What the answer LLM receives | Research question |
-|----|--------------|------------------------------|-------------------|
-| **C0** | `c0_raw` | Full raw dialog turns (chronological), optional char cap | Does structure help at all? |
-| **C1** | `c1_session_summary` | LoCoMo-released session summaries (dataset “memory”) | How strong is a structured session-memory bank? |
-| **C1 teacher** | `c1_teacher` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
-| C2 | (future) | Top-1 of K teacher memories | Selection enough? |
-| C3 | (future) | Aggregated whole memories | Synthesis enough? |
-| C4 | (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
+| Condition id | What the answer LLM receives | Research question |
+|--------------|------------------------------|-------------------|
+| `raw_chunks` | Full raw dialog turns (chronological), optional char cap | Does structure help at all? |
+| `session_summaries` | LoCoMo-released session summaries (dataset “memory”) | How strong is a structured session-memory bank? |
+| `teacher_session_summaries` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
+| `top1_teacher` (future) | Top-1 of K teacher memories | Selection enough? |
+| `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
+| `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
 
-**C1 draft note:** default C1 still uses **provided** LoCoMo session summaries. `c1_teacher` is the live single-teacher replacement (same inject path). Multi-teacher fusion is still out of scope.
+Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `teacher_session_summaries` is the live single-teacher replacement (same inject path). Multi-teacher fusion is still out of scope.
 
-Aliases for convenience:
+Aliases for convenience (legacy numbered ids still resolve):
 
 | Alias | Resolves to |
 |-------|-------------|
-| `raw` / `raw_dialog` | `c0_raw` |
-| `teacher` | `c1_teacher` |
+| `raw` / `raw_dialog` / `c0_raw` | `raw_chunks` |
+| `session_summary` / `c1_session_summary` | `session_summaries` |
+| `teacher` / `c1_teacher` | `teacher_session_summaries` |
 
 ---
 
@@ -161,23 +162,23 @@ Do **not** fork prompts per condition for the main table. If you ablate prompts,
 | Interface | `MemoryBuilder.build(conversation, question) -> Memory` in `memory.py` |
 | Registry | `get_memory_builder(name)` |
 | Select in config | `pipeline.memory` |
-| CLI | `--memory c0_raw` or `--memory c1_session_summary` |
+| CLI | `--memory raw_chunks` or `--memory session_summaries` |
 | Logged as | `memory_type` on each prediction + `run_meta` |
 
 **Add a new condition**
 
-1. Implement a class with `name = "cX_..."`.
+1. Implement a class with a descriptive `name` (e.g. `top1_teacher`), not a numbered code.
 2. Register it in `get_memory_builder`.
 3. Prefer writing long intermediates to `experiments/<run_id>/memories/` later; still end by filling `Memory.text`.
-4. Run with the **same** `--prompt` / reader model as other C’s.
+4. Run with the **same** `--prompt` / reader model as other memory conditions.
 
-**Teacher (`c1_teacher`):** YAML `teacher.model` (or `--teacher-model`) selects the write-path LLM. Logged on `Memory.teacher_model`, `run_meta.json`, and each prediction row. Do not change `reader.model` in the same comparison if you want the delta attributed to the teacher.
+**Teacher (`teacher_session_summaries`):** YAML `teacher.model` (or `--teacher-model`) selects the write-path LLM. Logged on `Memory.teacher_model`, `run_meta.json`, and each prediction row. Do not change `reader.model` in the same comparison if you want the delta attributed to the teacher.
 
-**Reader-model robustness:** YAML `reader.model` / `--model` / `configs/c1_reader_gpt56_luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a C0 vs C1 claim.
+**Reader-model robustness:** YAML `reader.model` / `--model` / `configs/session_summaries_reader_gpt56_luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a memory-condition claim.
 
 ### 4.3 True multi-teacher write path (later, still middle)
 
-Planned package (not required for C0/C1 draft):
+Planned package (not required for the current draft):
 
 ```text
 src/locomo_eval/write/   teachers, fusion, validator, store
@@ -197,7 +198,7 @@ Orchestrator stays **software** (prompts, parallel IO, JSON checks), not one mon
 
 | Item | Location | Notes |
 |------|----------|--------|
-| OpenAI / mock | `readers.py` | Optional `LlmResponseCache` hook (unwired from `run.py`; see `utils/llm_response_cache.py`) |
+| OpenAI / mock | `readers.py` | Optional `LlmResponseHash` hook (unwired from `run.py`; see `utils/llm_response_hash.py`) |
 | Env / keys | `.env` + `env.py` | never commit secrets |
 | Scoring | `metrics.py`, `src/metrics/locomo_qa.py` | dual: SPEC + LoCoMo F1 |
 | Offline rescore | `python -m src.locomo_eval.offline_evaluate ...` | string metrics only; no API; not an LLM autorater |
@@ -206,29 +207,29 @@ Orchestrator stays **software** (prompts, parallel IO, JSON checks), not one mon
 
 ---
 
-## 5. How to compare C0 vs C1
+## 5. How to compare raw_chunks vs session_summaries
 
 Freeze bottom, vary middle only:
 
 ```bash
 # Same max_questions, model, prompt; different memory + run_id
-python -m src.locomo_eval.run --config configs/c0_raw.yaml --max-questions 20 --run-id cmp_c0_n20
-python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --max-questions 20 --run-id cmp_c1_n20
+python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
+python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
 
 # Side-by-side metrics table
 python scripts/compare_full_runs.py \
-  --runs experiments/cmp_c0_n20 experiments/cmp_c1_n20 \
-  --out experiments/compare_c0_c1
+  --runs experiments/cmp_raw_chunks_n20 experiments/cmp_session_summaries_n20 \
+  --out experiments/compare_raw_chunks_session_summaries
 ```
 
-Writes `overall.csv`, `by_category.csv`, `paired_questions.csv`, `SUMMARY.md`, `plots/` (including LoCoMo F1 **boxplot** + side-by-side **histograms**), and cache/memory **sanity** (`fraction_same_cache_key` ≈ 0 means conditions are distinct).
+Writes `overall.csv`, `by_category.csv`, `paired_questions.csv`, `SUMMARY.md`, `plots/` (including LoCoMo F1 **boxplot** + side-by-side **histograms**), and memory / request-hash **sanity** (`fraction_same_llm_request_hash` ≈ 0 means conditions asked the reader different things; not a live store lookup).
 
 Two-pack LoCoMo F1 plots alone (no sandwich SUMMARY):
 
 ```bash
 python -m scripts.analysis.compare_predictions \
-  --a experiments/cmp_c0_n20 --b experiments/cmp_c1_n20 \
-  --out experiments/compare_c0_c1
+  --a experiments/cmp_raw_chunks_n20 --b experiments/cmp_session_summaries_n20 \
+  --out experiments/compare_raw_chunks_session_summaries
 ```
 
 ### Inspect the flattened QA table
@@ -250,50 +251,51 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 - [ ] Same `reader_model`, `temperature`, `prompt_version`
 - [ ] Same question subset (`max_questions` / sample filter)
 - [ ] Differ only in `memory_type` / builder
-- [ ] Resume via same `--run-id` / `predictions.jsonl`. Do not wire `LlmResponseCache` until E2E is trusted.
+- [ ] Resume via same `--run-id` / `predictions.jsonl`. Do not wire `LlmResponseHash` until E2E is trusted.
 
 ---
 
 ## 6. Control panel (frozen vs changeable)
 
-| Piece | Freeze for C0–C4 main table? | Experiment instead? |
+| Piece | Freeze for the main memory-condition table? | Experiment instead? |
 |-------|------------------------------|---------------------|
 | Dataset + question IDs | Yes | No |
 | Answer prompt | Yes (after lock) | Only as a separate meta-setup |
 | Answer model + decode | Yes | Model swap = new setup label |
 | Metrics | Always | No |
 | **MemoryBuilder / write / store** | No | **Yes — main axis** |
-| Retriever + token budget | Policy fixed across C’s | Budget ablations as a second axis |
+| Retriever + token budget | Policy fixed across conditions | Budget ablations as a second axis |
 | Report columns | Prefer stable | Additive fields OK |
 
 ---
 
 ## 7. Suggested growth order
 
-1. C0 vs C1 under frozen prompt/model (this draft).  
-2. Lock short-answer prompt if needed; re-run C0/C1.  
+1. `raw_chunks` vs `session_summaries` under frozen prompt/model (this draft).  
+2. Lock short-answer prompt if needed; re-run both conditions.  
 3. Persist mid-layer JSON per sample.  
-4. Real single-teacher C1 (API generation → `Memory.text`).  
-5. C2–C4 + fixed retriever budget.  
+4. Live `teacher_session_summaries` (API generation → `Memory.text`).  
+5. Later `top1_teacher` / `whole_memory_aggregation` / `claim_fusion` + fixed retriever budget.  
 
 ---
 
 ## 8. File index (engineering)
 
 ```text
-configs/baseline.yaml              # default (C1-compatible)
-configs/c0_raw.yaml
-configs/c1_session_summary.yaml
-configs/c1_reader_gpt56_luna.yaml  # C1 + GPT-5.6 Luna reader
-configs/c1_teacher.yaml            # live single teacher
+configs/baseline.yaml              # default (session_summaries)
+configs/raw_chunks.yaml
+configs/session_summaries.yaml
+configs/session_summaries_reader_gpt56_luna.yaml  # session_summaries + GPT-5.6 Luna reader
+configs/teacher_session_summaries.yaml            # live single teacher
 prompts/qa_v1.txt
 prompts/teacher_session_v1.txt
 src/locomo_eval/models.py          # model catalog / API kwargs
 src/locomo_eval/teachers.py        # Mock + OpenAI teacher
-src/locomo_eval/memory.py          # C0/C1/c1_teacher builders + registry
-src/locomo_eval/utils/llm_response_cache.py  # LLM reply memo (unwired; future optimization)
+src/locomo_eval/memory.py          # raw_chunks / session_summaries / teacher_session_summaries
+src/locomo_eval/utils/llm_request_hash.py   # SHA-256 of the intended LLM request (offline distinctness)
+src/locomo_eval/utils/llm_response_hash.py  # LLM reply memo (unwired; future optimization)
 src/locomo_eval/run.py             # wires builder → reader → report
-scripts/compare_full_runs.py            # C0 vs C1 metrics side-by-side
+scripts/compare_full_runs.py            # two memory conditions side-by-side
 scripts/analysis/compare_predictions.py  # two-pack LoCoMo F1 boxplot + histograms
 scripts/compare_cross_model.py     # reader/teacher model robustness
 docs/reports/engineering_notebook.md  # this file

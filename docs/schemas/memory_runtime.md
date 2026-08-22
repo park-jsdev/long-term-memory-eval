@@ -17,11 +17,11 @@ Passed from builder → runner → prompt fill. Never includes the gold answer.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `memory_type` | string | Condition id, e.g. `c0_raw`, `c1_session_summary`, `c1_teacher` |
+| `memory_type` | string | Condition id, e.g. `raw_chunks`, `session_summaries`, `teacher_session_summaries` |
 | `text` | string | **Full payload** inserted into `prompts/qa_v1.txt` as `{memory}` |
 | `source_ids` | list[string] | Provenance ids (turn `dia_id`s or `session_k_summary`) |
 | `schema_version` | string | Always `memory_io.v1` for this layout family |
-| `teacher_model` | string or null | Write-path model id when using `c1_teacher` |
+| `teacher_model` | string or null | Write-path model id when using `teacher_session_summaries` |
 | `teacher_provider` | string or null | `openai` or `mock` |
 
 JSON shape (also in `memory_io.schema.json`):
@@ -29,7 +29,7 @@ JSON shape (also in `memory_io.schema.json`):
 ```json
 {
   "schema_version": "memory_io.v1",
-  "memory_type": "c1_session_summary",
+  "memory_type": "session_summaries",
   "text": "... full string ...",
   "source_ids": ["session_1_summary", "session_2_summary"]
 }
@@ -39,9 +39,9 @@ JSON shape (also in `memory_io.schema.json`):
 
 ## 2. How `text` is formatted at runtime
 
-### Condition `c0_raw` (`RawConversationMemoryBuilder`)
+### Condition `raw_chunks` (`RawConversationMemoryBuilder`)
 
-Config: `configs/c0_raw.yaml` · optional `pipeline.memory_max_chars` (tail keep if over budget).
+Config: `configs/raw_chunks.yaml` · optional `pipeline.memory_max_chars` (tail keep if over budget).
 
 ```text
 Conversation between {speaker_a} and {speaker_b}.
@@ -63,9 +63,9 @@ If truncated:
 {last memory_max_chars characters of the full string}
 ```
 
-### Condition `c1_session_summary` (`SessionSummaryMemoryBuilder`)
+### Condition `session_summaries` (`SessionSummaryMemoryBuilder`)
 
-Config: `configs/c1_session_summary.yaml` · uses LoCoMo release field `session_summary`.
+Config: `configs/session_summaries.yaml` · uses LoCoMo release field `session_summary`.
 
 ```text
 [Session 1]
@@ -79,11 +79,11 @@ Config: `configs/c1_session_summary.yaml` · uses LoCoMo release field `session_
 
 Sessions omitted if empty. Order = chronological session number.
 
-### Condition `c1_teacher` (`TeacherSessionMemoryBuilder`)
+### Condition `teacher_session_summaries` (`TeacherSessionMemoryBuilder`)
 
-Config: `configs/c1_teacher.yaml` · `teacher.model` / `--teacher-model`.
+Config: `configs/teacher_session_summaries.yaml` · `teacher.model` / `--teacher-model`.
 
-Same `[Session k]` concatenation as C1, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
+Same `[Session k]` concatenation as `session_summaries`, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
 
 ### Injection into the fixed prompt
 
@@ -106,7 +106,7 @@ Every Phase‑1 run writes under `experiments/<run_id>/memory/`:
 | `memory/README.md` | Short pointer to this doc + condition used this run |
 | `memory/schema.json` | Machine description of this run’s memory_type layout (`memory_io.v1`) |
 | `memory/index.jsonl` | One line per **unique** `sample_id` used in the run: ids, char counts, sha256 of `text`, head/tail previews |
-| `memory/by_sample/<sample_id>.txt` | **Full** `Memory.text` for that conversation (what the model saw as memory; same for all Qs under that sample for C0/C1) |
+| `memory/by_sample/<sample_id>.txt` | **Full** `Memory.text` for that conversation (what the model saw as memory; same for all Qs under that sample for current builders) |
 | `memory/prompt_fill_example.txt` | One concrete filled prompt (memory + first question), truncated if huge |
 
 Also retained on every prediction row (full audit, larger files):
@@ -126,7 +126,7 @@ Also retained on every prediction row (full audit, larger files):
 {
   "schema_version": "memory_io.v1",
   "sample_id": "conv-26",
-  "memory_type": "c1_session_summary",
+  "memory_type": "session_summaries",
   "n_source_ids": 19,
   "n_chars": 20863,
   "text_sha256": "…",

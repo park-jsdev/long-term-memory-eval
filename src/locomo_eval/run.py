@@ -3,18 +3,18 @@
 This module does not compare conditions and is not a multi-run orchestrator.
 Typical sandwich experiment:
 
-1. Call this once with config A (e.g. ``configs/c0_raw.yaml``) → ``experiments/<run_id_A>/``
-2. Call this once with config B (e.g. ``configs/c1_session_summary.yaml``) → ``experiments/<run_id_B>/``
+1. Call this once with config A (e.g. ``configs/raw_chunks.yaml``) → ``experiments/<run_id_A>/``
+2. Call this once with config B (e.g. ``configs/session_summaries.yaml``) → ``experiments/<run_id_B>/``
 3. Compare the two audit packs offline:
    ``python scripts/compare_full_runs.py --runs experiments/<run_id_A> experiments/<run_id_B> ...``
    (memory axis) or ``scripts/compare_cross_model.py`` (reader/teacher model axis)
 
 Each ``--config`` YAML is standalone. ``pipeline.memory`` is a builder id in
-memory.py (``c0_raw`` / ``c1_session_summary``), not a path to another YAML.
+memory.py (``raw_chunks`` / ``session_summaries``), not a path to another YAML.
 
-    python -m src.locomo_eval.run --config configs/c0_raw.yaml --run-id cmp_c0
-    python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --run-id cmp_c1
-    python scripts/compare_full_runs.py --runs experiments/cmp_c0 experiments/cmp_c1 --out experiments/compare_c0_c1
+    python -m src.locomo_eval.run --config configs/raw_chunks.yaml --run-id cmp_raw_chunks
+    python -m src.locomo_eval.run --config configs/session_summaries.yaml --run-id cmp_session_summaries
+    python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
 """
 
 from __future__ import annotations
@@ -34,7 +34,12 @@ if str(ROOT) not in sys.path:
 from src.config import load_config
 from src.locomo_eval.dataset import iter_questions, load_conversations
 from src.locomo_eval.env import load_env
-from src.locomo_eval.memory import get_memory_builder, is_question_independent, resolve_memory_name
+from src.locomo_eval.memory import (
+    TeacherSessionMemoryBuilder,
+    get_memory_builder,
+    is_question_independent,
+    resolve_memory_name,
+)
 from src.locomo_eval.memory_log import write_memory_run_log
 from src.locomo_eval.metrics import summarize_predictions
 from src.locomo_eval.models import resolve_model
@@ -76,11 +81,11 @@ def _file_sha256(path: Path) -> str | None:
 
 
 def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
-    """Construct a Teacher only for c1_teacher. Other builders ignore teacher YAML.
+    """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML.
 
-    LlmResponseCache is not passed (future optimization; same as the answer reader).
+    LlmResponseHash is not passed (future optimization; same as the answer reader).
     """
-    if resolve_memory_name(memory_name) != "c1_teacher":
+    if resolve_memory_name(memory_name) != TeacherSessionMemoryBuilder.name:
         return None
     tcfg = cfg.get("teacher") or {}
     provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
@@ -88,14 +93,16 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
     if not provider:
         provider = "mock" if str(reader_name).lower() == "mock" else "openai"
     if not model:
-        raise SystemExit("c1_teacher requires teacher.model in YAML or --teacher-model")
+        raise SystemExit(
+            "teacher_session_summaries requires teacher.model in YAML or --teacher-model"
+        )
     prompt_path = tcfg.get("prompt_path")
     return get_teacher(
         provider,
         model=model,
         temperature=float(tcfg.get("temperature", 0.0)),
         max_tokens=int(tcfg.get("max_tokens", 512)),
-        llm_response_cache=None,
+        llm_response_hash=None,
         max_retries=int(tcfg.get("max_retries", 8)),
         min_request_interval_s=float(tcfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(tcfg.get("max_wait_s", 3600.0)),
@@ -106,7 +113,7 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
 def _load_existing_predictions(path: Path) -> dict[str, dict]:
     """Run checkpoint: question_id -> row so the same --run-id can resume.
 
-    Distinct from LlmResponseCache (utils/; future optimization, not wired here).
+    Distinct from LlmResponseHash (utils/; future optimization, not wired here).
     """
     if not path.is_file():
         return {}
@@ -134,7 +141,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     ``--memory`` overrides it. Not tied to ``configs/baseline.yaml``.
     """
     data_path = Path(overrides.data or cfg["data"]["raw_path"])
-    # Builder id (c0_raw / c1_session_summary), not a path to another YAML.
+    # Builder id (raw_chunks / session_summaries), not a path to another YAML.
     memory_name = overrides.memory or cfg["pipeline"]["memory"]
     reader_name = overrides.reader or cfg["reader"]["provider"]
     model = overrides.model or cfg["reader"]["model"]
@@ -165,6 +172,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         model=reader_model,
         temperature=float(rate_cfg.get("temperature", 0.0)),
         max_tokens=int(rate_cfg.get("max_tokens", 64)),
+        llm_response_hash=None,  # future optimization; do not wire until E2E is trusted
         max_retries=int(rate_cfg.get("max_retries", 8)),
         min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
         max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
@@ -176,7 +184,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         if not conversations:
             raise SystemExit(f"No sample_id match: {overrides.sample_id}")
 
-    # C0/C1 memory does not depend on the question; build once per conversation.
+    # These builders do not depend on the question; build once per conversation.
     memory_by_sample = {}
     if is_question_independent(memory_name):
         for conv in conversations:
@@ -361,21 +369,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--config",
         default="configs/baseline.yaml",
-        help="YAML path (default: C1). Also configs/c0_raw.yaml, configs/c1_session_summary.yaml",
+        help="YAML path (default: session_summaries). Also configs/raw_chunks.yaml, configs/session_summaries.yaml",
     )
     p.add_argument("--data", default=None, help="Override path to locomo10.json")
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (c0_raw, c1_session_summary, c1_teacher; aliases c0, c1, teacher)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries)",
     )
     p.add_argument("--reader", default=None, help="openai | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
-    p.add_argument("--teacher", default=None, help="Teacher provider: openai | mock (c1_teacher only)")
+    p.add_argument("--teacher", default=None, help="Teacher provider: openai | mock (teacher_session_summaries only)")
     p.add_argument(
         "--teacher-model",
         default=None,
-        help="Teacher model id (c1_teacher), e.g. gpt-4.1-mini or gpt-5.6-luna",
+        help="Teacher model id (teacher_session_summaries), e.g. gpt-4.1-mini or gpt-5.6-luna",
     )
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)

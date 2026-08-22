@@ -1,6 +1,6 @@
 """Single-teacher write step: session dialog → summary string.
 
-This is the first live-teacher seam for C1. Not multi-teacher fusion.
+This is the first live-teacher seam for teacher_session_summaries. Not multi-teacher fusion.
 Swap ``teacher.model`` within a family to test whether the memory designer
 changes Memory.text (and downstream logs/scores).
 """
@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from .utils.llm_response_cache import LlmResponseCache
+from .utils.llm_response_hash import LlmResponseHash
 from .models import resolve_model
 from .prompts import load_prompt_template, render_teacher_session_prompt
 from .readers import OpenAIChatCaller
@@ -83,7 +83,7 @@ class OpenAITeacher(Teacher):
         model: str,
         temperature: float = 0.0,
         max_tokens: int = 512,
-        llm_response_cache: LlmResponseCache | None = None,
+        llm_response_hash: LlmResponseHash | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
@@ -94,7 +94,7 @@ class OpenAITeacher(Teacher):
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_cache=llm_response_cache,
+            llm_response_hash=llm_response_hash,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
@@ -128,7 +128,7 @@ class OpenAITeacher(Teacher):
         ]
         text, meta = self._chat.complete(
             messages,
-            cache_extra={
+            request_extra={
                 "role": "teacher",
                 "prompt_version": self.prompt_version,
                 "prompt": prompt,
@@ -143,7 +143,7 @@ def get_teacher(
     model: str,
     temperature: float = 0.0,
     max_tokens: int = 512,
-    llm_response_cache: LlmResponseCache | None = None,
+    llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
@@ -157,7 +157,7 @@ def get_teacher(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_cache=llm_response_cache,
+            llm_response_hash=llm_response_hash,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

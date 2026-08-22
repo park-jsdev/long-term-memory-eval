@@ -1,10 +1,10 @@
-# Live single-teacher C1. Swap teacher.model (or --teacher-model) within a family.
-# Freeze reader.model when attributing score deltas to the teacher.
+# Live single-teacher session summaries. Swap teacher.model (or --teacher-model)
+# within a family. Freeze reader.model when attributing score deltas to the teacher.
 #
-#   python -m src.locomo_eval.run --config configs/c1_teacher.yaml \
+#   python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml \
 #       --reader mock --teacher mock --teacher-model gpt-4.1-mini \
 #       --max-questions 3 --run-id smoke_teacher_mock
-#   python -m src.locomo_eval.run --config configs/c1_teacher.yaml \
+#   python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml \
 #       --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
 
 data:
@@ -12,7 +12,7 @@ data:
   locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
 
 pipeline:
-  memory: c1_teacher
+  memory: teacher_session_summaries
   prompt_path: prompts/qa_v1.txt
   max_questions: null
 

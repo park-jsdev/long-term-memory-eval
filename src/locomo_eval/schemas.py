@@ -10,7 +10,7 @@ run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
     Conversation ── contains ── Session ── contains ── Turn
          │
          ├── Question[]          gold QA items (answer is for scoring only)
-         └── session_summaries   C1 uses these; C0 uses sessions/turns instead
+         └── session_summaries   session_summaries condition uses these; raw_chunks uses sessions/turns
          │
          ▼
     Memory.text                  sandwich middle — the one thing we vary
@@ -30,7 +30,7 @@ from typing import Any
 
 @dataclass
 class Turn:
-    """One dialog utterance. C0 concatenates these into Memory.text."""
+    """One dialog utterance. raw_chunks concatenates these into Memory.text."""
 
     dia_id: str
     speaker: str
@@ -40,7 +40,7 @@ class Turn:
 
 @dataclass
 class Session:
-    """One dated chat session. Groups turns; C0 walks these in order."""
+    """One dated chat session. Groups turns; raw_chunks walks these in order."""
 
     session_id: int
     date_time: str
@@ -87,7 +87,7 @@ class Conversation:
 class Memory:
     """Context string the frozen answer model is allowed to see.
 
-    Built by MemoryBuilder (C0/C1/c1_teacher). Schema: docs/schemas/memory_runtime.md
+    Built by MemoryBuilder (raw_chunks / session_summaries / teacher_session_summaries). Schema: docs/schemas/memory_runtime.md
     """
 
     memory_type: str
@@ -121,7 +121,7 @@ class Prediction:
     prompt_version: str
     evidence: list[str] = field(default_factory=list)
     run_id: str = ""
-    cached: bool = False  # LlmResponseCache hit if a cache is passed; run.py currently does not
+    cached: bool = False  # LlmResponseHash hit if a store is passed; run.py currently does not
     teacher_model: str | None = None
     teacher_provider: str | None = None
 

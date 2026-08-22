@@ -10,9 +10,9 @@ overall LoCoMo F1 bars (colors = conditions), boxplot, and histograms.
 ``--a`` / ``--b`` may be a run directory or a ``predictions.jsonl`` path.
 Paths are resolved from cwd and the repo root.
 
-    python -m src.locomo_eval.run --config configs/c0_raw.yaml --reader mock --max-questions 5 --run-id cmp_c0
-    python -m src.locomo_eval.run --config configs/c1_session_summary.yaml --reader mock --max-questions 5 --run-id cmp_c1
-    python -m scripts.analysis.compare_predictions --a cmp_c0 --b cmp_c1 --out experiments/compare_c0_c1
+    python -m src.locomo_eval.run --config configs/raw_chunks.yaml --reader mock --max-questions 5 --run-id cmp_raw_chunks
+    python -m src.locomo_eval.run --config configs/session_summaries.yaml --reader mock --max-questions 5 --run-id cmp_session_summaries
+    python -m scripts.analysis.compare_predictions --a cmp_raw_chunks --b cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from src.locomo_eval.metrics import score_row
 def resolve_predictions_jsonl(path: str | Path) -> Path:
     """Resolve a run dir, run id, or JSONL file to ``predictions.jsonl``.
 
-    Accepts ``experiments/cmp_c0``, ``cmp_c0``, or a direct ``.jsonl`` path.
+    Accepts ``experiments/cmp_raw_chunks``, ``cmp_raw_chunks``, or a direct ``.jsonl`` path.
     Relative paths are tried from cwd and from the repo root.
     """
     raw = Path(path)
@@ -75,7 +75,7 @@ def resolve_predictions_jsonl(path: str | Path) -> Path:
     raise FileNotFoundError(
         f"No predictions found for {path!s}. Tried: {tried}. "
         f"Create a run pack first, for example:\n"
-        f"  python -m src.locomo_eval.run --config configs/c0_raw.yaml "
+        f"  python -m src.locomo_eval.run --config configs/raw_chunks.yaml "
         f"--reader mock --max-questions 5 --run-id {hint_id}"
     )
 
