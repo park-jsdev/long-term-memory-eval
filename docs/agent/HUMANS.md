@@ -20,7 +20,7 @@ You compare **how memory is built** for long multi-session chats (LoCoMo). The e
 
 You are not yet running multi-teacher fusion. **`raw_chunks`** vs **`session_summaries`** compare how much structure helps under one fixed answer model. Full system map: `docs/reports/engineering_notebook.md`.
 
-HLD **(i) pre-processing** can now emit ordered **session blocks** (stable `turn_id`s, speaker/time normalization) via `DataIngestor` and `PreprocessingPipeline` in `src/locomo_eval/preprocess/`. That path is **not** in `python -m src.locomo_eval.run` yet — C0/C1 still read `Conversation` from `dataset.py`. A thin `teacher_orchestrator.py` walks one session block at a time as a passthrough (no teacher LLM).
+HLD **(i) pre-processing** can now emit ordered **session blocks** (stable `turn_id`s, speaker/time normalization) via `DataIngestor` and `PreprocessingPipeline` in `src/locomo_eval/preprocess/`. That path is **not** in `python -m src.locomo_eval.run` yet — `raw_chunks` / `session_summaries` still read `Conversation` from `dataset.py`. A thin `teacher_orchestrator.py` walks one session block at a time as a passthrough (no teacher LLM).
 
 ---
 
@@ -136,11 +136,20 @@ Both need those `--run-id` folders to exist first (the error names the `run` com
 
 Open `experiments/compare_raw_chunks_session_summaries/overall.csv` (from `compare_full_runs.py`) and `plots/locomo_f1_boxplot.png` / `plots/locomo_f1_histograms.png`. Pairwise rows: `paired_questions.csv` or `paired_locomo_f1.csv`.
 
-Evaluation-pipeline unit tests (string metrics / LoCoMo F1) live in `tests/test_evaluation_pipeline.py`. Preprocess session-block tests are `tests/test_preprocessing_pipeline.py`. Sandwich contracts that must not drift are locked in `tests/test_regressions.py` (mock only):
+Evaluation-pipeline unit tests (string metrics / LoCoMo F1) live in `tests/test_evaluation_pipeline.py`. Preprocess session-block tests are `tests/test_preprocessing_pipeline.py`. Session-document join / naive retrieval checks are `tests/test_session_documents.py`. Sandwich contracts that must not drift are locked in `tests/test_regressions.py` (mock only):
 
 ```bash
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_evaluation_pipeline.py tests/test_regressions.py
 ```
+
+
+Flatten session documents + histograms (no API; gitignored under `data/processed/`):
+
+```bash
+python scripts/export_session_documents.py --data data/raw/locomo10.json --out data/processed
+```
+
+Open `data/processed/session_documents.csv` (session units) and `qa_joined.csv` (gold joined via evidence). Plots are in `data/processed/plots/`. JSON category ids are official LoCoMo eval ids (1=multi-hop, 4=single-hop), not the paper’s 1–5 prose list — see `data/README.md`.
 
 ---
 
@@ -251,14 +260,10 @@ If LoCoMo F1 is low but answers “feel” right, check:
 
 ```
 locomo10.json                 # official: dialog + summaries + gold QA
-    → dataset.py              # Conversation / Question (C0/C1 read path; gold scorer-only)
+    → dataset.py              # Conversation / Question (read path; gold scorer-only)
     → data_ingestor.py        # HLD (i): wrap dataset.py, do not rewrite source JSON
     → preprocessing_pipeline.py  # HLD (i): SessionBlock[] (not wired into run.py yet)
     → teacher_orchestrator.py # HLD (ii): one session block, passthrough, no LLM
-    → memory.py               # experimental: Memory.text (gold never enters here for the LLM)
-    → prompts/qa_v1.txt       # fixed: Memory + Question only
-    → readers.py              # fixed answer LLM (no LlmResponseCache in this phase)
-    → dataset.py              # Conversation / Question objects (gold kept for scorer only)
     → memory.py               # experimental: Memory.text (raw_chunks / session_summaries / teacher_session_summaries)
     → prompts/qa_v1.txt       # frozen answer prompt
     → readers.py              # answer LLM (no LlmResponseHash in this phase) (swap only for robustness, not a memory claim)
@@ -286,8 +291,7 @@ Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this basel
 
 ## What you should ask agents to do (and not)
 
-**Do:** extend memory builders, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current. Next slice can wire `write_conversation_run_log` into `experiments/<run_id>/preprocess/`.
-**Do:** extend memory builders, swap reader/teacher models for robustness checks, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current.
+**Do:** extend memory builders, swap reader/teacher models for robustness checks, improve reports, add Claude reader when you switch fixed answer model, fix bugs, keep docs current. Next slice can wire `write_conversation_run_log` into `experiments/<run_id>/preprocess/`.
 
 **Don’t (yet):** multi-LLM fusion, training loops, silent metric changes, deleting `experiments/cache/` or data, committing secrets.
 

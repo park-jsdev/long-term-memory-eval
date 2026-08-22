@@ -59,13 +59,10 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 
 | File | Responsibility |
 |------|----------------|
-| `schemas.py` | Conversation, SessionBlock, Memory, Prediction |
-| `dataset.py` | Load LoCoMo JSON → Conversation (C0/C1 read path) |
-| `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` (unwired from run.py) |
+| `schemas.py` | Conversation, Session, Turn, SessionBlock, Question, Memory, Prediction |
+| `dataset.py` | Load LoCoMo JSON → Conversation (read path; preprocess is separate) |
+| `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` + session-document join (unwired from run.py) |
 | `teacher_orchestrator.py` | HLD (ii) stub: one SessionBlock at a time, passthrough, no LLM |
-| `memory.py` | MemoryBuilder interface + C0/C1 |
-| `schemas.py` | Conversation, Question, Memory, Prediction |
-| `dataset.py` | Load LoCoMo JSON → objects |
 | `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_session_summaries |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
@@ -100,16 +97,18 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_s
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 
 # Unit tests — preprocess (HLD i) + evaluation (HLD iv) + sandwich regression locks
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py
-# Unit tests — evaluation pipeline (HLD iv) + sandwich regression locks
-python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_evaluation_pipeline.py tests/test_regressions.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_evaluation_pipeline.py tests/test_regressions.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
 python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
 python scripts/compare_cross_model.py --runs experiments/session_summaries_mini experiments/session_summaries_luna --axis reader --out experiments/compare_reader_mini_luna
+
+
+# Session-document tables + dataset histograms (no API; needs locomo10.json)
+python scripts/export_session_documents.py --data data/raw/locomo10.json --out data/processed
 ```
 
 Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
@@ -178,8 +177,8 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
 - [ ] Memory builder swappable without changing reader/evaluator  
-- [ ] Tests for parse, memory, preprocess session blocks, normalize; names = behavior + expected outcome; one function per unit test  
-- [ ] Tests for parse, memory, normalize, **and** model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
+- [ ] Tests for parse, memory, preprocess session blocks, session-document join, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] Model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
 - [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 

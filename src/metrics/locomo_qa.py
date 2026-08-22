@@ -19,7 +19,8 @@ from nltk.stem import PorterStemmer
 
 ps = PorterStemmer()
 
-# Paper category order used in LoCoMo reporting.
+# Official JSON / task_eval ids (not the paper §4.1 prose numbering).
+# Reporting order below matches LoCoMo tables: single-hop, multi-hop, temporal, …
 CATEGORY_ORDER = [4, 1, 2, 3, 5]
 CATEGORY_NAMES = {
     1: "multi_hop",

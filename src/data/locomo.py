@@ -13,7 +13,12 @@ CONV_START = (
     "conversation is written at the beginning of the conversation.\n\n"
 )
 
-# Matches LoCoMo paper / task_eval category ids.
+# Official LoCoMo JSON / task_eval ids (pinned commit 3eb6f2c…).
+# These are *not* the paper's prose numbering in §4.1
+#   (1) single-hop (2) multi-hop (3) temporal (4) open-domain (5) adversarial.
+# Upstream evaluation.py: cat 1 → multi-answer F1; 2/3/4 → token F1;
+# cat 3 splits gold on ';'; cat 5 expects "not mentioned" / "no information available".
+# Reporting order in locomo_qa.CATEGORY_ORDER is [4, 1, 2, 3, 5] (paper table order).
 CATEGORY_NAMES = {
     1: "multi_hop",
     2: "temporal",

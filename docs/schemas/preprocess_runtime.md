@@ -100,4 +100,4 @@ Helper `write_conversation_run_log` writes a folder that can later sit at `exper
 
 ## 5. Teacher orchestrator (HLD ii, thin seam)
 
-`src/locomo_eval/teacher_orchestrator.py` iterates **one `SessionBlock` at a time** and returns a passthrough record (`status="passthrough"`). No LLM, no fusion, no `LlmResponseCache`. Promote to a `write/` package only when teachers actually generate memory.
+`src/locomo_eval/teacher_orchestrator.py` iterates **one `SessionBlock` at a time** and returns a passthrough record (`status="passthrough"`). No LLM, no fusion, no `LlmResponseHash`. Promote to a `write/` package only when teachers actually generate memory.
