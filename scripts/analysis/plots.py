@@ -15,6 +15,11 @@ CONDITION_COLOR_B = "#F58518"
 
 def _pyplot():
     try:
+        import matplotlib
+
+        # Reports are file artifacts, never interactive windows. Agg avoids
+        # Tk dependencies in CI, servers, and minimal Windows Python installs.
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
         return None
@@ -127,5 +132,175 @@ def write_locomo_f1_histograms(
     fig.suptitle("LoCoMo F1 by condition", y=1.02)
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def write_histogram(
+    values: list[float],
+    *,
+    path: Path,
+    xlabel: str,
+    title: str,
+    bins: int = 10,
+    value_range: tuple[float, float] | None = None,
+    color: str = CONDITION_COLOR_A,
+) -> Path | None:
+    """Single-series histogram. No-op if matplotlib missing or values empty."""
+    plt = _pyplot()
+    if plt is None or not values:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n_bins = max(2, min(bins, max(len(values), 2)))
+    fig, ax = plt.subplots(figsize=(6.5, 3.8))
+    kwargs: dict = {"bins": n_bins, "color": color, "edgecolor": "white"}
+    if value_range is not None:
+        kwargs["range"] = value_range
+    ax.hist(values, **kwargs)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Count")
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def write_count_bars(
+    counts: dict[str, int],
+    *,
+    path: Path,
+    ylabel: str,
+    title: str,
+) -> Path | None:
+    """Bar plot for discrete category counts (for example CORRECT / WRONG)."""
+    plt = _pyplot()
+    if plt is None or not counts:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    labels = list(counts)
+    values = [int(counts[label]) for label in labels]
+    colors = ["#54A24B" if label.upper() == "CORRECT" else "#E45756" for label in labels]
+    fig, ax = plt.subplots(figsize=(5.5, 3.8))
+    bars = ax.bar(labels, values, color=colors)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.set_ylim(0, max(values + [1]) * 1.15)
+    for bar, value in zip(bars, values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            value,
+            str(value),
+            ha="center",
+            va="bottom",
+        )
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def write_boxplot(
+    series: dict[str, list[float]],
+    *,
+    path: Path,
+    ylabel: str,
+    title: str,
+) -> Path | None:
+    """Tukey boxplot (whiskers 1.5 IQR) for one or more named series."""
+    plt = _pyplot()
+    names = [n for n, vals in series.items() if vals]
+    data = [series[n] for n in names]
+    if plt is None or not data:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(max(5.5, 1.4 * len(names) + 2), 4.2))
+    try:
+        ax.boxplot(data, tick_labels=names, whis=1.5, showfliers=True)
+    except TypeError:
+        ax.boxplot(data, labels=names, whis=1.5, showfliers=True)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def write_grouped_bars(
+    labels: list[str],
+    series: dict[str, list[float | None]],
+    *,
+    path: Path,
+    ylabel: str,
+    title: str,
+    ylim: tuple[float, float] | None = (0, 105.0),
+) -> Path | None:
+    """Grouped bars. ``series`` maps legend name → y values aligned with labels."""
+    plt = _pyplot()
+    if plt is None or not labels or not series:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    names = list(series.keys())
+    n = len(labels)
+    fig, ax = plt.subplots(figsize=(max(7.0, 0.7 * n + 2), 4.4))
+    x = list(range(n))
+    width = 0.8 / max(len(names), 1)
+    colors = [CONDITION_COLOR_A, CONDITION_COLOR_B, "#54A24B", "#E45756", "#72B7B2"]
+    for i, name in enumerate(names):
+        vals = [v if v is not None else 0.0 for v in series[name]]
+        ax.bar(
+            [xi + i * width for xi in x],
+            vals,
+            width,
+            label=name,
+            color=colors[i % len(colors)],
+        )
+    ax.set_xticks([xi + width * (len(names) - 1) / 2 for xi in x])
+    ax.set_xticklabels(labels, rotation=25, ha="right")
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def write_latency_p50_p95_bars(
+    methods: list[str],
+    p50: list[float | None],
+    p95: list[float | None],
+    *,
+    path: Path,
+    title: str = "Total latency p50 / p95",
+    ylabel: str = "Seconds",
+) -> Path | None:
+    """Side-by-side p50/p95 latency bars (Mem0 Table 2 style)."""
+    plt = _pyplot()
+    if plt is None or not methods:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(max(7.0, 0.7 * len(methods) + 2), 4.4))
+    x = list(range(len(methods)))
+    width = 0.35
+    p50_v = [v if v is not None else 0.0 for v in p50]
+    p95_v = [v if v is not None else 0.0 for v in p95]
+    ax.bar([xi - width / 2 for xi in x], p50_v, width, label="p50", color=CONDITION_COLOR_A)
+    ax.bar([xi + width / 2 for xi in x], p95_v, width, label="p95", color=CONDITION_COLOR_B)
+    ax.set_xticks(x)
+    ax.set_xticklabels(methods, rotation=25, ha="right")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
     plt.close(fig)
     return path

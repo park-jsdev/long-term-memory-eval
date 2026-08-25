@@ -83,6 +83,10 @@ def make_plots(summary: dict[str, Any], out_dir: Path) -> list[Path]:
     """Write simple bar charts; no-op gracefully if matplotlib missing."""
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
+        import matplotlib
+
+        # Audit plots are files, not GUI windows; keep headless runs reliable.
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ImportError:
         return []

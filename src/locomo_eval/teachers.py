@@ -149,6 +149,8 @@ def get_teacher(
     max_wait_s: float = 3600.0,
     prompt_path: str | Path | None = None,
 ) -> Teacher:
+    if llm_response_hash is not None:
+        raise ValueError("LLM response caching is disabled for evaluation pipelines.")
     name = (name or "mock").lower()
     if name == "mock":
         return MockTeacher(model_name=model or "mock")

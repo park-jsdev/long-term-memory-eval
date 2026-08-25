@@ -9,7 +9,7 @@ Frozen contracts:
   - Gold answers are scorer-only (never in Memory.text or the reader prompt)
   - Swapping raw_chunks/session_summaries changes memory, not reader_model / prompt_version / metric names
   - Audit pack, prediction fields, and dual metrics (EM / token F1 / LoCoMo F1)
-  - Same function for 1 question or N; resume from predictions.jsonl
+  - Same function for 1 question or N; every invocation regenerates
   - offline_evaluate.py rescores strings only (does not rewrite predicted answers)
 
 Offline / mock only — no live API.
@@ -242,16 +242,21 @@ class TestRunLocomoPipelineWithMemoryConfig(unittest.TestCase):
             self.assertEqual(_load_json(one / "run_meta.json")["n_predictions"], 1)
             self.assertEqual(_load_json(two / "run_meta.json")["n_predictions"], 2)
 
-    def test_second_call_with_the_same_run_id_resumes_finished_questions(self):
+    def test_second_call_with_same_run_id_regenerates_without_resume(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            first = _run_one(root, run_id="resume_lock", memory="session_summaries", max_questions=1)
+            first = _run_one(root, run_id="fresh_lock", memory="session_summaries", max_questions=1)
             n_first = _load_json(first / "run_meta.json")["n_new_api_calls"]
-            second = _run_one(root, run_id="resume_lock", memory="session_summaries", max_questions=1)
+            stale = first / "autorater"
+            stale.mkdir()
+            (stale / "old.txt").write_text("stale", encoding="utf-8")
+            second = _run_one(root, run_id="fresh_lock", memory="session_summaries", max_questions=1)
             meta = _load_json(second / "run_meta.json")
             self.assertGreaterEqual(n_first, 1)
-            self.assertEqual(meta["n_resumed"], 1)
-            self.assertEqual(meta["n_new_api_calls"], 0)
+            self.assertTrue(meta["regenerated_from_scratch"])
+            self.assertNotIn("n_resumed", meta)
+            self.assertGreaterEqual(meta["n_new_api_calls"], 1)
+            self.assertFalse(stale.exists())
             self.assertEqual(second, first)
 
     def test_run_meta_omits_llm_response_hash_fields_while_store_is_unwired(self):

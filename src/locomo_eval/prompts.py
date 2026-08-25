@@ -21,6 +21,21 @@ def render_qa_prompt(template: str, memory: str, question: str) -> str:
     return template.format(memory=memory, question=question)
 
 
+def render_autorater_prompt(
+    template: str,
+    *,
+    question: str,
+    gold_answer: str,
+    generated_answer: str,
+) -> str:
+    """Fill prompts/autorater_mem0_v1.txt. Uses replace so gold/pred braces are safe."""
+    return (
+        template.replace("{question}", str(question))
+        .replace("{gold_answer}", str(gold_answer))
+        .replace("{generated_answer}", str(generated_answer))
+    )
+
+
 def render_teacher_session_prompt(
     template: str,
     *,

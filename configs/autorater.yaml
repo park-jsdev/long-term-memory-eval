@@ -1,0 +1,20 @@
+# LLM-as-a-Judge autorater (Mem0 protocol). Standalone — not a parent of
+# memory YAMLs. Used by scripts.analysis.run_benchmark, not by run.py.
+# Does not implement Mem0 extract/update; only the published judge + F1/BLEU-1.
+# Prompt source: https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py
+# No LlmResponseHash cache is wired; run_benchmark explicitly passes None.
+# Each invocation clears and regenerates its autorater output; it never appends.
+
+autorater:
+  provider: openai          # openai | mock (mock is plumbing-only, not J)
+  model: gpt-4o             # paper script used gpt-4o-mini; we wire gpt-4o
+  temperature: 0.0
+  max_tokens: 256
+  prompt_path: prompts/autorater_mem0_v1.txt
+  skip_category: 5          # Mem0 drops LoCoMo adversarial / unanswerable
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+
+run:
+  output_dir: experiments

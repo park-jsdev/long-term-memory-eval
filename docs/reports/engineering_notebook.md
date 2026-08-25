@@ -28,7 +28,7 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** (default reader in raw_chunks / session_summaries / baseline YAML); **`gpt-5.6-luna`** (`configs/session_summaries_reader_gpt56_luna.yaml`); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`** when set | `reader.model`, `teacher.model`, CLI `--model` / `--teacher-model` | `OpenAIReader` / `OpenAITeacher` via `models.py` |
+| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** default reader; **`gpt-4o`** default autorater; **`gpt-4o-mini`** Mem0-paper judge option; GPT-5.6 family for robustness | `reader.model`, `teacher.model`, `configs/autorater.yaml`, CLI model overrides | `OpenAIReader` / `OpenAITeacher` / `OpenAIAutorater` via `models.py` |
 
 **Request shape (answer LLM):**
 
@@ -40,12 +40,13 @@ Keep this list current when providers/models change.
 **Commands that call OpenAI:**
 
 ```bash
-# Live answer generation (bills uncached Qs)
+# Live answer generation (bills every Q on every invocation)
 python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
 python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
 python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id ...
 python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
 python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
+python -m scripts.analysis.run_benchmark --run experiments/<run_id>  # GPT-4o judge
 ```
 
 **Commands that do *not* call OpenAI:**
@@ -53,25 +54,45 @@ python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --
 ```bash
 python -m src.locomo_eval.run --reader mock ...
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run>/predictions.jsonl
+python -m scripts.analysis.run_benchmark --run experiments/<run_id> --autorater mock
 python scripts/compare_full_runs.py --runs ... --out ...
 python scripts/compare_cross_model.py --runs ... --axis reader --out ...
 python scripts/prepare_data.py --split all --no-jsonl
 python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 ```
 
+Mock autorater output is a token-overlap plumbing check, not LLM-as-a-Judge:
+it is logged as provider/model `mock`, excluded from literature J plots/tables,
+and may overrate contradictory answers that share dates or topic words.
+Autorater never resumes or appends analysis. Every invocation clears its known
+generated files plus `plots/` and `tables/`, then rates one prediction file
+from scratch.
+
 ### Considerations
 
 | Concern | Practice |
 |---------|----------|
-| Rate limits / RPD | Low tiers (~50/day): small `max_questions`, same `--run-id` resume (`predictions.jsonl`) |
-| Cost | Tokens ∝ memory string length (`raw_chunks` >> `session_summaries` typically); requests ∝ unanswered Q count |
+| Rate limits / RPD | Low tiers (~50/day): use small `max_questions`; evaluation does not resume |
+| Cost | Tokens ∝ memory string length (`raw_chunks` >> `session_summaries` typically); requests ∝ question count per invocation |
 | Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json` |
-| Cache | `LlmResponseHash` in `utils/` is implemented but **not wired** (future optimization after E2E) |
+| Cache | Evaluation factories reject `LlmResponseHash`; JSONL is audit-only |
 | Security | Never commit `.env`; example only in `.env.example` |
+
+**Autorater prompt provenance:** local
+`prompts/autorater_mem0_v1.txt` is adapted from Mem0's pinned
+[`ACCURACY_PROMPT`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py)
+and the paper's
+[Appendix A](https://arxiv.org/abs/2504.19413) “Prompt Template for LLM as a
+Judge.”
+
+**No-cache invariant:** reader, teacher, and autorater factories reject
+non-null `llm_response_hash`. `run.py` clears generated artifacts for a run id
+and starts from question one; `predictions.jsonl` is audit-only. Autorater
+clears and rewrites its pack and rejects source rows marked `cached=true`.
 
 ### Planned (not implemented)
 
-- Anthropic Claude as alternate fixed answer reader (or later judge — Phase‑1 has no LLM judge).
+- Anthropic Claude as alternate fixed answer reader or judge.
 - Multi-teacher providers (GPT / Gemini / DeepSeek) on the **write** path only.
 
 ---
@@ -97,11 +118,13 @@ Conversation + Question
         ▼
   predicted_answer
         │
-        ▼
-  metrics (EM, token F1, LoCoMo F1)      ← FREEZE always
+        ├──────────────► metrics (EM, token F1, LoCoMo F1)  ← deterministic
+        │
+ gold ──┴──────────────► Autorater (GPT-4o, Mem0 prompt)    ← online evaluator
         │
         ▼
   experiments/<run_id>/  CSV · JSONL · plots · run_meta
+  experiments/<run_id>/autorater/  Mem0 F1/BLEU-1/J · tables · latency plots
 ```
 
 Single-config runner (`run_locomo_pipeline_with_memory_config` in `run.py`)
@@ -202,6 +225,8 @@ Orchestrator stays **software** (prompts, parallel IO, JSON checks), not one mon
 | Env / keys | `.env` + `env.py` | never commit secrets |
 | Scoring | `metrics.py`, `src/metrics/locomo_qa.py` | dual: SPEC + LoCoMo F1 |
 | Offline rescore | `python -m src.locomo_eval.offline_evaluate ...` | string metrics only; no API; not an LLM autorater |
+| Online autorater | `python -m scripts.analysis.run_benchmark --run ...` | Mem0 prompt, GPT-4o default, category 5 skipped; fresh non-appending report every invocation |
+| Autorater literature pins | `mem0_baselines.py` | Mem0 paper Tables 1–2; comparison only, not local Mem0 re-runs |
 | Two-run compare | `scripts/analysis/compare_predictions.py` | paired LoCoMo F1 boxplot + histograms |
 | Audit pack | `report.py` → `experiments/<run_id>/` | CSV/JSON/plots |
 
@@ -251,7 +276,7 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 - [ ] Same `reader_model`, `temperature`, `prompt_version`
 - [ ] Same question subset (`max_questions` / sample filter)
 - [ ] Differ only in `memory_type` / builder
-- [ ] Resume via same `--run-id` / `predictions.jsonl`. Do not wire `LlmResponseHash` until E2E is trusted.
+- [ ] Both condition runs regenerated without cache/resume; all prediction rows have `cached=false`.
 
 ---
 
@@ -297,6 +322,10 @@ src/locomo_eval/utils/llm_response_hash.py  # LLM reply memo (unwired; future op
 src/locomo_eval/run.py             # wires builder → reader → report
 scripts/compare_full_runs.py            # two memory conditions side-by-side
 scripts/analysis/compare_predictions.py  # two-pack LoCoMo F1 boxplot + histograms
+scripts/analysis/run_benchmark.py        # Mem0 F1/BLEU-1/J + tables/plots
+src/locomo_eval/autorater.py             # GPT-4o / mock CORRECT-WRONG judge
+src/locomo_eval/mem0_metrics.py          # Mem0 lexical metrics + latency
+src/locomo_eval/mem0_baselines.py        # published Table 1–2 pins
 scripts/compare_cross_model.py     # reader/teacher model robustness
 docs/reports/engineering_notebook.md  # this file
 ```

@@ -1,3 +1,201 @@
+# Trace: 2026-08-25 — before Mem0 LLM-as-a-Judge autorater
+
+Snapshot of AGENTS.md and HUMANS.md. Adding an autorater (GPT-4o judge) plus
+scripts.analysis.run_benchmark tables/plots. Does not implement Mem0 extract/update.
+
+---
+
+# AGENTS.md (previous)
+
+# AGENTS.md — agent operating notes (v0.1)
+
+**Audience:** coding agents working in this repo.  
+**Length target:** 2–3 pages.  
+**Update rule:** change this file on every meaningful behavior or layout change; snapshot to `docs/agent/traces/` first.
+
+---
+
+## Mission
+
+Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
+
+**Current phase:** end-to-end read path with **raw_chunks vs session_summaries** memory builders.  
+See `docs/reports/engineering_notebook.md` for freeze/extend rules.
+
+Do **not** implement multi-teacher fusion or claim schema unless the human expands scope.
+
+---
+
+## North star (later)
+
+```
+Write: conversation → teachers → fusion/validate → memory store
+Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
+```
+
+Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
+
+**Now:** `raw_chunks` and `session_summaries` builders inject alternative `Memory.text` with frozen reader/metrics. `teacher_session_summaries` is a live single-teacher seam (swap `teacher.model` within a family). Dataset-provided session summaries remain the default memory condition. Reader model can also be swapped (`gpt-4.1-mini` vs `gpt-5.6-luna`) as a **separate** robustness axis — do not mix that with a memory-condition claim.
+
+---
+
+## Repo map (v0.1)
+
+| Path | Role |
+|------|------|
+| `configs/baseline.yaml` | CLI default; currently `session_summaries`. Standalone (not a parent of other configs) |
+| `configs/raw_chunks.yaml` | Raw dialog memory (`raw_chunks`) |
+| `configs/session_summaries.yaml` | LoCoMo session-summary memory (same condition as baseline.yaml) |
+| `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
+| `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
+| `prompts/qa_v1.txt` | Fixed answer prompt |
+| `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
+| `docs/reports/engineering_notebook.md` | System map / extension points |
+| `src/locomo_eval/` | Baseline package |
+| `scripts/compare_full_runs.py` | Sandwich report for two **finished** run packs (tables, SUMMARY, distinctness + F1 plots) |
+| `scripts/analysis/` | Reusable offline analyses + plots (no API) |
+| `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
+| `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
+| `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
+| `experiments/<run_id>/` | Human-auditable run pack |
+| `docs/agent/SPEC_v1.md` | Phase 1 requirements |
+| `docs/agent/HUMANS.md` | Human-facing brief |
+| `docs/agent/traces/` | Doc version history |
+
+### Package modules (`src/locomo_eval/`)
+
+| File | Responsibility |
+|------|----------------|
+| `schemas.py` | Conversation, Question, Memory, Prediction |
+| `dataset.py` | Load LoCoMo JSON → objects |
+| `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_session_summaries |
+| `prompts.py` | Load/render prompt text |
+| `readers.py` | OpenAI + Mock readers, temp=0 |
+| `models.py` | Model ids / families / Chat Completions kwargs |
+| `teachers.py` | Single teacher (session summaries) |
+| `utils/llm_response_hash.py` | Disk memo of LLM replies, keyed by `llm_request_hash` (implemented; **not wired** into run.py — future optimization) |
+| `utils/llm_request_hash.py` | SHA-256 of the intended LLM request; offline distinctness (not a live store lookup) |
+| `metrics.py` | EM, token F1, LoCoMo F1 |
+| `report.py` | JSONL/CSV/plots |
+| `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
+| `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
+
+---
+
+## Commands agents should use
+
+```bash
+conda activate distillation
+pip install -r requirements.txt
+python scripts/fetch_locomo.py
+
+# Offline smoke (no API key)
+python -m src.locomo_eval.run --config configs/baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
+
+# Live OpenAI (needs OPENAI_API_KEY in repo-root .env or shell)
+python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
+
+# Full baseline (costly)
+python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
+
+# Offline rescore (string metrics only; not an LLM autorater)
+python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
+
+# Unit tests — evaluation pipeline (HLD iv) + sandwich regression locks
+python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
+# or (file path avoids a site-packages module named `tests` shadowing this folder)
+python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+
+# Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
+python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
+python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
+python scripts/compare_cross_model.py --runs experiments/session_summaries_mini experiments/session_summaries_luna --axis reader --out experiments/compare_reader_mini_luna
+```
+
+Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
+Never commit keys or `.env`. `src/locomo_eval/env.py` loads `.env` at run start / OpenAI reader init.
+
+---
+
+## Run audit package (always write)
+
+Each run under `experiments/<run_id>/` must include:
+
+- `predictions.jsonl` — one row per question (incl. memory text)
+- `predictions.csv` — spreadsheet-friendly + scores + memory preview
+- `metrics.json` — overall + by-category
+- `metrics_by_category.csv`
+- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp
+- `plots/` — overall + category bars
+
+Agents must not silently skip CSV/plots when code paths change.
+
+---
+
+## Design rules for agents
+
+1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed for `raw_chunks` vs `session_summaries`. Reader-model and teacher-model swaps are a **different** axis (`compare_cross_model.py`).
+2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
+3. **Prefer small pure functions** over frameworks.
+4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
+5. **Do not wire `LlmResponseHash` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_hash.py` (future optimization after E2E is trusted). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
+6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
+7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
+
+---
+
+## Code, tests, and comments
+
+From review. Follow these when adding or renaming code.
+
+**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseHash` vs JSONL resume vs `llm_request_hash`; baseline YAML vs `session_summaries`). Condition ids are descriptive (`raw_chunks`), not numbered (`C0`).
+
+**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseHash` vs JSONL resume vs `llm_request_hash`; `offline_evaluate.py` vs `run.py`; later LLM autoraters vs this string scorer).
+
+**Schemas / data-model classes.** The module docstring should map how types connect and which pipeline step uses them (load → memory → reader → prediction → score). Each class gets a short “what it is / who consumes it” note. Label gold answers as scorer-only (never in the reader prompt).
+
+**Tests.**
+- One unit test focuses on one function (`exact_match` tests stay separate from `token_f1` tests).
+- Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
+- Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
+
+**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
+
+---
+
+## Out of scope (v0.1)
+
+Multi-teacher, claim fusion, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks.
+
+Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
+
+---
+
+## Acceptance checklist for agent PRs
+
+- [ ] Dataset loads without editing source JSON  
+- [ ] One-question and full-run share the same command  
+- [ ] Predictions JSONL deterministic fields  
+- [ ] Metrics include EM, token F1, LoCoMo F1 by category  
+- [ ] Memory builder swappable without changing reader/evaluator  
+- [ ] Tests for parse, memory, normalize, **and** model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
+- [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
+- [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
+
+---
+
+## Traceability
+
+- Spec: `docs/agent/SPEC_v1.md`  
+- LoCoMo pin: `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`  
+- Paper: Maharana et al., arXiv:2402.17753  
+- Sandwich idea: Bowman et al. 2022 scalable oversight  
+
+
+---
+
+# HUMANS.md (previous)
+
 # HUMANS.md — how to run and review (v0.1)
 
 **Audience:** you (the researcher).  
@@ -47,7 +245,7 @@ So yes: the raw file holds **input dialog history**, **authoring aid fields** (s
 
 Treat the CSV as a **readable export**. Training-time “unmasking” is decided by the run pipeline, not by the CSV columns existing on disk.
 
-### Three different model/scoring roles (do not conflate)
+### Two different “evaluators” (do not conflate)
 
 ```text
                     ┌─────────────────────────────────────┐
@@ -65,16 +263,7 @@ Treat the CSV as a **readable export**. Training-time “unmasking” is decided
    Blind to the gold answer. In v0.1 the prompt only injects **`{memory}` + `{question}`** (`prompts/qa_v1.txt`). It does **not** currently receive the gold answer, category ID, or evidence list as separate fields. Dates appear only if they are **already inside** the memory string (e.g. session headers / summary prose).
 
 2. **Scorer (after the model answers)**  
-   *Does* see the reference answer (and category, so LoCoMo’s category-aware
-   F1 can apply). It is deterministic and offline. Re-run it with
-   `python -m src.locomo_eval.offline_evaluate`.
-
-3. **Autorater (after the model answers)**
-   Also sees question + reference + predicted answer, but asks a separate LLM
-   for a binary `CORRECT` / `WRONG` judgment. `autorater.py` implements the
-   Mem0 LLM-as-a-Judge prompt; `scripts.analysis.run_benchmark` defaults to
-   GPT-4o. This path does not see memory and does not implement Mem0
-   extraction/update. It skips category 5, matching the Mem0 paper.
+   *Does* see the reference answer (and category, so LoCoMo’s category-aware F1 can apply). That is not “cheating”; it is standard supervised scoring. Re-run it offline with `python -m src.locomo_eval.offline_evaluate`. A later **LLM autorater** (model grades the answer) would be a different module — do not put it here.
 
 So we do not literally “mask columns on the dataset file.” We **construct a restricted prompt** from selected fields and never put `answer` into that prompt.
 
@@ -197,7 +386,7 @@ python -m src.locomo_eval.run --config configs/session_summaries.yaml --reader m
 python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
 ```
 
-**Full QA set** (many API calls; each invocation starts from question one):
+**Full QA set** (many API calls; resume unfinished questions via `predictions.jsonl`):
 
 ```bash
 python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
@@ -228,80 +417,16 @@ Everything for one experiment is under `experiments/<run_id>/`:
 | `memory/` | Runtime memory audit (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
 | `plots/*.png` | Quick visual of overall + by-category scores |
 
-`predictions.jsonl` is an audit artifact, not a response cache or resume
-checkpoint. Reusing a run id clears generated run artifacts and regenerates
-answers from question one. `LlmResponseHash` remains implemented under
-`src/locomo_eval/utils/`, but evaluation factories reject attempts to pass it.
+Two stores that are easy to mix up:
+
+- **`predictions.jsonl`** — per-run resume (skip finished questions). This is what the live pipeline uses.
+- **`experiments/cache/`** — `LlmResponseHash` (under `src/locomo_eval/utils/`). Implemented, **not wired** into `run.py` until E2E validation is done. Re-enable by passing a store to `get_reader`.
 
 Recompute string metrics without re-calling the API (not an LLM autorater):
 
 ```bash
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 ```
-
-## Run the Mem0-style autorater benchmark
-
-Generate answers first with the normal pipeline, then grade the same stored
-prediction/reference pairs:
-
-```bash
-# Offline component smoke (no judge API)
-python -m scripts.analysis.run_benchmark \
-  --run experiments/<run_id> --autorater mock
-
-# Live GPT-4o judge
-python -m scripts.analysis.run_benchmark \
-  --run experiments/<run_id>
-```
-
-`--autorater mock` is plumbing-only. It marks an answer correct when it shares
-a substantive token with the gold answer. It is deliberately cheap and can
-overrate contradictions (for example, `2 July 2023` vs `3 July 2023`).
-Reports label it `mock_sanity_not_llm_judge`, omit it from the literature J
-column, and never identify it as GPT-4o. Use the live command for actual J.
-Every invocation removes prior generated autorater artifacts in that output
-directory and regenerates from one prediction file. Autorater results never
-resume or append, so mock/live or different source runs cannot overlap.
-
-The default config is `configs/autorater.yaml`; override the judge with
-`--model gpt-4o-mini` to reproduce Mem0's released script more closely. The
-paper reports the mean ± standard deviation of 10 full judge runs; one local
-autorater pack is one run, so repeat it under distinct output directories for
-paper-level uncertainty estimates.
-
-Prompt provenance:
-
-- Pinned Mem0 implementation:
-  [`evaluation/metrics/llm_judge.py`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py)
-  (`ACCURACY_PROMPT`)
-- Paper:
-  [Chhikara et al., arXiv:2504.19413](https://arxiv.org/abs/2504.19413),
-  Appendix A, “Prompt Template for LLM as a Judge”
-- Local adaptation: `prompts/autorater_mem0_v1.txt`. It preserves the Mem0
-  correctness/date-matching instructions and JSON label contract.
-
-Cache isolation is enforced: reader, teacher, and autorater factories reject
-non-null `llm_response_hash`. The answer pipeline clears prior generated
-artifacts under the selected run id and regenerates from question one.
-Autorater rewrites all of its outputs and refuses source predictions marked
-`cached=true`. It never modifies source `predictions.jsonl`, `metrics.json`,
-or `run_meta.json`.
-
-Outputs under `experiments/<run_id>/autorater/`:
-
-| Artifact | Contents |
-|----------|----------|
-| `autorater_verdicts.jsonl` | Fresh per-question F1, BLEU-1, J label, usage, reader/judge latency; overwritten each invocation |
-| `autorater_metrics.json` | Overall and category metrics; category 5 excluded from J |
-| `tables/overall.csv` | This run's F1/BLEU-1/J, token usage, p50/p95 latency |
-| `tables/vs_literature.csv` | This run next to published Mem0 Table 2 J/latency values |
-| `tables/vs_literature_by_category.csv` | Published Mem0 Table 1 category values |
-| `plots/` | Correct/wrong verdict bar, continuous-score histograms/boxplots, category bars, and latency comparisons |
-| `SUMMARY.md` | Compact interpretation and paper citation |
-
-Published rows are **literature pins**, not local re-runs of Mem0. Scores use
-the Mem0 paper's percentage scale in comparison tables. Mem0 F1 is distinct
-from this repository's LoCoMo F1 and SPEC token F1.
 
 ---
 

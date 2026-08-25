@@ -1,16 +1,14 @@
 """SHA-256 of one LLM request payload.
 
-This is not a disk lookup. ``LlmResponseHash`` is implemented but **not
-wired** into ``run.py``. We still hash the same dict ``OpenAIChatCaller``
-would use, so tests and compare scripts can check that two runs asked the
-model different things.
+This is not a disk lookup. Evaluation factories prohibit
+``LlmResponseHash``. We still hash the same dict ``OpenAIChatCaller`` would
+use, so tests and compare scripts can check that two runs asked the model
+different things.
 
 Lifecycle
 ---------
-1. **Live call (if a store were passed):** ``OpenAIChatCaller.complete``
-   builds ``llm_request_payload`` and ``llm_request_hash`` would name the
-   JSON file under ``LlmResponseHash``. ``run.py`` currently passes no
-   store, so this never hits disk. Per-run resume is ``predictions.jsonl``.
+1. **Live call:** ``OpenAIChatCaller.complete`` records the request hash for
+   audit and distinctness checks only. No response-store lookup is permitted.
 2. **Offline rebuild:** ``llm_request_hash_from_prediction`` re-renders the
    QA prompt from stored ``memory_text`` + ``question`` and hashes it with
    the logged reader model / temperature / max_tokens.

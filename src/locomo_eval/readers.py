@@ -142,8 +142,14 @@ class OpenAIChatCaller:
         messages: list[dict[str, str]],
         *,
         request_extra: dict[str, Any],
+        create_extra: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        """Return (text, call_meta). Hash payload matches ``llm_request_hash``."""
+        """Return (text, call_meta). Hash payload matches ``llm_request_hash``.
+
+        ``create_extra`` is merged into Chat Completions kwargs (e.g. JSON
+        ``response_format`` for the autorater). It is not part of the hash
+        unless the caller also puts the same keys in ``request_extra``.
+        """
         # Same dict the offline SHA-256 helper hashes. No disk write unless a
         # store was passed (run.py does not pass one).
         request_payload = llm_request_payload(
@@ -162,7 +168,9 @@ class OpenAIChatCaller:
                     "latency_s": 0.0,
                     "usage": hit.get("usage", {}),
                     "llm_request_hash": key,
-                    "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+                    "pipeline_stage": request_extra.get(
+                        "pipeline_stage", PIPELINE_STAGE_ANSWER_READER
+                    ),
                     "model": self.model_name,
                     "family": self.spec.family,
                 }
@@ -173,6 +181,8 @@ class OpenAIChatCaller:
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
+        if create_extra:
+            create_kwargs.update(create_extra)
         last_exc: BaseException | None = None
         for attempt in range(self.max_retries + 1):
             self._pace()
@@ -199,7 +209,9 @@ class OpenAIChatCaller:
                     "usage": usage,
                     "llm_request_hash": key,
                     "attempts": attempt + 1,
-                    "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
+                    "pipeline_stage": request_extra.get(
+                        "pipeline_stage", PIPELINE_STAGE_ANSWER_READER
+                    ),
                     "model": self.model_name,
                     "family": self.spec.family,
                 }
@@ -284,7 +296,9 @@ def get_reader(
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
 ) -> Reader:
-    """Build a mock or OpenAI reader. ``llm_response_hash`` defaults to None (unwired)."""
+    """Build a mock or OpenAI reader. Response caching is prohibited."""
+    if llm_response_hash is not None:
+        raise ValueError("LLM response caching is disabled for evaluation pipelines.")
     name = name.lower()
     if name == "mock":
         # Resolve aliases (luna → gpt-5.6-luna) so mock logs match live ids.

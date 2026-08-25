@@ -4,9 +4,9 @@ This module is **metrics-only**. It never calls an LLM. Use it when the
 string scorer or plots change and you want new numbers on the same
 ``predictions.jsonl`` without re-billing.
 
-Not an LLM-as-judge / autorater. Autoraters (model grades the
-answer) belongs in a separate module so this path stays deterministic
-and gold-reference-based.
+Not an LLM-as-judge / autorater. The online judge is the separate
+``autorater.py`` + ``scripts.analysis.run_benchmark`` path, so this CLI stays
+deterministic and API-free.
 
 Memory, prompt, or model changes still need ``run_locomo_pipeline_with_memory_config``
 in ``run.py`` (those alter the stored predictions). Holding predictions fixed

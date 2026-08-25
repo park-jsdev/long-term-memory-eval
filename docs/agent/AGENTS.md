@@ -10,7 +10,8 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase:** end-to-end read path with **raw_chunks vs session_summaries** memory builders.  
+**Current phase:** end-to-end read path with **raw_chunks vs session_summaries**
+memory builders plus a Mem0-style **LLM autorater** over finished predictions.
 See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
 Do **not** implement multi-teacher fusion or claim schema unless the human expands scope.
@@ -41,11 +42,13 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
 | `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
+| `prompts/autorater_mem0_v1.txt` | Mem0 LLM-as-a-Judge prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
 | `scripts/compare_full_runs.py` | Sandwich report for two **finished** run packs (tables, SUMMARY, distinctness + F1 plots) |
-| `scripts/analysis/` | Reusable offline analyses + plots (no API) |
+| `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
+| `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -64,6 +67,9 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `readers.py` | OpenAI + Mock readers, temp=0 |
 | `models.py` | Model ids / families / Chat Completions kwargs |
 | `teachers.py` | Single teacher (session summaries) |
+| `autorater.py` | Mem0-style CORRECT/WRONG LLM judge; GPT-4o + mock |
+| `mem0_metrics.py` | Mem0 lexical F1/BLEU-1 and latency summaries |
+| `mem0_baselines.py` | Published Mem0 Tables 1–2 values (literature pins, not re-runs) |
 | `utils/llm_response_hash.py` | Disk memo of LLM replies, keyed by `llm_request_hash` (implemented; **not wired** into run.py — future optimization) |
 | `utils/llm_request_hash.py` | SHA-256 of the intended LLM request; offline distinctness (not a live store lookup) |
 | `metrics.py` | EM, token F1, LoCoMo F1 |
@@ -92,10 +98,17 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_s
 # Offline rescore (string metrics only; not an LLM autorater)
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 
+# Online Mem0 judge over a finished run (GPT-4o; skips category 5)
+python -m scripts.analysis.run_benchmark --run experiments/<run_id>
+
+# Same component, offline plumbing smoke
+python -m scripts.analysis.run_benchmark --run experiments/<run_id> --autorater mock
+
 # Unit tests — evaluation pipeline (HLD iv) + sandwich regression locks
 python -m pytest tests/test_evaluation_pipeline.py tests/test_regressions.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
 python -m unittest tests/test_evaluation_pipeline.py tests/test_regressions.py
+python -m unittest tests/test_autorater_sanity.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -121,6 +134,12 @@ Each run under `experiments/<run_id>/` must include:
 
 Agents must not silently skip CSV/plots when code paths change.
 
+An autorater pack under `experiments/<run_id>/autorater/` must include
+`autorater_verdicts.jsonl`, `autorater_metrics.json`, `run_meta.json`,
+`SUMMARY.md`, `tables/`, and `plots/`. It is a snapshot: every invocation
+clears these generated artifacts and regenerates from one prediction file.
+Never resume or append autorater analyses.
+
 ---
 
 ## Design rules for agents
@@ -129,7 +148,15 @@ Agents must not silently skip CSV/plots when code paths change.
 2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
-5. **Do not wire `LlmResponseHash` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_hash.py` (future optimization after E2E is trusted). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
+   Autorater reports additionally use Mem0 F1/BLEU-1/J and must label these
+   separately; Mem0 category 5 is excluded from J.
+   Mock autorater output is plumbing-only (`mock_sanity_not_llm_judge`), must
+   not occupy the literature J column, and must never log a live model id.
+5. **No evaluation caches or resume.** Reader, teacher, and autorater factories
+   reject non-null `llm_response_hash`. Every answer run clears generated
+   artifacts for its run id and starts from question one. Autorater regenerates
+   its output and rejects source prediction rows marked `cached=true`.
+   `LlmResponseHash` remains an unused utility; do not wire it.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
 
@@ -139,9 +166,9 @@ Agents must not silently skip CSV/plots when code paths change.
 
 From review. Follow these when adding or renaming code.
 
-**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseHash` vs JSONL resume vs `llm_request_hash`; baseline YAML vs `session_summaries`). Condition ids are descriptive (`raw_chunks`), not numbered (`C0`).
+**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseHash` vs audit JSONL vs `llm_request_hash`; baseline YAML vs `session_summaries`). Condition ids are descriptive (`raw_chunks`), not numbered (`C0`).
 
-**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseHash` vs JSONL resume vs `llm_request_hash`; `offline_evaluate.py` vs `run.py`; later LLM autoraters vs this string scorer).
+**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseHash` vs audit JSONL vs `llm_request_hash`; `offline_evaluate.py` string scoring vs `autorater.py` online LLM judging).
 
 **Schemas / data-model classes.** The module docstring should map how types connect and which pipeline step uses them (load → memory → reader → prediction → score). Each class gets a short “what it is / who consumes it” note. Label gold answers as scorer-only (never in the reader prompt).
 
@@ -156,7 +183,9 @@ From review. Follow these when adding or renaming code.
 
 ## Out of scope (v0.1)
 
-Multi-teacher, claim fusion, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks.
+Mem0 extraction/update, multi-teacher, claim fusion, validator loop, retrieval
+budgets as experiments, training/distillation loop, web UI, event-summarization
+/ multimodal tasks.
 
 Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
 
@@ -168,8 +197,10 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] One-question and full-run share the same command  
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
+- [ ] Autorater includes Mem0 F1/BLEU-1/J, category-5 exclusion, fresh tables, and fresh plots (no resume/append)
 - [ ] Memory builder swappable without changing reader/evaluator  
 - [ ] Tests for parse, memory, normalize, **and** model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
+- [ ] `tests/test_autorater_sanity.py` stays green (mock only; no API)
 - [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
@@ -180,4 +211,6 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - Spec: `docs/agent/SPEC_v1.md`  
 - LoCoMo pin: `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`  
 - Paper: Maharana et al., arXiv:2402.17753  
+- Autorater protocol/baselines: Chhikara et al., arXiv:2504.19413
+- Autorater prompt source: [Mem0 `ACCURACY_PROMPT` (pinned code)](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py), also reproduced in paper Appendix A
 - Sandwich idea: Bowman et al. 2022 scalable oversight  

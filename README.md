@@ -195,7 +195,7 @@ sequenceDiagram
 | Builder → `Memory.text` | No | condition |
 | Prompt template file | Yes (after lock) | `prompts/qa_*.txt` |
 | Reader model / decode | Yes | `reader.*` in YAML |
-| Store | Off (future optimization) | `utils/llm_response_hash.py`; pass to `get_reader` to re-enable |
+| Store | Prohibited in evaluation | `utils/llm_response_hash.py` remains unused; factories reject it |
 | Metrics | Always | `metrics.py` / LoCoMo F1 |
 
 ---
@@ -209,7 +209,7 @@ Update this section when you add Claude, Gemini, local HF, etc.
 
 | Provider | Product | How we call it | Auth | Models in configs | Code entry |
 |----------|---------|----------------|------|-------------------|------------|
-| **OpenAI** | Platform API ([platform.openai.com](https://platform.openai.com)) | Official Python SDK `openai` ≥1.30 — **Chat Completions** (`client.chat.completions.create`) | `OPENAI_API_KEY` in repo-root `.env` (auto-loaded) | **Default:** `gpt-4.1-mini` · **Paper-style option:** `gpt-4.1` (set `reader.model`) | `src/locomo_eval/readers.py` → `OpenAIReader` |
+| **OpenAI** | Platform API ([platform.openai.com](https://platform.openai.com)) | Official Python SDK `openai` ≥1.30 — **Chat Completions** (`client.chat.completions.create`) | `OPENAI_API_KEY` in repo-root `.env` (auto-loaded) | Reader: `gpt-4.1-mini`; autorater: `gpt-4o` (`gpt-4o-mini` for Mem0 released-script parity) | `readers.py` → `OpenAIReader`; `autorater.py` → `OpenAIAutorater` |
 
 | Decode defaults (frozen bottom unless re-locked) | Value |
 |-----------------------------------------------------------------|-------|
@@ -226,9 +226,11 @@ Update this section when you add Claude, Gemini, local HF, etc.
 
 | Command | API? | Notes |
 |---------|------|--------|
-| `python -m src.locomo_eval.run --config configs/raw_chunks.yaml ...` | Yes if `reader.provider: openai` | One Chat Completions call per unanswered QA (JSONL resume skips finished) |
+| `python -m src.locomo_eval.run --config configs/raw_chunks.yaml ...` | Yes if `reader.provider: openai` | One fresh Chat Completions call per QA; cache/resume disabled |
 | `... --reader mock` | No | Offline plumbing |
 | `python -m src.locomo_eval.offline_evaluate --predictions ...` | No | String-metric rescore only (not an LLM autorater) |
+| `python -m scripts.analysis.run_benchmark --run ...` | Yes | GPT-4o Mem0 LLM-as-a-Judge over stored answers |
+| `python -m scripts.analysis.run_benchmark --run ... --autorater mock` | No | Autorater/report plumbing smoke |
 | `python scripts/compare_full_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
 | `python scripts/prepare_data.py ...` | No | Local JSON → CSV/JSONL |
 | `python scripts/fetch_locomo.py` | GitHub raw HTTP | Dataset file only, not OpenAI |
@@ -258,11 +260,11 @@ python -m src.locomo_eval.run --config configs/session_summaries.yaml \
 
 | Topic | Detail |
 |-------|--------|
-| Billing unit | 1 Chat Completions request per unanswered question (JSONL resume skips finished Qs) |
+| Billing unit | 1 fresh Chat Completions request per question on every invocation |
 | Full LoCoMo | ~1986 Qs per condition → ~1986 requests if starting cold |
-| Free/low tier | Can hit **RPD ~50/day** → use `max_questions`, resume same `--run-id` |
+| Free/low tier | Can hit **RPD ~50/day** → use small `max_questions` and distinct run ids |
 | Prompt size | `raw_chunks` can be ~tens of k chars (truncated by `memory_max_chars`); drives **input tokens** not request count |
-| LLM response hash | Implemented in `utils/llm_response_hash.py`, **not wired**. Re-enable later via `get_reader(..., llm_response_hash=...)` |
+| LLM response hash | Utility remains in `utils/llm_response_hash.py`, but evaluation factories reject it |
 | Raising limits | [Billing](https://platform.openai.com/account/billing) + [Rate limits](https://platform.openai.com/account/rate-limits) |
 
 ### Planned swaps (not wired)
@@ -289,7 +291,7 @@ For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (gitignor
 
 ## OpenAI rate limits
 
-See **External APIs & models** above for the authoritative inventory. Short form: low-tier Orgs may see **~50 RPD** for `gpt-4.1-mini`; full eval needs higher limits or multi-day resume.
+See **External APIs & models** above for the authoritative inventory. Short form: low-tier Orgs may see **~50 RPD** for `gpt-4.1-mini`; full eval needs higher limits because runs do not resume.
 ---
 
 ## Phase 1 — raw_chunks vs session_summaries (frozen reader/prompt, vary memory)
@@ -322,21 +324,55 @@ Rescore with string metrics only (no API, not an LLM autorater):
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 ```
 
+Run the Mem0-style online autorater on those same stored predictions:
+
+```bash
+# Offline report smoke
+python -m scripts.analysis.run_benchmark \
+  --run experiments/<run_id> --autorater mock
+
+# Live GPT-4o judge (Mem0 F1 / BLEU-1 / J + literature and latency plots)
+python -m scripts.analysis.run_benchmark \
+  --run experiments/<run_id>
+```
+
+Mock mode is only a token-overlap plumbing check. It can mark contradictory
+dates correct, is logged as `mock_sanity_not_llm_judge`, and is excluded from
+the literature J comparison. Actual J requires the live GPT-4o command.
+Every invocation clears the prior generated autorater tables, plots, verdicts,
+metrics, and metadata, then regenerates them from one prediction file. It
+never resumes or appends autorater analysis.
+
+This implements the Mem0 judge protocol and published baseline tables, not
+Mem0 extraction/update. It skips adversarial category 5 as the paper does.
+See `experiments/<run_id>/autorater/SUMMARY.md`, `tables/`, and `plots/`.
+
+Prompt source: Mem0's pinned
+[`ACCURACY_PROMPT`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py),
+also printed in [paper Appendix A](https://arxiv.org/abs/2504.19413). The
+local adaptation is `prompts/autorater_mem0_v1.txt`.
+
+No evaluation cache or resume is active. Reader, teacher, and autorater
+factories reject non-null `llm_response_hash`; answer runs clear prior
+generated artifacts for the run id and regenerate from question one.
+Autorater runs also regenerate and reject source rows marked `cached=true`.
+
 Tests:
 
 ```bash
 python -m unittest tests/test_evaluation_pipeline.py -q
+python -m unittest tests/test_autorater_sanity.py -q
 ```
 
 ## Layout
 
 ```text
 configs/                  # baseline, raw_chunks, session_summaries
-prompts/qa_v1.txt
-src/locomo_eval/          # run, memory, memory_log, readers, metrics, report
+prompts/                  # qa_v1, teacher_session_v1, autorater_mem0_v1
+src/locomo_eval/          # run, memory, readers, autorater, metrics, reports
 docs/schemas/             # memory_runtime.md + memory_io.schema.json
 src/metrics/locomo_qa.py  # official LoCoMo F1
-scripts/                  # fetch, prepare_data, compare_full_runs
+scripts/                  # fetch, prepare_data, compare; analysis/run_benchmark
 docs/reports/             # engineering_notebook
 docs/agent/               # SPEC, AGENTS, HUMANS, traces
 docs/reflections/         # version audit writeups
