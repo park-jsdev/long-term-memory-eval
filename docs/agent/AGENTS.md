@@ -10,10 +10,10 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase:** end-to-end read path with **raw_chunks vs session_summaries** memory builders.  
+**Current phase:** HLD (i) session-block preprocess plus a **Mem0 / Mem0g write-index** (`extract → ADD/UPDATE/DELETE/NONE`, optional in-memory graph). Read path still has `raw_chunks` / `session_summaries` / `teacher_session_summaries`. Mem0 QA numbers are a later command — do not claim paper J (66.88 / 68.44).  
 See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
-Do **not** implement multi-teacher fusion or claim schema unless the human expands scope. `teacher_orchestrator.py` is a passthrough seam (one session block at a time, no LLM).
+Do **not** implement multi-teacher fusion unless the human expands scope. Later distilled memory is a new `GraphMemory` subclass (freeze extract when attributing the graph). `teacher_orchestrator.py` stays a passthrough seam.
 
 ---
 
@@ -24,9 +24,9 @@ Write: conversation → teachers → fusion/validate → memory store
 Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 ```
 
-Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
+Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, `mem0`, `mem0g`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
 
-**Now:** `raw_chunks` and `session_summaries` builders inject alternative `Memory.text` with frozen reader/metrics. `teacher_session_summaries` is a live single-teacher seam (swap `teacher.model` within a family). Dataset-provided session summaries remain the default memory condition. Reader model can also be swapped (`gpt-4.1-mini` vs `gpt-5.6-luna`) as a **separate** robustness axis — do not mix that with a memory-condition claim.
+**Now:** `raw_chunks` and `session_summaries` inject alternative `Memory.text` with frozen reader/metrics. `mem0` / `mem0g` **load a write-index dump** (no re-extract) and cosine-retrieve into `Memory.text`. `teacher_session_summaries` is a live single-teacher seam. Reader-model swaps (`gpt-4.1-mini` vs `gpt-5.6-luna`) are a **separate** robustness axis.
 
 ---
 
@@ -39,11 +39,16 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `configs/session_summaries.yaml` | LoCoMo session-summary memory (same condition as baseline.yaml) |
 | `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
 | `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
-| `prompts/qa_v1.txt` | Fixed answer prompt |
+| `configs/mem0.yaml` | Mem0 vector write-index + load/retrieve seam |
+| `configs/mem0g.yaml` | Mem0 vector + in-memory graph (`mem0g`) |
+| `prompts/qa_v1.txt` | Fixed answer prompt (do not mix a Mem0 ANSWER_PROMPT swap into a memory claim) |
 | `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
+| `prompts/mem0_extract_v1.txt` / `mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
+| `prompts/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
+| `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `src/locomo_eval/` | Baseline package |
 | `scripts/compare_full_runs.py` | Sandwich report for two **finished** run packs (tables, SUMMARY, distinctness + F1 plots) |
 | `scripts/analysis/` | Reusable offline analyses + plots (no API) |
@@ -63,7 +68,8 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `dataset.py` | Load LoCoMo JSON → Conversation (read path; preprocess is separate) |
 | `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` + session-document join (unwired from run.py) |
 | `teacher_orchestrator.py` | HLD (ii) stub: one SessionBlock at a time, passthrough, no LLM |
-| `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_session_summaries |
+| `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_session_summaries / mem0 / mem0g |
+| `mem0/` | Write-index: ingest pairs, extract, update, vector store, `GraphMemory` ABC, dump, `run_index` CLI |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
 | `models.py` | Model ids / families / Chat Completions kwargs |
@@ -96,10 +102,14 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_s
 # Offline rescore (string metrics only; not an LLM autorater)
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 
-# Unit tests — preprocess (HLD i) + evaluation (HLD iv) + sandwich regression locks
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_evaluation_pipeline.py tests/test_regressions.py -q
+# Mem0 / Mem0g write-index (no QA). Mock smoke; live gpt-4o-mini is costly.
+python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --extractor mock --embedder mock --max-samples 1 --run-id smoke_mem0_index
+python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
+
+# Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_evaluation_pipeline.py tests/test_regressions.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -129,6 +139,11 @@ Each run under `experiments/<run_id>/` must include:
 
 Agents must not silently skip CSV/plots when code paths change.
 
+A Mem0 write-index under `experiments/<run_id>/mem0_index/` must include
+`run_meta.json`, `schema.json`, `index.jsonl`, and `by_sample/<id>/speaker_a.json`
++ `speaker_b.json` (and `graph.json` when `enable_graph`). Skip complete samples
+unless `--overwrite`. This is **not** `LlmResponseHash`.
+
 ---
 
 ## Design rules for agents
@@ -137,7 +152,7 @@ Agents must not silently skip CSV/plots when code paths change.
 2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
-5. **Do not wire `LlmResponseHash` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_hash.py` (future optimization after E2E is trusted). Per-run resume is `predictions.jsonl`. Do not delete user caches unless asked.
+5. **Do not wire `LlmResponseHash` yet.** Implementation lives in `src/locomo_eval/utils/llm_response_hash.py`. Mem0 extract/update/embed factories reject a non-null store. Write-index resume is per-sample JSON under `mem0_index/`. QA resume remains `predictions.jsonl`.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
 
@@ -164,7 +179,7 @@ From review. Follow these when adding or renaming code.
 
 ## Out of scope (v0.1)
 
-Multi-teacher, claim fusion, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks.
+Multi-teacher fusion, Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J, swapping `qa_v1` for Mem0 `ANSWER_PROMPT` inside a memory-condition claim, validator loop, training/distillation loop, web UI, event-summarization / multimodal tasks.
 
 Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
 
@@ -177,9 +192,9 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
 - [ ] Memory builder swappable without changing reader/evaluator  
-- [ ] Tests for parse, memory, preprocess session blocks, session-document join, normalize; names = behavior + expected outcome; one function per unit test  
+- [ ] Tests for parse, memory, preprocess session blocks, session-document join, Mem0 index (mock), normalize  
 - [ ] Model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
-- [ ] `tests/test_regressions.py` still green (pipeline / sandwich contracts)  
+- [ ] `tests/test_mem0_index.py` and `tests/test_regressions.py` stay green (mock only; no API)  
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---
@@ -189,4 +204,5 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - Spec: `docs/agent/SPEC_v1.md`  
 - LoCoMo pin: `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`  
 - Paper: Maharana et al., arXiv:2402.17753  
+- Mem0 protocol: Chhikara et al., arXiv:2504.19413 (architecture clone; not Platform v2 numbers)  
 - Sandwich idea: Bowman et al. 2022 scalable oversight  

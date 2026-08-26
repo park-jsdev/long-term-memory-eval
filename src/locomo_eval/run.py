@@ -51,6 +51,37 @@ from src.locomo_eval.teachers import get_teacher
 import json
 
 
+def _mem0_builder_kwargs(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
+) -> dict:
+    """Index-dir + query embedder for mem0/mem0g. Other builders ignore these kwargs."""
+    if resolve_memory_name(memory_name) not in ("mem0", "mem0g"):
+        return {}
+    mcfg = cfg.get("mem0") or {}
+    index_run = getattr(overrides, "mem0_index_run_id", None) or mcfg.get("index_run_id")
+    if not index_run:
+        raise SystemExit(
+            "mem0/mem0g requires mem0.index_run_id in YAML or --mem0-index-run-id "
+            "(after python -m src.locomo_eval.mem0.run_index)."
+        )
+    out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
+    embed_cfg = mcfg.get("embed") or {}
+    provider = embed_cfg.get("provider") or "openai"
+    if str(reader_name).lower() == "mock":
+        provider = "mock"
+    from src.locomo_eval.mem0.embeddings import get_embedder
+
+    return {
+        "mem0_index_dir": out_root / str(index_run) / "mem0_index",
+        "mem0_top_k": int(mcfg.get("top_k", 30)),
+        "mem0_embedder": get_embedder(
+            provider,
+            model=embed_cfg.get("model") or "text-embedding-3-small",
+            llm_response_hash=None,
+        ),
+    }
+
+
 def _git_hash() -> str | None:
     """Pin HEAD in run_meta so you can check out this commit and reproduce the run.
 
@@ -163,7 +194,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     if max_chars is not None:
         max_chars = int(max_chars)
     teacher = _build_teacher(cfg, overrides, memory_name, reader_name)
-    builder = get_memory_builder(memory_name, max_chars=max_chars, teacher=teacher)
+    mem0_kwargs = _mem0_builder_kwargs(cfg, overrides, memory_name, reader_name)
+    builder = get_memory_builder(
+        memory_name, max_chars=max_chars, teacher=teacher, **mem0_kwargs
+    )
 
     rate_cfg = cfg.get("reader") or {}
     reader_model = "mock" if reader_name.lower() == "mock" else model
@@ -375,7 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, mem0, mem0g)",
     )
     p.add_argument("--reader", default=None, help="openai | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
@@ -390,6 +424,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id", default=None)
     p.add_argument("--max-questions", type=int, default=None)
     p.add_argument("--sample-id", default=None, help="Restrict to one conversation")
+    p.add_argument(
+        "--mem0-index-run-id",
+        default=None,
+        help="experiments/<id>/mem0_index dump for mem0/mem0g builders",
+    )
     return p
 
 

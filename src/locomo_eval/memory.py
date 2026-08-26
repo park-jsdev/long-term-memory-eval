@@ -6,6 +6,7 @@ Current conditions (ids are what reviewers see in logs):
   raw_chunks                  — raw dialogue turns (optional char budget)
   session_summaries           — LoCoMo-provided session summaries
   teacher_session_summaries   — live single-teacher session summaries (model-swappable)
+  mem0 / mem0g                — load a Mem0 write-index dump + cosine retrieve (no re-extract)
 
 See docs/reports/engineering_notebook.md.
 """
@@ -13,12 +14,14 @@ See docs/reports/engineering_notebook.md.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .schemas import Conversation, Memory, Question, Session
 
 if TYPE_CHECKING:
     from .teachers import Teacher
+    from .mem0.embeddings import Embedder
 
 
 class MemoryBuilder(ABC):
@@ -202,18 +205,20 @@ _ALIASES: dict[str, str] = {
     "session_summary": SessionSummaryMemoryBuilder.name,
     "c1_teacher": TeacherSessionMemoryBuilder.name,
     "teacher": TeacherSessionMemoryBuilder.name,
+    "mem0": "mem0",
+    "mem0g": "mem0g",
 }
 
 
 def resolve_memory_name(name: str) -> str:
     key = name.strip().lower() if name else ""
-    if key in _BUILDERS:
+    if key in _BUILDERS or key in ("mem0", "mem0g"):
         return key
     if key in _ALIASES:
         return _ALIASES[key]
     raise ValueError(
         f"Unknown memory builder '{name}'. "
-        f"Known: {sorted(_BUILDERS)} aliases={sorted(_ALIASES)}"
+        f"Known: {sorted(list(_BUILDERS) + ['mem0', 'mem0g'])} aliases={sorted(_ALIASES)}"
     )
 
 
@@ -221,8 +226,26 @@ def get_memory_builder(
     name: str,
     max_chars: int | None = None,
     teacher: Teacher | None = None,
+    mem0_index_dir: str | Path | None = None,
+    mem0_top_k: int = 30,
+    mem0_embedder: Embedder | None = None,
 ) -> MemoryBuilder:
     resolved = resolve_memory_name(name)
+    if resolved in ("mem0", "mem0g"):
+        from .mem0.builders import Mem0IndexMemoryBuilder, Mem0gIndexMemoryBuilder
+
+        if mem0_index_dir is None:
+            raise ValueError(
+                f"{resolved} requires a write-index directory. "
+                "Set mem0.index_run_id in YAML (experiments/<id>/mem0_index) "
+                "after python -m src.locomo_eval.mem0.run_index."
+            )
+        cls = Mem0IndexMemoryBuilder if resolved == "mem0" else Mem0gIndexMemoryBuilder
+        return cls(
+            index_dir=mem0_index_dir,
+            embedder=mem0_embedder,
+            top_k=mem0_top_k,
+        )
     cls = _BUILDERS[resolved]
     if resolved == RawConversationMemoryBuilder.name:
         return cls(max_chars=max_chars)
