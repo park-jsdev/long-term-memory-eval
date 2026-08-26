@@ -815,6 +815,8 @@ def run_benchmark(
         "predictions_path": str(pred_path),
         "autorater_model": autorater.model_name,
         "autorater_provider": autorater.provider,
+        "temperature": getattr(autorater, "temperature", 0.0),
+        "max_tokens": getattr(autorater, "max_tokens", None),
         "autorater_family": (
             resolve_model(autorater.model_name).family
             if autorater.model_name != "mock"
@@ -894,7 +896,10 @@ def main(argv: list[str] | None = None) -> None:
         help="Autorater YAML (model, prompt, skip_category)",
     )
     p.add_argument("--autorater", default=None, help="openai | mock (overrides YAML provider)")
-    p.add_argument("--model", default=None, help="Judge model id (default: gpt-4o)")
+    p.add_argument("--model", default=None, help="Judge model id (default: gpt-4o-mini)")
+    p.add_argument("--prompt", default=None, help="Override judge prompt path")
+    p.add_argument("--temperature", type=float, default=None, help="Override judge temperature")
+    p.add_argument("--max-tokens", type=int, default=None, help="Override judge completion-token limit")
     p.add_argument("--max-questions", type=int, default=None)
     p.add_argument("--label", default=None, help="Row name in vs-literature tables")
     args = p.parse_args(argv)
@@ -906,6 +911,18 @@ def main(argv: list[str] | None = None) -> None:
     acfg = cfg.get("autorater") or {}
     provider = args.autorater or acfg.get("provider") or "openai"
     model = args.model or acfg.get("model") or DEFAULT_AUTORATER_MODEL
+    temperature = (
+        args.temperature
+        if args.temperature is not None
+        else float(acfg.get("temperature", 0.0))
+    )
+    max_tokens_raw = (
+        args.max_tokens
+        if args.max_tokens is not None
+        else acfg.get("max_tokens")
+    )
+    max_tokens = int(max_tokens_raw) if max_tokens_raw is not None else None
+    prompt_path = args.prompt or acfg.get("prompt_path")
     pred_path, out_dir = _resolve_run_paths(args.run, args.predictions, args.out)
 
     judge_label = "mock (configured live model ignored)" if provider == "mock" else f"{provider}/{model}"
@@ -916,13 +933,13 @@ def main(argv: list[str] | None = None) -> None:
     rater = get_autorater(
         provider,
         model=model,
-        temperature=float(acfg.get("temperature", 0.0)),
-        max_tokens=int(acfg.get("max_tokens", 256)),
+        temperature=temperature,
+        max_tokens=max_tokens,
         llm_response_hash=None,
         max_retries=int(acfg.get("max_retries", 8)),
         min_request_interval_s=float(acfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(acfg.get("max_wait_s", 3600.0)),
-        prompt_path=acfg.get("prompt_path"),
+        prompt_path=prompt_path,
     )
     result = run_benchmark(
         pred_path,
@@ -931,7 +948,7 @@ def main(argv: list[str] | None = None) -> None:
         skip_category=int(acfg.get("skip_category", ADVERSARIAL_CATEGORY)),
         max_questions=args.max_questions,
         our_label=args.label,
-        prompt_version=Path(str(acfg.get("prompt_path") or "autorater_mem0_v1")).stem,
+        prompt_version=Path(str(prompt_path or "autorater_mem0_v1")).stem,
     )
     metrics = result["summary"]["metrics"]
     print("Wrote", result["out_dir"])

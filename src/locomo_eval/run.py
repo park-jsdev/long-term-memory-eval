@@ -141,7 +141,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     plus ``scripts/compare_full_runs.py`` (or ``compare_cross_model.py``).
 
     Which memory builder runs is ``cfg["pipeline"]["memory"]``, unless
-    ``--memory`` overrides it. Not tied to ``configs/baseline.yaml``.
+    ``--memory`` overrides it. Not tied to ``configs/mem0_baseline.yaml``.
     """
     data_path = Path(overrides.data or cfg["data"]["raw_path"])
     # Builder id (raw_chunks / session_summaries), not a path to another YAML.
@@ -170,16 +170,38 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     builder = get_memory_builder(memory_name, max_chars=max_chars, teacher=teacher)
 
     rate_cfg = cfg.get("reader") or {}
+    temperature_override = getattr(overrides, "temperature", None)
+    reader_temperature = (
+        float(temperature_override)
+        if temperature_override is not None
+        else float(rate_cfg.get("temperature", 0.0))
+    )
+    max_tokens_override = getattr(overrides, "max_tokens", None)
+    reader_max_tokens_raw = (
+        max_tokens_override
+        if max_tokens_override is not None
+        else rate_cfg.get("max_tokens", 64)
+    )
+    reader_max_tokens = (
+        int(reader_max_tokens_raw) if reader_max_tokens_raw is not None else None
+    )
+    message_layout_override = getattr(overrides, "message_layout", None)
+    reader_message_layout = str(
+        message_layout_override
+        or rate_cfg.get("message_layout")
+        or "default_system_user"
+    )
     reader_model = "mock" if reader_name.lower() == "mock" else model
     reader = get_reader(
         reader_name,
         model=reader_model,
-        temperature=float(rate_cfg.get("temperature", 0.0)),
-        max_tokens=int(rate_cfg.get("max_tokens", 64)),
+        temperature=reader_temperature,
+        max_tokens=reader_max_tokens,
         llm_response_hash=None,  # evaluation factories prohibit response stores
         max_retries=int(rate_cfg.get("max_retries", 8)),
         min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
         max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
+        message_layout=reader_message_layout,
     )
 
     conversations = load_conversations(data_path)
@@ -316,8 +338,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "teacher_provider": teacher_provider,
         "teacher_model": teacher_model,
         "teacher_family": resolve_model(teacher_model).family if teacher_model else None,
-        "temperature": rate_cfg.get("temperature", 0.0),
-        "max_tokens": rate_cfg.get("max_tokens", 64),
+        "temperature": reader_temperature,
+        "max_tokens": reader_max_tokens,
+        "message_layout": reader_message_layout,
         "max_retries": rate_cfg.get("max_retries", 8),
         "min_request_interval_s": rate_cfg.get("min_request_interval_s", 0.0),
         "prompt_path": str(prompt_path),
@@ -352,8 +375,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--config",
-        default="configs/baseline.yaml",
-        help="YAML path (default: session_summaries). Also configs/raw_chunks.yaml, configs/session_summaries.yaml",
+        default="configs/mem0_baseline.yaml",
+        help="YAML path (default: Mem0-parity controls over session_summaries)",
     )
     p.add_argument("--data", default=None, help="Override path to locomo10.json")
     p.add_argument(
@@ -363,6 +386,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--reader", default=None, help="openai | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
+    p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
+    p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
+    p.add_argument(
+        "--message-layout",
+        choices=("default_system_user", "mem0_system_only"),
+        default=None,
+        help="Override Chat Completions message layout",
+    )
     p.add_argument("--teacher", default=None, help="Teacher provider: openai | mock (teacher_session_summaries only)")
     p.add_argument(
         "--teacher-model",

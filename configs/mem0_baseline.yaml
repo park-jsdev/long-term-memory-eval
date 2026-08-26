@@ -1,6 +1,6 @@
-# CLI default (--config if omitted). Standalone YAML, currently session_summaries.
+# CLI default: Mem0-parity answer/evaluation controls over session_summaries.
 # pipeline.memory is a builder id in memory.py, not a pointer to another YAML.
-# Same condition as configs/session_summaries.yaml; use raw_chunks.yaml for raw dialog.
+# Memory construction is not Mem0 extraction/update.
 
 data:
   raw_path: data/raw/locomo10.json
@@ -9,16 +9,17 @@ data:
 
 pipeline:
   memory: session_summaries  # builder id, not configs/session_summaries.yaml
-  prompt_path: prompts/qa_v1.txt
+  prompt_path: prompts/qa_mem0_v1.txt
   # null = full set; use a small int for smoke tests
   max_questions: null
 
 reader:
   provider: openai          # openai | mock
-  model: gpt-4.1-mini       # cheap default for MVP; set to gpt-4.1 for paper runs
+  model: gpt-4o-mini        # Mem0 released evaluation reader
   temperature: 0.0
-  max_tokens: 64
-  # Free / low tiers often have low RPD (e.g. 50 req/day). Each uncached QA = 1 request.
+  max_tokens: null          # Mem0 released reader does not set this field
+  message_layout: mem0_system_only
+  # Free / low tiers often have low RPD. Every QA is a fresh request.
   max_retries: 8            # on 429, backoff using Retry-After when present
   min_request_interval_s: 0.5
   max_wait_s: 3600          # max sleep per retry when rate limited
@@ -26,5 +27,3 @@ reader:
 run:
   run_id: null              # auto timestamp if null
   output_dir: experiments
-  # Future optimization (unwired): src/locomo_eval/utils/llm_response_hash.py
-  # llm_response_hash_dir: experiments/cache

@@ -1,4 +1,4 @@
-# Same session_summaries memory as baseline.yaml; only the frozen answer/eval model changes.
+# Same memory as session_summaries.yaml; only the answer/eval model changes.
 # Use for cross-model robustness of the reader (not a memory-condition claim).
 #
 #   python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml \

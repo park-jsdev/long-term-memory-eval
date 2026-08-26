@@ -166,14 +166,14 @@ flowchart TB
 
 ### 4. Memory + LLM lifecycle — builder, schema, prompts
 
-Request path for one QA item. `LlmResponseHash` exists under `utils/` but is **not** used by `run.py` yet.
+Request path for one QA item. Evaluation factories prohibit `LlmResponseHash`.
 
 ```mermaid
 sequenceDiagram
   participant Run as run.py
   participant MB as MemoryBuilder
   participant Mem as Memory schema
-  participant Pr as prompts.py + qa_v1.txt
+  participant Pr as prompts.py + selected QA prompt
   participant Rd as OpenAIReader
   participant API as OpenAI API
   participant Sc as metrics + report
@@ -181,7 +181,7 @@ sequenceDiagram
   Run->>MB: build(conversation, question)
   MB-->>Mem: memory_type, text, source_ids
   Run->>Pr: render_qa_prompt(template, memory.text, question)
-  Pr-->>Rd: full user prompt
+  Pr-->>Rd: filled prompt
   Rd->>API: chat.completions
   API-->>Rd: predicted_answer
   Rd-->>Run: answer + meta(usage)
@@ -209,14 +209,13 @@ Update this section when you add Claude, Gemini, local HF, etc.
 
 | Provider | Product | How we call it | Auth | Models in configs | Code entry |
 |----------|---------|----------------|------|-------------------|------------|
-| **OpenAI** | Platform API ([platform.openai.com](https://platform.openai.com)) | Official Python SDK `openai` ≥1.30 — **Chat Completions** (`client.chat.completions.create`) | `OPENAI_API_KEY` in repo-root `.env` (auto-loaded) | Reader: `gpt-4.1-mini`; autorater: `gpt-4o` (`gpt-4o-mini` for Mem0 released-script parity) | `readers.py` → `OpenAIReader`; `autorater.py` → `OpenAIAutorater` |
+| **OpenAI** | Platform API ([platform.openai.com](https://platform.openai.com)) | Official Python SDK `openai` ≥1.30 — **Chat Completions** (`client.chat.completions.create`) | `OPENAI_API_KEY` in repo-root `.env` (auto-loaded) | Default baseline reader + judge: `gpt-4o-mini`; GPT-4.1/GPT-5.6 remain experiment options | `readers.py` → `OpenAIReader`; `autorater.py` → `OpenAIAutorater` |
 
 | Decode defaults (frozen bottom unless re-locked) | Value |
 |-----------------------------------------------------------------|-------|
 | temperature | `0.0` |
-| max_tokens (completion) | `64` |
-| System message | `"You answer questions using only the provided memory."` |
-| User message | rendered `prompts/qa_v1.txt` with `{memory}` + `{question}` |
+| max_tokens (completion) | omitted, matching released Mem0 scripts |
+| Baseline messages | rendered `prompts/qa_mem0_v1.txt` as the sole system message |
 | min_request_interval_s | `0.5` |
 | max_retries on 429 | `8` (Retry-After / exponential backoff) |
 
@@ -238,12 +237,13 @@ Update this section when you add Claude, Gemini, local HF, etc.
 ### Config knobs
 
 ```yaml
-# configs/raw_chunks.yaml, session_summaries.yaml, baseline.yaml
+# mem0_baseline.yaml (Mem0-parity controls)
 reader:
   provider: openai          # or mock
-  model: gpt-4.1-mini       # override: --model gpt-4.1
+  model: gpt-4o-mini
   temperature: 0.0
-  max_tokens: 64
+  max_tokens: null
+  message_layout: mem0_system_only
   max_retries: 8
   min_request_interval_s: 0.5
   max_wait_s: 3600
@@ -253,7 +253,9 @@ CLI overrides:
 
 ```bash
 python -m src.locomo_eval.run --config configs/session_summaries.yaml \
-  --model gpt-4.1 --max-questions 20 --run-id cmp_session_summaries_gpt41_n20
+  --model gpt-4.1 --prompt prompts/qa_v1.txt \
+  --temperature 0 --max-tokens 64 --message-layout default_system_user \
+  --max-questions 20 --run-id cmp_session_summaries_gpt41_n20
 ```
 
 ### Cost & quota considerations
@@ -291,7 +293,7 @@ For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (gitignor
 
 ## OpenAI rate limits
 
-See **External APIs & models** above for the authoritative inventory. Short form: low-tier Orgs may see **~50 RPD** for `gpt-4.1-mini`; full eval needs higher limits because runs do not resume.
+See **External APIs & models** above for the authoritative inventory. Full evaluation needs sufficient request limits because runs do not resume.
 ---
 
 ## Phase 1 — raw_chunks vs session_summaries (frozen reader/prompt, vary memory)
@@ -352,6 +354,10 @@ Prompt source: Mem0's pinned
 also printed in [paper Appendix A](https://arxiv.org/abs/2504.19413). The
 local adaptation is `prompts/autorater_mem0_v1.txt`.
 
+Baseline answer-prompt source: Mem0's pinned
+[`evaluation/src/openai/predict.py`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/src/openai/predict.py).
+The local placeholder adaptation is `prompts/qa_mem0_v1.txt`.
+
 No evaluation cache or resume is active. Reader, teacher, and autorater
 factories reject non-null `llm_response_hash`; answer runs clear prior
 generated artifacts for the run id and regenerate from question one.
@@ -368,7 +374,7 @@ python -m unittest tests/test_autorater_sanity.py -q
 
 ```text
 configs/                  # baseline, raw_chunks, session_summaries
-prompts/                  # qa_v1, teacher_session_v1, autorater_mem0_v1
+prompts/                  # qa_v1, qa_mem0_v1, teacher_session_v1, autorater_mem0_v1
 src/locomo_eval/          # run, memory, readers, autorater, metrics, reports
 docs/schemas/             # memory_runtime.md + memory_io.schema.json
 src/metrics/locomo_qa.py  # official LoCoMo F1

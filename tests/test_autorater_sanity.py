@@ -28,7 +28,7 @@ from src.locomo_eval.mem0_baselines import (
     literature_overall_j,
 )
 from src.locomo_eval.mem0_metrics import mem0_bleu1, mem0_f1, summarize_latencies
-from src.locomo_eval.models import DEFAULT_AUTORATER_MODEL, GPT4O, resolve_model
+from src.locomo_eval.models import DEFAULT_AUTORATER_MODEL, GPT4O_MINI, resolve_model
 from src.locomo_eval.prompts import render_autorater_prompt
 
 
@@ -82,9 +82,9 @@ class TestAutoraterLabelParsing(unittest.TestCase):
 
 
 class TestAutoraterPromptAndModel(unittest.TestCase):
-    def test_default_autorater_model_is_gpt4o(self):
-        self.assertEqual(DEFAULT_AUTORATER_MODEL, GPT4O)
-        self.assertEqual(resolve_model(GPT4O).family, "gpt-4o")
+    def test_default_autorater_model_matches_released_mem0_gpt4o_mini(self):
+        self.assertEqual(DEFAULT_AUTORATER_MODEL, GPT4O_MINI)
+        self.assertEqual(resolve_model(GPT4O_MINI).family, "gpt-4o")
 
     def test_get_autorater_rejects_response_cache(self):
         with self.assertRaisesRegex(ValueError, "caching is disabled"):
@@ -130,7 +130,7 @@ class TestMem0Metrics(unittest.TestCase):
 
 class TestAutoraterBenchmark(unittest.TestCase):
     def test_mock_autorater_returns_correct_for_shared_topic(self):
-        verdict = MockAutorater(GPT4O).rate(
+        verdict = MockAutorater(GPT4O_MINI).rate(
             "What hobby?", "painting", "Alice started painting last month."
         )
         self.assertEqual(verdict.label, "CORRECT")
@@ -188,7 +188,7 @@ class TestAutoraterBenchmark(unittest.TestCase):
             result = run_benchmark(
                 pred_path,
                 out_dir=out,
-                autorater=MockAutorater(GPT4O),
+                autorater=MockAutorater(GPT4O_MINI),
                 our_label="session_summaries",
                 prompt_version="autorater_mem0_v1",
             )
@@ -227,7 +227,7 @@ class TestAutoraterBenchmark(unittest.TestCase):
             run_benchmark(
                 pred_path,
                 out_dir=out,
-                autorater=MockAutorater(GPT4O),
+                autorater=MockAutorater(GPT4O_MINI),
                 our_label="test",
             )
             stale_plot = out / "plots" / "stale_from_prior_run.png"
@@ -240,7 +240,7 @@ class TestAutoraterBenchmark(unittest.TestCase):
             second = run_benchmark(
                 pred_path,
                 out_dir=out,
-                autorater=MockAutorater(GPT4O),
+                autorater=MockAutorater(GPT4O_MINI),
                 our_label="test",
             )
             verdicts = [

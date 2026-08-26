@@ -27,7 +27,7 @@ Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 
 Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
 
-**Now:** `raw_chunks` and `session_summaries` builders inject alternative `Memory.text` with frozen reader/metrics. `teacher_session_summaries` is a live single-teacher seam (swap `teacher.model` within a family). Dataset-provided session summaries remain the default memory condition. Reader model can also be swapped (`gpt-4.1-mini` vs `gpt-5.6-luna`) as a **separate** robustness axis — do not mix that with a memory-condition claim.
+**Now:** `raw_chunks` and `session_summaries` builders inject alternative `Memory.text` with frozen reader/metrics. `teacher_session_summaries` is a live single-teacher seam (swap `teacher.model` within a family). Dataset-provided session summaries remain the default memory condition. `mem0_baseline.yaml` pins Mem0's released answer/evaluation controls (GPT-4o-mini, Mem0 answer prompt, GPT-4o-mini judge); this is evaluation parity, not Mem0 memory extraction/update parity. Reader swaps remain a **separate** robustness axis.
 
 ---
 
@@ -35,17 +35,18 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 
 | Path | Role |
 |------|------|
-| `configs/baseline.yaml` | CLI default; currently `session_summaries`. Standalone (not a parent of other configs) |
+| `configs/mem0_baseline.yaml` | CLI default; Mem0-parity reader controls over `session_summaries` memory |
 | `configs/raw_chunks.yaml` | Raw dialog memory (`raw_chunks`) |
-| `configs/session_summaries.yaml` | LoCoMo session-summary memory (same condition as baseline.yaml) |
+| `configs/session_summaries.yaml` | LoCoMo session-summary memory with original QA controls |
 | `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
 | `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
 | `prompts/qa_v1.txt` | Fixed answer prompt |
+| `prompts/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
 | `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
 | `prompts/autorater_mem0_v1.txt` | Mem0 LLM-as-a-Judge prompt |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `src/locomo_eval/` | Baseline package |
-| `scripts/compare_full_runs.py` | Sandwich report for two **finished** run packs (tables, SUMMARY, distinctness + F1 plots) |
+| `scripts/compare_full_runs.py` | Sandwich report for finished run packs; infers frozen prompt from run metadata |
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
@@ -87,13 +88,13 @@ pip install -r requirements.txt
 python scripts/fetch_locomo.py
 
 # Offline smoke (no API key)
-python -m src.locomo_eval.run --config configs/baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
 
 # Live OpenAI (needs OPENAI_API_KEY in repo-root .env or shell)
-python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --max-questions 3 --run-id smoke_openai
 
 # Full baseline (costly)
-python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --run-id mem0_baseline_session_summary
 
 # Offline rescore (string metrics only; not an LLM autorater)
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
@@ -177,7 +178,7 @@ From review. Follow these when adding or renaming code.
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
 
-**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
+**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Full/cross-model comparisons infer the answer prompt from `run_meta.json` and reject mismatched prompts unless an explicit `--prompt` is supplied. Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
 
 ---
 
@@ -194,6 +195,7 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 ## Acceptance checklist for agent PRs
 
 - [ ] Dataset loads without editing source JSON  
+- [ ] Default config remains Mem0-parity (GPT-4o-mini reader/judge, pinned prompts, released message/request shape); overrides do not mutate defaults
 - [ ] One-question and full-run share the same command  
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  

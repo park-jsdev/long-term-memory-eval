@@ -28,13 +28,15 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** default reader; **`gpt-4o`** default autorater; **`gpt-4o-mini`** Mem0-paper judge option; GPT-5.6 family for robustness | `reader.model`, `teacher.model`, `configs/autorater.yaml`, CLI model overrides | `OpenAIReader` / `OpenAITeacher` / `OpenAIAutorater` via `models.py` |
+| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader and judge for Mem0 parity; GPT-4.1/GPT-5.6 for separate experiments | `reader.model`, `teacher.model`, `configs/autorater.yaml`, CLI overrides | `OpenAIReader` / `OpenAITeacher` / `OpenAIAutorater` via `models.py` |
 
-**Request shape (answer LLM):**
+**Default baseline request shape (answer LLM):**
 
-- System: `You answer questions using only the provided memory.`
-- User: text from `prompts/qa_v1.txt` filled with memory + question
-- GPT-4.1: `temperature=0.0`, `max_tokens=64` unless config overridden
+- One system message: `prompts/qa_mem0_v1.txt` filled with memory + question
+- GPT-4o-mini, `temperature=0.0`, no explicit completion-token limit
+- Mirrors Mem0's released `evaluation/src/openai/predict.py` answer controls
+- CLI ablations may override model/prompt/temperature/max-tokens/message-layout;
+  regression tests keep `mem0_baseline.yaml` unchanged
 - GPT-5.6 (Luna/Terra/Sol): `max_completion_tokens` (min 16), `reasoning_effort=none`, no temperature (see `src/locomo_eval/models.py`)
 
 **Commands that call OpenAI:**
@@ -43,10 +45,10 @@ Keep this list current when providers/models change.
 # Live answer generation (bills every Q on every invocation)
 python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
 python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
-python -m src.locomo_eval.run --config configs/baseline.yaml --model gpt-4.1 --run-id ...
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --run-id ...
 python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
 python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
-python -m scripts.analysis.run_benchmark --run experiments/<run_id>  # GPT-4o judge
+python -m scripts.analysis.run_benchmark --run experiments/<run_id>  # released GPT-4o-mini judge
 ```
 
 **Commands that do *not* call OpenAI:**
@@ -170,7 +172,7 @@ Aliases for convenience (legacy numbered ids still resolve):
 
 | Item | Location |
 |------|----------|
-| Template text | `prompts/qa_v1.txt` (placeholders `{memory}`, `{question}`) |
+| Template text | Default parity: `prompts/qa_mem0_v1.txt`; memory experiments: `prompts/qa_v1.txt` |
 | Loader | `src/locomo_eval/prompts.py` |
 | Select in config | `pipeline.prompt_path` in YAML |
 | CLI | `--prompt path/to/qa_v2.txt` |
@@ -307,12 +309,13 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 ## 8. File index (engineering)
 
 ```text
-configs/baseline.yaml              # default (session_summaries)
+configs/mem0_baseline.yaml         # Mem0-parity controls + session_summaries memory
 configs/raw_chunks.yaml
 configs/session_summaries.yaml
 configs/session_summaries_reader_gpt56_luna.yaml  # session_summaries + GPT-5.6 Luna reader
 configs/teacher_session_summaries.yaml            # live single teacher
 prompts/qa_v1.txt
+prompts/qa_mem0_v1.txt             # pinned released Mem0 answer prompt
 prompts/teacher_session_v1.txt
 src/locomo_eval/models.py          # model catalog / API kwargs
 src/locomo_eval/teachers.py        # Mock + OpenAI teacher

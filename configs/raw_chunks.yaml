@@ -1,4 +1,4 @@
-# Raw dialog turns (session chunks). Standalone YAML — not a child of baseline.yaml.
+# Raw dialog turns (session chunks). Standalone YAML — not a child config.
 #   python -m src.locomo_eval.run --config configs/raw_chunks.yaml --run-id ...
 # Freeze reader/prompt when comparing to configs/session_summaries.yaml.
 

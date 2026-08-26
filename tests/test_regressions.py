@@ -18,6 +18,7 @@ Offline / mock only — no live API.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import sys
@@ -29,7 +30,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.compare_full_runs import load_pack, pair_analysis
+from scripts.compare_full_runs import load_pack, pair_analysis, resolve_prompt_path
+from src.config import load_config
+from src.locomo_eval.readers import (
+    READER_MESSAGE_LAYOUT_MEM0,
+    build_reader_messages,
+)
 from src.locomo_eval.utils.llm_request_hash import (
     PIPELINE_STAGE_ANSWER_READER,
     PIPELINE_STAGE_TEACHER,
@@ -37,11 +43,114 @@ from src.locomo_eval.utils.llm_request_hash import (
 )
 from src.locomo_eval.utils.llm_response_hash import llm_response_hash_dir_from_run_cfg
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
-from src.locomo_eval.run import run_locomo_pipeline_with_memory_config
+from src.locomo_eval.run import build_parser, run_locomo_pipeline_with_memory_config
 
 
 # Token that must never leak into memory or the filled reader prompt.
 GOLD_LOCK = "UNIQ_GOLD_REF_ZZZ"
+
+
+class TestMem0ParityBaselineConfig(unittest.TestCase):
+    def test_cli_default_selects_mem0_baseline_config(self):
+        self.assertEqual(
+            build_parser().parse_args([]).config,
+            "configs/mem0_baseline.yaml",
+        )
+
+    def test_baseline_pins_released_mem0_reader_prompt_and_message_layout(self):
+        cfg = load_config(ROOT / "configs" / "mem0_baseline.yaml")
+        self.assertEqual(cfg["reader"]["model"], "gpt-4o-mini")
+        self.assertEqual(cfg["reader"]["temperature"], 0.0)
+        self.assertIsNone(cfg["reader"]["max_tokens"])
+        self.assertEqual(
+            cfg["reader"]["message_layout"], READER_MESSAGE_LAYOUT_MEM0
+        )
+        self.assertEqual(cfg["pipeline"]["prompt_path"], "prompts/qa_mem0_v1.txt")
+        prompt = (ROOT / cfg["pipeline"]["prompt_path"]).read_text(encoding="utf-8")
+        self.assertEqual(
+            hashlib.sha256(prompt.replace("\r\n", "\n").encode("utf-8")).hexdigest(),
+            "85c626a7eaf0631e17d3fcdaa020e47afb2d85802f1d4543d6363f812fbfe31c",
+        )
+
+    def test_mem0_message_layout_sends_filled_answer_prompt_as_only_system_message(self):
+        messages = build_reader_messages("filled Mem0 prompt", READER_MESSAGE_LAYOUT_MEM0)
+        self.assertEqual(
+            messages,
+            [{"role": "system", "content": "filled Mem0 prompt"}],
+        )
+
+    def test_autorater_config_pins_released_mem0_judge(self):
+        cfg = load_config(ROOT / "configs" / "autorater.yaml")
+        self.assertEqual(cfg["autorater"]["model"], "gpt-4o-mini")
+        self.assertEqual(cfg["autorater"]["temperature"], 0.0)
+        self.assertIsNone(cfg["autorater"]["max_tokens"])
+        prompt = (ROOT / cfg["autorater"]["prompt_path"]).read_text(encoding="utf-8")
+        self.assertEqual(
+            hashlib.sha256(prompt.replace("\r\n", "\n").encode("utf-8")).hexdigest(),
+            "94aba7f70a8fed357d7f79ff14a9abacd5d8a67558e9f6d46d99915b04384cc0",
+        )
+
+    def test_cli_overrides_effective_reader_controls_without_mutating_default_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_path = _write_mini(root / "locomo.json")
+            args = build_parser().parse_args(
+                [
+                    "--config",
+                    str(ROOT / "configs" / "mem0_baseline.yaml"),
+                    "--data",
+                    str(data_path),
+                    "--reader",
+                    "mock",
+                    "--model",
+                    "gpt-4.1-mini",
+                    "--prompt",
+                    str(ROOT / "prompts" / "qa_v1.txt"),
+                    "--temperature",
+                    "0.25",
+                    "--max-tokens",
+                    "17",
+                    "--message-layout",
+                    "default_system_user",
+                    "--max-questions",
+                    "1",
+                    "--run-id",
+                    "override_lock",
+                    "--output-dir",
+                    str(root / "experiments"),
+                ]
+            )
+            cfg = load_config(args.config)
+            run_dir = run_locomo_pipeline_with_memory_config(cfg, args)
+            meta = _load_json(run_dir / "run_meta.json")
+
+            self.assertEqual(args.model, "gpt-4.1-mini")
+            self.assertEqual(meta["prompt_version"], "qa_v1")
+            self.assertEqual(meta["temperature"], 0.25)
+            self.assertEqual(meta["max_tokens"], 17)
+            self.assertEqual(meta["message_layout"], "default_system_user")
+
+            unchanged = load_config(ROOT / "configs" / "mem0_baseline.yaml")
+            self.assertEqual(unchanged["reader"]["model"], "gpt-4o-mini")
+            self.assertEqual(unchanged["pipeline"]["prompt_path"], "prompts/qa_mem0_v1.txt")
+
+    def test_compare_infers_mem0_prompt_from_run_metadata(self):
+        packs = [
+            {"meta": {"prompt_path": "prompts/qa_mem0_v1.txt"}},
+            {"meta": {"prompt_path": "prompts/qa_mem0_v1.txt"}},
+        ]
+        self.assertEqual(
+            resolve_prompt_path(packs),
+            Path("prompts/qa_mem0_v1.txt"),
+        )
+
+    def test_compare_rejects_runs_with_different_prompt_paths(self):
+        packs = [
+            {"meta": {"prompt_path": "prompts/qa_mem0_v1.txt"}},
+            {"meta": {"prompt_path": "prompts/qa_v1.txt"}},
+        ]
+        with self.assertRaisesRegex(ValueError, "different prompt paths"):
+            resolve_prompt_path(packs)
 
 FROZEN_PREDICTION_FIELDS = (
     "sample_id",

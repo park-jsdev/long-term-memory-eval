@@ -3,9 +3,8 @@
 OpenAI is the Phase 1 implementation; Claude can replace it for answer/eval later.
 MockReader supports offline dry-runs and unit tests.
 
-OpenAI free-tier accounts often cap at ~50 requests/day (RPD). Each QA item is
-one request unless a store is passed. LlmResponseHash is a future optimization
-(utils/); run.py does not pass one. Pace with min_request_interval + 429 retries.
+Each QA item is one fresh request. Evaluation factories prohibit response
+caches. Pace live calls with min_request_interval and 429 retries.
 """
 
 from __future__ import annotations
@@ -23,11 +22,29 @@ from .env import load_env
 from .models import chat_create_kwargs, resolve_model
 from .prompts import render_qa_prompt
 
+READER_MESSAGE_LAYOUT_DEFAULT = "default_system_user"
+READER_MESSAGE_LAYOUT_MEM0 = "mem0_system_only"
+
+
+def build_reader_messages(prompt: str, message_layout: str) -> list[dict[str, str]]:
+    """Build the exact Chat Completions message layout selected by config."""
+    if message_layout == READER_MESSAGE_LAYOUT_MEM0:
+        return [{"role": "system", "content": prompt}]
+    if message_layout == READER_MESSAGE_LAYOUT_DEFAULT:
+        return [
+            {
+                "role": "system",
+                "content": "You answer questions using only the provided memory.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+    raise ValueError(f"Unknown reader message_layout: {message_layout}")
+
 
 class Reader(ABC):
     """Sandwich bottom: Memory.text + question → predicted answer.
 
-    Called once per unanswered question in run_locomo_pipeline_with_memory_config.
+    Called once per question in run_locomo_pipeline_with_memory_config.
     Must not see gold.
     """
 
@@ -98,7 +115,7 @@ class OpenAIChatCaller:
         self,
         model: str,
         temperature: float = 0.0,
-        max_tokens: int = 64,
+        max_tokens: int | None = 64,
         api_key_env: str = "OPENAI_API_KEY",
         llm_response_hash: LlmResponseHash | None = None,  # future optimization; run.py leaves None
         timeout_s: float = 60.0,
@@ -235,20 +252,22 @@ class OpenAIChatCaller:
 
 
 class OpenAIReader(Reader):
-    """Live answer LLM (Chat Completions). Optional store hook; run.py does not pass one."""
+    """Live answer LLM; pipeline construction prohibits the legacy store hook."""
 
     def __init__(
         self,
         model: str,
         temperature: float = 0.0,
-        max_tokens: int = 64,
+        max_tokens: int | None = 64,
         api_key_env: str = "OPENAI_API_KEY",
         llm_response_hash: LlmResponseHash | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
+        message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
     ):
+        build_reader_messages("", message_layout)
         self._chat = OpenAIChatCaller(
             model=model,
             temperature=temperature,
@@ -264,16 +283,11 @@ class OpenAIReader(Reader):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.llm_response_hash = llm_response_hash
+        self.message_layout = message_layout
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
         prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
-        messages = [
-            {
-                "role": "system",
-                "content": "You answer questions using only the provided memory.",
-            },
-            {"role": "user", "content": prompt},
-        ]
+        messages = build_reader_messages(prompt, self.message_layout)
         return self._chat.complete(
             messages,
             request_extra={
@@ -281,6 +295,7 @@ class OpenAIReader(Reader):
                 # rebuilds the same dict via llm_request_hash_from_prediction.
                 "role": "reader",
                 "prompt": prompt,
+                "message_layout": self.message_layout,
                 "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
             },
         )
@@ -290,11 +305,12 @@ def get_reader(
     name: str,
     model: str,
     temperature: float = 0.0,
-    max_tokens: int = 64,
+    max_tokens: int | None = 64,
     llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
+    message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
 ) -> Reader:
     """Build a mock or OpenAI reader. Response caching is prohibited."""
     if llm_response_hash is not None:
@@ -313,5 +329,6 @@ def get_reader(
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,
+            message_layout=message_layout,
         )
     raise ValueError(f"Unknown reader '{name}'. Use openai or mock.")

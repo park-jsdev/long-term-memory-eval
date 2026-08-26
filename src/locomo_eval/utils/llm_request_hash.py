@@ -50,7 +50,7 @@ def llm_request_payload(
     *,
     spec: ModelSpec,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     extra: dict[str, Any],
 ) -> dict[str, Any]:
     """Canonical request dict hashed by ``llm_request_hash``.
@@ -64,7 +64,7 @@ def llm_request_payload(
         "model": spec.model_id,
         "family": spec.family,
         "temperature": float(temperature),
-        "max_tokens": int(max_tokens),
+        "max_tokens": int(max_tokens) if max_tokens is not None else None,
         "max_tokens_field": spec.max_tokens_field,
         "reasoning_effort": spec.reasoning_effort,
         **extra,
@@ -82,8 +82,9 @@ def llm_request_hash_for_reader(
     *,
     model: str,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     prompt: str,
+    message_layout: str = "default_system_user",
 ) -> str:
     """SHA-256 of an answer-reader request (filled QA prompt + model knobs)."""
     spec = resolve_model(model)
@@ -94,6 +95,7 @@ def llm_request_hash_for_reader(
         extra={
             "role": "reader",
             "prompt": prompt,
+            "message_layout": message_layout,
             "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
         },
     )
@@ -119,6 +121,11 @@ def llm_request_hash_from_prediction(
     return llm_request_hash_for_reader(
         model=str(model),
         temperature=float(meta.get("temperature", 0.0) or 0.0),
-        max_tokens=int(meta.get("max_tokens", 64) or 64),
+        max_tokens=(
+            int(meta["max_tokens"])
+            if meta.get("max_tokens") is not None
+            else None
+        ),
         prompt=prompt,
+        message_layout=str(meta.get("message_layout") or "default_system_user"),
     )

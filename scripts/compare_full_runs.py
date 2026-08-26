@@ -65,6 +65,25 @@ def load_pack(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def resolve_prompt_path(packs: list[dict], explicit: str | Path | None = None) -> Path | None:
+    """Use an explicit prompt or infer the one frozen across run metadata."""
+    if explicit:
+        return Path(explicit)
+    prompt_paths = {
+        str(pack["meta"].get("prompt_path"))
+        for pack in packs
+        if pack["meta"].get("prompt_path")
+    }
+    if not prompt_paths:
+        return None
+    if len(prompt_paths) != 1:
+        raise ValueError(
+            "Run packs record different prompt paths; comparison requires one "
+            "frozen answer prompt."
+        )
+    return Path(prompt_paths.pop())
+
+
 def write_overall_csv(path: Path, packs: list[dict]) -> None:
     fieldnames = [
         "run_dir",
@@ -369,6 +388,21 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         m = pack["metrics"].get("memory_type") or pack["meta"].get("memory_type")
         mems.append(str(m) if m else "")
 
+    prompt_paths = sorted(
+        {
+            str(pack["meta"].get("prompt_path") or "<missing>")
+            for pack in packs
+        }
+    )
+    reader_models = sorted(
+        {
+            str(pack["meta"].get("reader_model") or "<missing>")
+            for pack in packs
+        }
+    )
+    prompt_display = ", ".join(f"`{value}`" for value in prompt_paths)
+    reader_display = ", ".join(f"`{value}`" for value in reader_models)
+
     lines = [
         "## What differs between conditions",
         "",
@@ -380,8 +414,8 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "| Piece | File / setting |",
         "|-------|----------------|",
         "| Dataset | `data/raw/locomo10.json` (via configs) |",
-        "| Answer prompt | `prompts/qa_v1.txt` (`pipeline.prompt_path`) |",
-        "| Answer LLM | OpenAI Chat Completions; `reader.model` e.g. `gpt-4.1-mini` |",
+        f"| Answer prompt | {prompt_display} (`pipeline.prompt_path`) |",
+        f"| Answer LLM | OpenAI Chat Completions; {reader_display} |",
         "| Reader impl | `src/locomo_eval/readers.py` (`OpenAIReader`) |",
         "| Metrics | `src/locomo_eval/metrics.py` + `src/metrics/locomo_qa.py` |",
         "| Run (one memory YAML) | `run_locomo_pipeline_with_memory_config` in `src/locomo_eval/run.py` |",
@@ -405,7 +439,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "1. YAML sets `pipeline.memory` (`raw_chunks` or `session_summaries`).",
         "2. `run_locomo_pipeline_with_memory_config` in `run.py` calls `get_memory_builder(...)`.",
         "3. `builder.build(conversation, question)` -> `Memory.text`.",
-        "4. That text fills `{memory}` in `prompts/qa_v1.txt`; gold **answer is never** sent to the LLM.",
+        "4. That text fills `{memory}` in the configured answer prompt; gold **answer is never** sent to the LLM.",
         "",
         "### Audit pointers for this comparison",
         "",
@@ -575,8 +609,8 @@ def main() -> None:
     p.add_argument("--out", default="experiments/compare", help="Output directory")
     p.add_argument(
         "--prompt",
-        default="prompts/qa_v1.txt",
-        help="Prompt used to rebuild llm_request_hash values for distinctness",
+        default=None,
+        help="Override prompt for hash rebuilding (default: infer from run_meta.json)",
     )
     args = p.parse_args()
 
@@ -597,7 +631,7 @@ def main() -> None:
         (out / "WARNING_bottom_mismatch.txt").write_text(bottom_warn, encoding="utf-8")
         print("WARNING: frozen bottom mismatch")
 
-    paired = pair_analysis(packs, Path(args.prompt))
+    paired = pair_analysis(packs, resolve_prompt_path(packs, args.prompt))
     write_paired_csv(out / "paired_questions.csv", paired)
     # Drop huge paired_rows from JSON blob (CSV holds them)
     paired_slim = {k: v for k, v in paired.items() if k != "paired_rows"}

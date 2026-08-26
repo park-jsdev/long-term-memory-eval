@@ -1,0 +1,19 @@
+{
+  "timestamp_utc": "2026-08-26T15:40:08.705081+00:00",
+  "predictions_path": "C:\\home\\research\\Distillation\\distillation\\experiments\\session_summaries_n10\\predictions.jsonl",
+  "autorater_model": "gpt-4o-mini",
+  "autorater_provider": "openai",
+  "temperature": 0.0,
+  "max_tokens": null,
+  "autorater_family": "gpt-4o",
+  "prompt_version": "autorater_mem0_v1",
+  "skip_category": 5,
+  "n_predictions": 10,
+  "source_cached_rows": 0,
+  "regenerated_from_scratch": true,
+  "n_new_ratings": 10,
+  "n_new_judge_calls": 10,
+  "cite": "Chhikara et al., arXiv:2504.19413",
+  "paper_url": "https://arxiv.org/abs/2504.19413",
+  "package_version": "0.1.5"
+}

@@ -42,7 +42,7 @@ from src.locomo_eval.utils.llm_request_hash import (
 )
 from src.metrics.locomo_qa import score_prediction
 
-# Must match OpenAIReader.answer payload knobs + configs/baseline.yaml reader.
+# Frozen memory-condition controls; Mem0 default parity is separately locked in regressions.
 _ANSWER_READER_MODEL = "gpt-4.1-mini"
 _ANSWER_READER_TEMPERATURE = 0.0
 _ANSWER_READER_MAX_TOKENS = 64

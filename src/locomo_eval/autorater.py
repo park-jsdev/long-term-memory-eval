@@ -35,8 +35,8 @@ from .utils.llm_response_hash import LlmResponseHash
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_AUTORATER_PROMPT = ROOT / "prompts" / "autorater_mem0_v1.txt"
 
-# Mem0 judge returns a tiny JSON object; leave headroom for one-sentence reason.
-DEFAULT_AUTORATER_MAX_TOKENS = 256
+# Released Mem0 judge does not set a completion-token limit.
+DEFAULT_AUTORATER_MAX_TOKENS: int | None = None
 
 
 @dataclass
@@ -196,7 +196,7 @@ class OpenAIAutorater(Autorater):
         self,
         model: str = DEFAULT_AUTORATER_MODEL,
         temperature: float = 0.0,
-        max_tokens: int = DEFAULT_AUTORATER_MAX_TOKENS,
+        max_tokens: int | None = DEFAULT_AUTORATER_MAX_TOKENS,
         api_key_env: str = "OPENAI_API_KEY",
         llm_response_hash: LlmResponseHash | None = None,
         timeout_s: float = 60.0,
@@ -279,7 +279,7 @@ def get_autorater(
     name: str,
     model: str = DEFAULT_AUTORATER_MODEL,
     temperature: float = 0.0,
-    max_tokens: int = DEFAULT_AUTORATER_MAX_TOKENS,
+    max_tokens: int | None = DEFAULT_AUTORATER_MAX_TOKENS,
     llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
