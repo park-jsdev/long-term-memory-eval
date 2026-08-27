@@ -1,6 +1,7 @@
 # CLI default (--config if omitted). Standalone YAML, currently session_summaries.
 # pipeline.memory is a builder id in memory.py, not a pointer to another YAML.
-# Same condition as configs/session_summaries.yaml; use raw_chunks.yaml for raw dialog.
+# Default reader/prompt match Mem0 eval (gpt-4o-mini + qa_mem0_v1). Override
+# reader.model / pipeline.prompt_path for a separate robustness axis.
 
 data:
   raw_path: data/raw/locomo10.json
@@ -9,13 +10,13 @@ data:
 
 pipeline:
   memory: session_summaries  # builder id, not configs/session_summaries.yaml
-  prompt_path: prompts/qa_v1.txt
+  prompt_path: prompts/qa_mem0_v1.txt
   # null = full set; use a small int for smoke tests
   max_questions: null
 
 reader:
   provider: openai          # openai | mock
-  model: gpt-4.1-mini       # cheap default for MVP; set to gpt-4.1 for paper runs
+  model: gpt-4o-mini        # Mem0 eval reader; override --model / YAML for robustness
   temperature: 0.0
   max_tokens: 64
   # Free / low tiers often have low RPD (e.g. 50 req/day). Each uncached QA = 1 request.

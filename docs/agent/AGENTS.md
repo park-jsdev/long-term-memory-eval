@@ -26,7 +26,7 @@ Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 
 Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, `mem0`, `mem0g`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
 
-**Now:** `raw_chunks` and `session_summaries` inject alternative `Memory.text` with frozen reader/metrics. `mem0` / `mem0g` **load a write-index dump** (no re-extract) and cosine-retrieve into `Memory.text`. `teacher_session_summaries` is a live single-teacher seam. Reader-model swaps (`gpt-4.1-mini` vs `gpt-5.6-luna`) are a **separate** robustness axis.
+**Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/qa_mem0_v1.txt`) for `raw_chunks`, `session_summaries`, `mem0`, and `mem0g`. Default **writer** for mem0 extract/update is `gpt-4o-mini`. Deterministic preprocess dump (`python -m src.locomo_eval.preprocess.run_index`) is the no-LLM write path for `raw_chunks` / `session_summaries`. `mem0` / `mem0g` load a write-index dump and cosine-retrieve top-k NL facts (`top_k=30`). Graph/store RQs freeze writer + reader + this retriever; swap only `GraphMemory`. Override `reader.model` / `pipeline.prompt_path` for a separate axis (`qa_v1`, `gpt-4.1-mini`, Luna YAML).
 
 ---
 
@@ -39,9 +39,11 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `configs/session_summaries.yaml` | LoCoMo session-summary memory (same condition as baseline.yaml) |
 | `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
 | `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
+| `configs/preprocess.yaml` | Deterministic HLD (i) write-index (no LLM) |
 | `configs/mem0.yaml` | Mem0 vector write-index + load/retrieve seam |
 | `configs/mem0g.yaml` | Mem0 vector + in-memory graph (`mem0g`) |
-| `prompts/qa_v1.txt` | Fixed answer prompt (do not mix a Mem0 ANSWER_PROMPT swap into a memory claim) |
+| `prompts/qa_mem0_v1.txt` | Default frozen answer prompt (Mem0 ANSWER_PROMPT, `{memory}`+`{question}`) |
+| `prompts/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
 | `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
 | `prompts/mem0_extract_v1.txt` / `mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
 | `prompts/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
@@ -66,7 +68,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 |------|----------------|
 | `schemas.py` | Conversation, Session, Turn, SessionBlock, Question, Memory, Prediction |
 | `dataset.py` | Load LoCoMo JSON → Conversation (read path; preprocess is separate) |
-| `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` + session-document join (unwired from run.py) |
+| `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` + session-document join + deterministic `run_index` dump |
 | `teacher_orchestrator.py` | HLD (ii) stub: one SessionBlock at a time, passthrough, no LLM |
 | `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_session_summaries / mem0 / mem0g |
 | `mem0/` | Write-index: ingest pairs, extract, update, vector store, `GraphMemory` ABC, dump, `run_index` CLI |
@@ -106,10 +108,15 @@ python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/pr
 python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --extractor mock --embedder mock --max-samples 1 --run-id smoke_mem0_index
 python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
 
+# Deterministic preprocess write-index (no LLM). Full locomo10, then 10 reader calls per sanity memory:
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
+python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
+
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -144,11 +151,15 @@ A Mem0 write-index under `experiments/<run_id>/mem0_index/` must include
 + `speaker_b.json` (and `graph.json` when `enable_graph`). Skip complete samples
 unless `--overwrite`. This is **not** `LlmResponseHash`.
 
+A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must include
+`run_meta.json`, `schema.json`, `index.jsonl`, and `by_sample/<id>/sessions.jsonl`
++ `documents.jsonl`. No LLM. Gold answers stay out of the dump.
+
 ---
 
 ## Design rules for agents
 
-1. **Sandwich:** only change one middle variable per experimental claim later. v0.1 keeps reader prompt and metrics fixed for `raw_chunks` vs `session_summaries`. Reader-model and teacher-model swaps are a **different** axis (`compare_cross_model.py`).
+1. **Sandwich:** only change one middle variable per experimental claim. Default reader (`gpt-4o-mini` + `qa_mem0_v1`) and mem0 writer (`gpt-4o-mini` extract/update) stay frozen for graph/store RQs. Reader-model or `qa_v1` swaps are a **different** axis (`compare_cross_model.py` / prompt override).
 2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
@@ -179,7 +190,7 @@ From review. Follow these when adding or renaming code.
 
 ## Out of scope (v0.1)
 
-Multi-teacher fusion, Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J, swapping `qa_v1` for Mem0 `ANSWER_PROMPT` inside a memory-condition claim, validator loop, training/distillation loop, web UI, event-summarization / multimodal tasks.
+Multi-teacher fusion, Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone, mixing a reader-prompt swap into a graph/store claim, validator loop, training/distillation loop, web UI, event-summarization / multimodal tasks.
 
 Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
 

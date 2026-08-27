@@ -8,7 +8,7 @@ SessionBlock (which stays gold-free for teachers).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from src.data.locomo import CATEGORY_NAMES
@@ -99,6 +99,32 @@ class SessionDocument:
     events_b: list[str]
     event_date: str
     schema_version: str = "preprocess_io.v1"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, row: dict[str, Any]) -> SessionDocument:
+        return cls(
+            sample_id=str(row["sample_id"]),
+            session_id=int(row["session_id"]),
+            session_index=int(row["session_index"]),
+            source_key=str(row["source_key"]),
+            date_time_raw=str(row.get("date_time_raw") or ""),
+            date_time_normalized=row.get("date_time_normalized"),
+            speaker_a=str(row.get("speaker_a") or ""),
+            speaker_b=str(row.get("speaker_b") or ""),
+            n_turns=int(row.get("n_turns") or 0),
+            n_images=int(row.get("n_images") or 0),
+            dia_ids=[str(x) for x in (row.get("dia_ids") or [])],
+            turn_texts=[str(x) for x in (row.get("turn_texts") or [])],
+            session_summary=str(row.get("session_summary") or ""),
+            observations=list(row.get("observations") or []),
+            events_a=[str(x) for x in (row.get("events_a") or [])],
+            events_b=[str(x) for x in (row.get("events_b") or [])],
+            event_date=str(row.get("event_date") or ""),
+            schema_version=str(row.get("schema_version") or "preprocess_io.v1"),
+        )
 
     def turns_text(self) -> str:
         return "\n".join(self.turn_texts)

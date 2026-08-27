@@ -3,9 +3,10 @@
 Read path (wired in run.py):
     locomo10.json → dataset.py Conversation → Memory → Reader → Prediction → score
 
-Write-path preprocess (HLD i; not wired into run.py yet):
+Write-path preprocess (HLD i):
     locomo10.json → DataIngestor → PreprocessingPipeline
-        → ProcessedConversation / SessionBlock → TeacherOrchestrator (passthrough)
+        → experiments/<run_id>/preprocess/ (SessionBlock + SessionDocument, no LLM)
+        → raw_chunks / session_summaries retrieve/format (or Conversation fallback)
 
     locomo10.json
          │
@@ -108,6 +109,18 @@ class ProcessedTurn:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, row: dict[str, Any]) -> ProcessedTurn:
+        return cls(
+            turn_id=str(row.get("turn_id") or ""),
+            source_dia_id=str(row.get("source_dia_id") or ""),
+            turn_index=int(row.get("turn_index") or 0),
+            speaker_raw=str(row.get("speaker_raw") or ""),
+            speaker_role=str(row.get("speaker_role") or ""),
+            text=str(row.get("text") or ""),
+            blip_caption=row.get("blip_caption"),
+        )
+
 
 @dataclass
 class SessionBlock:
@@ -130,6 +143,22 @@ class SessionBlock:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, row: dict[str, Any]) -> SessionBlock:
+        turns = [ProcessedTurn.from_dict(t) for t in (row.get("turns") or [])]
+        return cls(
+            sample_id=str(row["sample_id"]),
+            session_id=int(row["session_id"]),
+            session_index=int(row["session_index"]),
+            source_key=str(row.get("source_key") or ""),
+            date_time_raw=str(row.get("date_time_raw") or ""),
+            date_time_normalized=row.get("date_time_normalized"),
+            speaker_a=str(row.get("speaker_a") or ""),
+            speaker_b=str(row.get("speaker_b") or ""),
+            turns=turns,
+            schema_version=str(row.get("schema_version") or "preprocess_io.v1"),
+        )
 
 
 @dataclass

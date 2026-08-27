@@ -436,5 +436,24 @@ class TestRunIndexCliMockWritesDump(unittest.TestCase):
             self.assertEqual(meta["n_skipped"], 1)
 
 
+class TestDefaultYamlPinsMem0ReaderAndPrompt(unittest.TestCase):
+    def test_memory_condition_yamls_share_gpt4o_mini_and_qa_mem0_v1(self):
+        from src.config import load_config
+
+        for rel in (
+            "configs/baseline.yaml",
+            "configs/raw_chunks.yaml",
+            "configs/session_summaries.yaml",
+            "configs/mem0.yaml",
+            "configs/mem0g.yaml",
+        ):
+            cfg = load_config(ROOT / rel)
+            self.assertEqual(cfg["reader"]["model"], "gpt-4o-mini", rel)
+            self.assertEqual(cfg["pipeline"]["prompt_path"], "prompts/qa_mem0_v1.txt", rel)
+        mem0 = load_config(ROOT / "configs/mem0.yaml")
+        self.assertEqual(mem0["mem0"]["extract"]["model"], "gpt-4o-mini")
+        self.assertEqual(int(mem0["mem0"]["top_k"]), 30)
+
+
 if __name__ == "__main__":
     unittest.main()

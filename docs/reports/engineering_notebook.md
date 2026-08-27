@@ -28,7 +28,7 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4.1-mini`** (default reader); **`gpt-4o-mini`** (default Mem0 extract/update); **`gpt-5.6-luna`** (reader robustness YAML); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`**; **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model`, CLI `--model` / `--teacher-model` | `OpenAIReader` / `OpenAITeacher` / `OpenAIFactExtractor` / `OpenAIEmbedder` |
+| OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** (default reader + Mem0 writer); **`gpt-4.1-mini`** (legacy / robustness catalog); **`gpt-5.6-luna`** (reader robustness YAML); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`**; **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model` | `OpenAIReader` / `OpenAITeacher` / `OpenAIFactExtractor` / `OpenAIEmbedder` |
 
 **Request shape (answer LLM):**
 
@@ -48,6 +48,7 @@ python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_lu
 python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
 python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --run-id mem0_locomo10
 python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
 ```
 
 **Commands that do *not* call OpenAI:**
@@ -59,6 +60,8 @@ python scripts/compare_full_runs.py --runs ... --out ...
 python scripts/compare_cross_model.py --runs ... --axis reader --out ...
 python scripts/prepare_data.py --split all --no-jsonl
 python -m src.locomo_eval.mem0.run_index --extractor mock --embedder mock ...
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
+python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 ```
 
@@ -181,9 +184,11 @@ Do **not** fork prompts per condition for the main table. If you ablate prompts,
 
 **Reader-model robustness:** YAML `reader.model` / `--model` / `configs/session_summaries_reader_gpt56_luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a memory-condition claim.
 
-**Mem0 write-index (`mem0` / `mem0g`):** `python -m src.locomo_eval.mem0.run_index` walks HLD (i) session blocks as eval-style message pairs (`batch_size=2`, dual speaker indexes, role-flip, user-only extract). Vector update is ADD/UPDATE/DELETE/NONE vs top `s=10`. `mem0g` also fills an in-memory `GraphMemory` (no Neo4j). Dumps: `experiments/<run_id>/mem0_index/`. Builders **load** that dump and cosine-retrieve (`top_k=30`); they must not re-extract. Freeze extract+update when the claim is “new graph only” (swap `GraphMemory`).
+**Mem0 write-index (`mem0` / `mem0g`):** `python -m src.locomo_eval.mem0.run_index` walks HLD (i) session blocks as eval-style message pairs (`batch_size=2`, dual speaker indexes, role-flip, user-only extract). Vector update is ADD/UPDATE/DELETE/NONE vs top `s=10`. `mem0g` also fills an in-memory `GraphMemory` (no Neo4j). Dumps: `experiments/<run_id>/mem0_index/`. Builders **load** that dump and cosine-retrieve (`top_k=30` NL facts per speaker); they must not re-extract. Freeze extract+update **and** this retriever when the claim is “new graph only” (swap `GraphMemory`).
 
-This is an **architecture clone** of [arXiv:2504.19413](https://arxiv.org/abs/2504.19413), not a number clone. Paper J used closed Platform v2 + contextual add. We do not copy Platform, Neo4j, conversation summary \(S\), or claim Tables 1–2. Do not swap `qa_v1` for Mem0 `ANSWER_PROMPT` inside a memory-condition comparison.
+**Deterministic preprocess dump:** `python -m src.locomo_eval.preprocess.run_index` parses locomo10.json with no LLM (`llm_calls=0`). Dump: `experiments/<run_id>/preprocess/` (SessionBlocks + SessionDocuments). `raw_chunks` / `session_summaries` can format from that dump (`--preprocess-index-run-id`); default retrieve is concatenate-all. `--eval-questions 10` then runs the frozen reader on those two sanity memories (10 questions each). Later write/retrieve paths (top-k, LLM compress) should consume the same dump rather than re-parse JSON.
+
+Default **reader** is `gpt-4o-mini` + `prompts/qa_mem0_v1.txt` (Mem0 ANSWER_PROMPT with `{memory}`/`{question}`) for `raw_chunks`, `session_summaries`, `mem0`, and `mem0g`. Override YAML/`--model`/`--prompt` for a separate bottom-layer axis. This is an **architecture clone**, not a number clone of Tables 1–2.
 
 ### 4.3 True multi-teacher write path (later, still middle)
 
@@ -297,7 +302,8 @@ configs/session_summaries.yaml
 configs/session_summaries_reader_gpt56_luna.yaml  # session_summaries + GPT-5.6 Luna reader
 configs/teacher_session_summaries.yaml            # live single teacher
 configs/mem0.yaml / mem0g.yaml     # Mem0 write-index + load/retrieve seam
-prompts/qa_v1.txt
+prompts/qa_mem0_v1.txt
+prompts/qa_v1.txt                 # alternate reader prompt
 prompts/teacher_session_v1.txt
 prompts/mem0_extract_v1.txt        # + mem0_update_v1 / mem0g_*.txt
 src/locomo_eval/models.py          # model catalog / API kwargs

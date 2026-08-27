@@ -1,11 +1,12 @@
-"""Dump preprocessed conversation session blocks for audit (not wired into run.py).
+"""Dump preprocessed conversation session blocks for audit.
 
 Analog of memory_log.py: that file records Memory.text; this file records
 ProcessedConversation / SessionBlock so later teacher and eval steps can join
 the same session and turn ids.
 
-A later slice can write experiments/<run_id>/preprocess/.
-Gold answers are not in this dump — only SessionBlock fields.
+Write-index CLI: ``python -m src.locomo_eval.preprocess.run_index``
+→ ``experiments/<run_id>/preprocess/`` (sessions + documents, no LLM).
+Gold answers are not in this dump — only SessionBlock / SessionDocument fields.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ def write_conversation_run_log(
                 "date_time_normalized": "ISO-8601 or null",
             },
             "gold_answer_in_session_blocks": False,
-            "wired_from_run_py": False,
+            "wired_from_run_py": True,
         },
     )
 

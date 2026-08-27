@@ -1,5 +1,9 @@
 """Load dumps and format retrieved memories for the later eval seam.
 
+Frozen retrieve for graph/store RQs: cosine top-k natural-language facts
+per speaker (Mem0 eval ``top_k=30``), plus valid graph edges for mem0g.
+Swap the store, not this ranker, when claiming a better graph/memory.
+
 Does not call extract. Missing dumps name the run_index command.
 """
 

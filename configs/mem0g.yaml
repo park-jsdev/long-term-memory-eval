@@ -2,8 +2,8 @@
 # Index first:
 #   python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
 #
-# Later distilled graph memory is a new GraphMemory subclass; freeze extract
-# when attributing a score delta to the graph store alone.
+# Better-graph RQ: freeze extract/update + this reader/prompt; swap only GraphMemory.
+# Relations are serialized into Memory.text; do not swap qa_mem0_v1 for that claim.
 
 data:
   raw_path: data/raw/locomo10.json
@@ -11,12 +11,12 @@ data:
 
 pipeline:
   memory: mem0g
-  prompt_path: prompts/qa_v1.txt
+  prompt_path: prompts/qa_mem0_v1.txt
   max_questions: null
 
 reader:
   provider: openai
-  model: gpt-4.1-mini
+  model: gpt-4o-mini
   temperature: 0.0
   max_tokens: 64
   max_retries: 8

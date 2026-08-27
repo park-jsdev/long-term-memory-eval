@@ -62,10 +62,35 @@ class RawConversationMemoryBuilder(MemoryBuilder):
 
     name = "raw_chunks"
 
-    def __init__(self, max_chars: int | None = None):
+    def __init__(
+        self,
+        max_chars: int | None = None,
+        preprocess_index_dir: str | Path | None = None,
+        retrieve_top_k: int | None = None,
+    ):
         self.max_chars = max_chars
+        self.preprocess_index_dir = (
+            Path(preprocess_index_dir) if preprocess_index_dir else None
+        )
+        self.retrieve_top_k = retrieve_top_k
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
+        if self.preprocess_index_dir is not None:
+            from .preprocess.retrieve import build_raw_chunks_from_index
+
+            text, source_ids = build_raw_chunks_from_index(
+                self.preprocess_index_dir,
+                conversation,
+                question,
+                max_chars=self.max_chars,
+                top_k=self.retrieve_top_k,
+            )
+            return Memory(
+                memory_type=self.name,
+                text=text,
+                source_ids=source_ids,
+            )
+
         chunks: list[str] = []
         source_ids: list[str] = []
         header = (
@@ -113,7 +138,32 @@ class SessionSummaryMemoryBuilder(MemoryBuilder):
 
     name = "session_summaries"
 
+    def __init__(
+        self,
+        preprocess_index_dir: str | Path | None = None,
+        retrieve_top_k: int | None = None,
+    ):
+        self.preprocess_index_dir = (
+            Path(preprocess_index_dir) if preprocess_index_dir else None
+        )
+        self.retrieve_top_k = retrieve_top_k
+
     def build(self, conversation: Conversation, question: Question) -> Memory:
+        if self.preprocess_index_dir is not None:
+            from .preprocess.retrieve import build_session_summaries_from_index
+
+            text, source_ids = build_session_summaries_from_index(
+                self.preprocess_index_dir,
+                conversation,
+                question,
+                top_k=self.retrieve_top_k,
+            )
+            return Memory(
+                memory_type=self.name,
+                text=text,
+                source_ids=source_ids,
+            )
+
         chunks: list[str] = []
         source_ids: list[str] = []
         for sid, text in conversation.chronological_summaries():
@@ -229,6 +279,8 @@ def get_memory_builder(
     mem0_index_dir: str | Path | None = None,
     mem0_top_k: int = 30,
     mem0_embedder: Embedder | None = None,
+    preprocess_index_dir: str | Path | None = None,
+    retrieve_top_k: int | None = None,
 ) -> MemoryBuilder:
     resolved = resolve_memory_name(name)
     if resolved in ("mem0", "mem0g"):
@@ -248,7 +300,16 @@ def get_memory_builder(
         )
     cls = _BUILDERS[resolved]
     if resolved == RawConversationMemoryBuilder.name:
-        return cls(max_chars=max_chars)
+        return cls(
+            max_chars=max_chars,
+            preprocess_index_dir=preprocess_index_dir,
+            retrieve_top_k=retrieve_top_k,
+        )
+    if resolved == SessionSummaryMemoryBuilder.name:
+        return cls(
+            preprocess_index_dir=preprocess_index_dir,
+            retrieve_top_k=retrieve_top_k,
+        )
     if resolved == TeacherSessionMemoryBuilder.name:
         if teacher is None:
             raise ValueError(
@@ -259,8 +320,10 @@ def get_memory_builder(
     return cls()
 
 
-def is_question_independent(name: str) -> bool:
+def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> bool:
     """True if memory text does not depend on the question (safe to cache per sample)."""
+    if retrieve_top_k is not None:
+        return False
     resolved = resolve_memory_name(name)
     return resolved in (
         RawConversationMemoryBuilder.name,

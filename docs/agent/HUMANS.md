@@ -20,7 +20,7 @@ You compare **how memory is built** for long multi-session chats (LoCoMo). The e
 
 You are not yet running multi-teacher fusion. **`raw_chunks`** vs **`session_summaries`** compare how much structure helps under one fixed answer model. Full system map: `docs/reports/engineering_notebook.md`.
 
-HLD **(i) pre-processing** emits ordered **session blocks** (stable `turn_id`s) via `DataIngestor` and `PreprocessingPipeline`. `raw_chunks` / `session_summaries` still read `Conversation` from `dataset.py`. A **Mem0 write-index** walks those blocks as message pairs (extract + update; optional graph) and dumps JSON under `experiments/<run_id>/mem0_index/`. Full LoCoMo QA for Mem0/Mem0g is a **later** command — this slice only indexes and can load the dump into `Memory.text`.
+HLD **(i) pre-processing** emits ordered **session blocks** (stable `turn_id`s) via `DataIngestor` and `PreprocessingPipeline`. Dump them with `python -m src.locomo_eval.preprocess.run_index` (no LLM). `raw_chunks` / `session_summaries` can load that dump (`--preprocess-index-run-id`) or still read `Conversation` from `dataset.py`. A **Mem0 write-index** walks those blocks as message pairs (extract + update; optional graph) and dumps JSON under `experiments/<run_id>/mem0_index/`. Full LoCoMo QA for Mem0/Mem0g is a **later** command — this slice only indexes and can load the dump into `Memory.text`.
 
 ---
 
@@ -59,12 +59,12 @@ Treat the CSV as a **readable export**. Training-time “unmasking” is decided
 
                     ┌─────────────────────────────────────┐
   Memory.text ─────►│  ANSWER LLM (OpenAI / Claude later) │  ← must NOT see gold
-  question only ───►│  fixed prompt qa_v1                 │
+  question only ───►│  ANSWER LLM (gpt-4o-mini + qa_mem0_v1 default) │  ← must NOT see gold
                     └─────────────────────────────────────┘
 ```
 
 1. **Answer model (what we usually mean by “running the eval”)**  
-   Blind to the gold answer. In v0.1 the prompt only injects **`{memory}` + `{question}`** (`prompts/qa_v1.txt`). It does **not** currently receive the gold answer, category ID, or evidence list as separate fields. Dates appear only if they are **already inside** the memory string (e.g. session headers / summary prose).
+   Blind to the gold answer. Default prompt is Mem0-style **`{memory}` + `{question}`** (`prompts/qa_mem0_v1.txt`). Override with `pipeline.prompt_path` (e.g. `qa_v1.txt`) only as a separate setup. The prompt does **not** receive the gold answer.
 
 2. **Scorer (after the model answers)**  
    *Does* see the reference answer (and category, so LoCoMo’s category-aware F1 can apply). That is not “cheating”; it is standard supervised scoring. Re-run it offline with `python -m src.locomo_eval.offline_evaluate`. A later **LLM autorater** (model grades the answer) would be a different module — do not put it here.
@@ -140,7 +140,7 @@ Open `experiments/compare_raw_chunks_session_summaries/overall.csv` (from `compa
 Evaluation-pipeline unit tests (string metrics / LoCoMo F1) live in `tests/test_evaluation_pipeline.py`. Preprocess session-block tests are `tests/test_preprocessing_pipeline.py`. Session-document join / naive retrieval checks are `tests/test_session_documents.py`. Sandwich contracts that must not drift are locked in `tests/test_regressions.py` (mock only):
 
 ```bash
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py
 ```
 
 Flatten session documents + histograms (no API; gitignored under `data/processed/`):
@@ -150,6 +150,30 @@ python scripts/export_session_documents.py --data data/raw/locomo10.json --out d
 ```
 
 Open `data/processed/session_documents.csv` (session units) and `qa_joined.csv` (gold joined via evidence). Plots are in `data/processed/plots/`. JSON category ids are official LoCoMo eval ids (1=multi-hop, 4=single-hop), not the paper’s 1–5 prose list — see `data/README.md`.
+
+---
+
+## Deterministic preprocess write-index (no LLM)
+
+Parse the whole release into session units you can later retrieve/format (raw turns, dataset summaries, later top-k or LLM compress). Gold stays out of the dump.
+
+```bash
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
+```
+
+Dumps land at `experiments/locomo_preprocess/preprocess/` (`sessions.jsonl` + `documents.jsonl` per sample). Then 10 frozen-reader LLM calls per sanity memory, **round-robin across conversations** (with 10 LoCoMo samples that is one question from each), from that dump:
+
+```bash
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
+```
+
+That is **20** reader calls (`raw_chunks` + `session_summaries` × 10). Mock:
+
+```bash
+python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
+```
+
+QA packs: `experiments/locomo_preprocess_raw_chunks_n10/` and `experiments/locomo_preprocess_session_summaries_n10/`. You can also point a later `run.py` at the dump with `--preprocess-index-run-id locomo_preprocess`.
 
 ---
 
@@ -170,7 +194,7 @@ python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --run-id mem
 python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
 ```
 
-Dumps land at `experiments/<run_id>/mem0_index/` (`speaker_a.json` / `speaker_b.json`, `graph.json` for mem0g, `ingest_log.jsonl`). Already-complete samples are skipped unless `--overwrite`. A later eval command can `python -m src.locomo_eval.run --config configs/mem0.yaml` **without re-extracting** (`mem0.index_run_id` must point at that dump). Keep `prompts/qa_v1.txt` frozen if you want a memory-condition claim; swapping in Mem0’s answer prompt is a different bottom-layer setup.
+Dumps land at `experiments/<run_id>/mem0_index/`. Retrieve is cosine **top-k NL facts** (default 30) per speaker; mem0g also appends valid graph relations into the same `Memory.text`. A later graph/store condition should reuse this retriever. QA: `python -m src.locomo_eval.run --config configs/mem0.yaml` with `mem0.index_run_id` pointing at the dump. Default reader is `gpt-4o-mini` + `qa_mem0_v1` (same as raw_chunks / session_summaries).
 
 ---
 
@@ -226,7 +250,7 @@ python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 -
 python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
 ```
 
-Default model is `gpt-4.1-mini` in `configs/baseline.yaml`. For GPT-5.6 Luna as the **answer** model (robustness axis, not a memory claim):
+Default model is `gpt-4o-mini` in `configs/baseline.yaml` (Mem0 eval reader). For GPT-5.6 Luna as a **reader robustness** axis (not a memory claim):
 
 ```bash
 python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
@@ -287,7 +311,7 @@ locomo10.json                 # official: dialog + summaries + gold QA
     → mem0/run_index.py       # write-index dumps (mem0 / mem0g); not QA
     → teacher_orchestrator.py # HLD (ii): one session block, passthrough, no LLM
     → memory.py               # experimental: Memory.text (incl. load/retrieve from mem0 dumps)
-    → prompts/qa_v1.txt       # frozen answer prompt
+    → prompts/qa_mem0_v1.txt  # frozen Mem0-parity answer prompt (override qa_v1 as a separate axis)
     → readers.py              # answer LLM (no LlmResponseHash in this phase) (swap only for robustness, not a memory claim)
     → metrics + report        # scorer uses gold; reports for humans
 ```

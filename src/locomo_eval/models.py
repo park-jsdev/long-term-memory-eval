@@ -14,8 +14,9 @@ from typing import Any
 
 
 # Canonical ids used in configs, logs, and tests.
-BASELINE_READER_MODEL = "gpt-4.1-mini"
-GPT4O_MINI = "gpt-4o-mini"
+BASELINE_READER_MODEL = "gpt-4.1-mini"  # robustness catalog / tests; not the Mem0-parity default
+MEM0_READER_MODEL = "gpt-4o-mini"  # default reader in YAML (Mem0 eval harness)
+GPT4O_MINI = MEM0_READER_MODEL
 GPT56_LUNA = "gpt-5.6-luna"
 GPT56_TERRA = "gpt-5.6-terra"
 GPT56_SOL = "gpt-5.6-sol"
