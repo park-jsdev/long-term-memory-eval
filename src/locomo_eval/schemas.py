@@ -1,7 +1,8 @@
 """Typed records that move through one LoCoMo QA run.
 
 Load (dataset.py) → Memory (memory.py) → Reader (readers.py) → Prediction
-→ score (metrics.py / offline_evaluate.py). Orchestrated by
+→ score (metrics.py / offline_evaluate.py) and optionally → Autorater
+(autorater.py / scripts.analysis.run_benchmark). Orchestrated by
 run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
 
     locomo10.json
@@ -20,6 +21,8 @@ run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
          │
          ▼
     Prediction                   one JSONL row: Q + gold + pred + memory snapshot
+         ├── deterministic scorer (EM / token F1 / LoCoMo F1)
+         └── optional LLM autorater (Mem0 F1 / BLEU-1 / J)
 """
 
 from __future__ import annotations

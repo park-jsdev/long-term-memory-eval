@@ -205,11 +205,12 @@ locomo-memory-research/
 ├── README.md
 ├── pyproject.toml
 ├── configs/
-│   └── baseline.yaml
+│   └── mem0_baseline.yaml
 ├── data/
 │   └── README.md
 ├── prompts/
-│   └── qa_v1.txt
+│   ├── qa_v1.txt
+│   └── qa_mem0_v1.txt
 ├── src/
 │   └── locomo_eval/
 │       ├── dataset.py

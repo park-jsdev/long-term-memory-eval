@@ -3,23 +3,18 @@
 Keyed by ``llm_request_hash`` of the request (stage, provider, model,
 sampling, prompt), not by run or question id.
 
-Future optimization: reusable at any LLM call site so identical requests are
-not re-billed. **Not wired** into ``run_locomo_pipeline_with_memory_config``
-while the end-to-end pipeline is being validated.
-
-To re-enable on the answer reader:
-  1. Construct ``LlmResponseHash(llm_response_hash_dir_from_run_cfg(cfg["run"]))``
-  2. Pass it as ``llm_response_hash=`` to ``get_reader`` / ``OpenAIReader``
-  3. Set ``run.llm_response_hash_dir`` in the YAML (default ``experiments/cache/``)
+This utility is retained for historical experiments, but response caching is
+prohibited in evaluation. Reader, teacher, and autorater factories reject a
+non-null store.
 
 Call sites must put ``pipeline_stage`` in the key payload so stages cannot collide:
 
-  - ``answer_reader`` — ``OpenAIReader.answer`` (hook exists; run.py does not pass a store)
-  - ``teacher`` — reserved for a write-path teacher LLM
-  - ``autorater`` — reserved for a future LLM-as-judge (not ``offline_evaluate.py``)
+  - ``answer_reader`` — historical answer-stage key
+  - ``teacher`` — historical teacher-stage key
+  - ``autorater`` — historical judge-stage key
 
 Not this store:
-  - Per-run resume: ``experiments/<run_id>/predictions.jsonl``
+  - Run audit output: ``experiments/<run_id>/predictions.jsonl``
   - Offline string metrics: ``offline_evaluate.py`` (no LLM)
   - Distinctness sanity: ``llm_request_hash`` / compare scripts (no disk)
 """

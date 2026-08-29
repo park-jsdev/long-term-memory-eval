@@ -1,16 +1,14 @@
 """SHA-256 of one LLM request payload.
 
-This is not a disk lookup. ``LlmResponseHash`` is implemented but **not
-wired** into ``run.py``. We still hash the same dict ``OpenAIChatCaller``
-would use, so tests and compare scripts can check that two runs asked the
-model different things.
+This is not a disk lookup. Evaluation factories prohibit
+``LlmResponseHash``. We still hash the same dict ``OpenAIChatCaller`` would
+use, so tests and compare scripts can check that two runs asked the model
+different things.
 
 Lifecycle
 ---------
-1. **Live call (if a store were passed):** ``OpenAIChatCaller.complete``
-   builds ``llm_request_payload`` and ``llm_request_hash`` would name the
-   JSON file under ``LlmResponseHash``. ``run.py`` currently passes no
-   store, so this never hits disk. Per-run resume is ``predictions.jsonl``.
+1. **Live call:** ``OpenAIChatCaller.complete`` records the request hash for
+   audit and distinctness checks only. No response-store lookup is permitted.
 2. **Offline rebuild:** ``llm_request_hash_from_prediction`` re-renders the
    QA prompt from stored ``memory_text`` + ``question`` and hashes it with
    the logged reader model / temperature / max_tokens.
@@ -52,7 +50,7 @@ def llm_request_payload(
     *,
     spec: ModelSpec,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     extra: dict[str, Any],
 ) -> dict[str, Any]:
     """Canonical request dict hashed by ``llm_request_hash``.
@@ -66,7 +64,7 @@ def llm_request_payload(
         "model": spec.model_id,
         "family": spec.family,
         "temperature": float(temperature),
-        "max_tokens": int(max_tokens),
+        "max_tokens": int(max_tokens) if max_tokens is not None else None,
         "max_tokens_field": spec.max_tokens_field,
         "reasoning_effort": spec.reasoning_effort,
         **extra,
@@ -84,8 +82,9 @@ def llm_request_hash_for_reader(
     *,
     model: str,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     prompt: str,
+    message_layout: str = "default_system_user",
 ) -> str:
     """SHA-256 of an answer-reader request (filled QA prompt + model knobs)."""
     spec = resolve_model(model)
@@ -96,6 +95,7 @@ def llm_request_hash_for_reader(
         extra={
             "role": "reader",
             "prompt": prompt,
+            "message_layout": message_layout,
             "pipeline_stage": PIPELINE_STAGE_ANSWER_READER,
         },
     )
@@ -121,6 +121,11 @@ def llm_request_hash_from_prediction(
     return llm_request_hash_for_reader(
         model=str(model),
         temperature=float(meta.get("temperature", 0.0) or 0.0),
-        max_tokens=int(meta.get("max_tokens", 64) or 64),
+        max_tokens=(
+            int(meta["max_tokens"])
+            if meta.get("max_tokens") is not None
+            else None
+        ),
         prompt=prompt,
+        message_layout=str(meta.get("message_layout") or "default_system_user"),
     )
