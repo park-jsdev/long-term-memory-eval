@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.compare_full_runs import load_pack  # noqa: E402
+from scripts.compare_full_runs import load_pack, resolve_prompt_path  # noqa: E402
 from src.locomo_eval.metrics import score_row  # noqa: E402
 from src.locomo_eval.models import resolve_model  # noqa: E402
 from src.locomo_eval.prompts import load_prompt_template  # noqa: E402
@@ -282,14 +282,20 @@ def main(argv: list[str] | None = None) -> None:
         default="reader",
         help="Which model slot you intended to swap (guides sanity checks)",
     )
-    p.add_argument("--prompt", default="prompts/qa_v1.txt")
+    p.add_argument(
+        "--prompt",
+        default=None,
+        help="Override prompt for hash rebuilding (default: infer from run_meta.json)",
+    )
     args = p.parse_args(argv)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     packs = [load_pack(Path(r)) for r in args.runs]
     write_overall_csv(out / "overall.csv", packs)
-    paired = cross_model_analysis(packs, Path(args.prompt), args.axis)
+    paired = cross_model_analysis(
+        packs, resolve_prompt_path(packs, args.prompt), args.axis
+    )
     write_paired_csv(out / "paired_questions.csv", paired)
     slim = {k: v for k, v in paired.items() if k != "paired_rows"}
     write_text_report(out / "SUMMARY.md", packs, slim)

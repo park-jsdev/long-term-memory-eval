@@ -49,7 +49,7 @@ So yes: the raw file holds **input dialog history**, **authoring aid fields** (s
 
 Treat the CSV as a **readable export**. Training-time “unmasking” is decided by the run pipeline, not by the CSV columns existing on disk.
 
-### Two different “evaluators” (do not conflate)
+### Three different model/scoring roles (do not conflate)
 
 ```text
                     ┌─────────────────────────────────────┐
@@ -59,15 +59,28 @@ Treat the CSV as a **readable export**. Training-time “unmasking” is decided
 
                     ┌─────────────────────────────────────┐
   Memory.text ─────►│  ANSWER LLM (OpenAI / Claude later) │  ← must NOT see gold
-  question only ───►│  ANSWER LLM (gpt-4o-mini + qa_mem0_v1 default) │  ← must NOT see gold
+  question only ───►│  fixed prompt selected by config    │
                     └─────────────────────────────────────┘
 ```
 
 1. **Answer model (what we usually mean by “running the eval”)**  
-   Blind to the gold answer. Default prompt is Mem0-style **`{memory}` + `{question}`** (`prompts/qa_mem0_v1.txt`). Override with `pipeline.prompt_path` (e.g. `qa_v1.txt`) only as a separate setup. The prompt does **not** receive the gold answer.
+   Blind to the gold answer. Prompts inject only **`{memory}` + `{question}`**.
+   The default baseline and memory-condition YAMLs freeze pinned
+   `prompts/qa_mem0_v1.txt` as Mem0's sole system message. Neither receives
+   the gold answer, category ID, or evidence list. Override `pipeline.prompt_path`
+   (e.g. `qa_v1.txt`) only as a separate robustness axis.
 
 2. **Scorer (after the model answers)**  
-   *Does* see the reference answer (and category, so LoCoMo’s category-aware F1 can apply). That is not “cheating”; it is standard supervised scoring. Re-run it offline with `python -m src.locomo_eval.offline_evaluate`. A later **LLM autorater** (model grades the answer) would be a different module — do not put it here.
+   *Does* see the reference answer (and category, so LoCoMo’s category-aware
+   F1 can apply). It is deterministic and offline. Re-run it with
+   `python -m src.locomo_eval.offline_evaluate`.
+
+3. **Autorater (after the model answers)**
+   Also sees question + reference + predicted answer, but asks a separate LLM
+   for a binary `CORRECT` / `WRONG` judgment. `autorater.py` implements the
+   Mem0 LLM-as-a-Judge prompt; `scripts.analysis.run_benchmark` defaults to
+   the released GPT-4o-mini judge. This path does not see memory and does not implement Mem0
+   extraction/update. It skips category 5, matching the Mem0 paper.
 
 So we do not literally “mask columns on the dataset file.” We **construct a restricted prompt** from selected fields and never put `answer` into that prompt.
 
@@ -241,16 +254,20 @@ python -m src.locomo_eval.run --config configs/session_summaries.yaml --reader m
 **Small live check:**
 
 ```bash
-python -m src.locomo_eval.run --config configs/baseline.yaml --max-questions 3 --run-id smoke_openai
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --max-questions 3 --run-id smoke_openai
 ```
 
-**Full QA set** (many API calls; resume unfinished questions via `predictions.jsonl`):
+**Full QA set** (many API calls; each invocation starts from question one):
 
 ```bash
-python -m src.locomo_eval.run --config configs/baseline.yaml --run-id baseline_session_summary
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --run-id mem0_baseline_session_summary
 ```
 
-Default model is `gpt-4o-mini` in `configs/baseline.yaml` (Mem0 eval reader). For GPT-5.6 Luna as a **reader robustness** axis (not a memory claim):
+The baseline pins Mem0's released answer controls: `gpt-4o-mini`,
+`prompts/qa_mem0_v1.txt` as the sole system message, temperature 0, and no
+explicit completion-token limit. Its memory remains dataset-provided
+`session_summaries`; it does not implement Mem0 extraction/update. For GPT-5.6
+Luna as the **answer** model (robustness axis, not a memory claim):
 
 ```bash
 python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id cmp_reader_luna_n5
@@ -258,6 +275,16 @@ python scripts/compare_cross_model.py --runs experiments/smoke_openai experiment
 ```
 
 Config knobs live only in YAML + CLI overrides — no hidden flags.
+For a deliberate non-parity run, override without editing the default:
+
+```bash
+python -m src.locomo_eval.run --config configs/mem0_baseline.yaml \
+  --model gpt-4.1-mini --prompt prompts/qa_v1.txt \
+  --max-tokens 64 --message-layout default_system_user --run-id ablation
+```
+
+`tests/test_regressions.py` locks the on-disk defaults and verifies that CLI
+overrides affect only the effective run metadata.
 
 ---
 
@@ -275,16 +302,82 @@ Everything for one experiment is under `experiments/<run_id>/`:
 | `memory/` | Runtime memory audit (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
 | `plots/*.png` | Quick visual of overall + by-category scores |
 
-Two stores that are easy to mix up:
-
-- **`predictions.jsonl`** — per-run resume (skip finished questions). This is what the live pipeline uses.
-- **`experiments/cache/`** — `LlmResponseHash` (under `src/locomo_eval/utils/`). Implemented, **not wired** into `run.py` until E2E validation is done. Re-enable by passing a store to `get_reader`.
+`predictions.jsonl` is an audit artifact, not a response cache or resume
+checkpoint. Reusing a run id clears generated run artifacts and regenerates
+answers from question one. `LlmResponseHash` remains implemented under
+`src/locomo_eval/utils/`, but evaluation factories reject attempts to pass it.
 
 Recompute string metrics without re-calling the API (not an LLM autorater):
 
 ```bash
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
 ```
+
+## Run the Mem0-style autorater benchmark
+
+Generate answers first with the normal pipeline, then grade the same stored
+prediction/reference pairs:
+
+```bash
+# Offline component smoke (no judge API)
+python -m scripts.analysis.run_benchmark \
+  --run experiments/<run_id> --autorater mock
+
+# Live released Mem0 GPT-4o-mini judge
+python -m scripts.analysis.run_benchmark \
+  --run experiments/<run_id>
+```
+
+`--autorater mock` is plumbing-only. It marks an answer correct when it shares
+a substantive token with the gold answer. It is deliberately cheap and can
+overrate contradictions (for example, `2 July 2023` vs `3 July 2023`).
+Reports label it `mock_sanity_not_llm_judge`, omit it from the literature J
+column, and never identify it as GPT-4o. Use the live command for actual J.
+Every invocation removes prior generated autorater artifacts in that output
+directory and regenerates from one prediction file. Autorater results never
+resume or append, so mock/live or different source runs cannot overlap.
+
+The default `configs/autorater.yaml` judge is the released Mem0
+`gpt-4o-mini` configuration. The
+paper reports the mean ± standard deviation of 10 full judge runs; one local
+autorater pack is one run, so repeat it under distinct output directories for
+paper-level uncertainty estimates.
+Judge model, prompt, temperature, and token limit can be overridden with
+`--model`, `--prompt`, `--temperature`, and `--max-tokens`.
+
+Prompt provenance:
+
+- Pinned Mem0 implementation:
+  [`evaluation/metrics/llm_judge.py`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py)
+  (`ACCURACY_PROMPT`)
+- Paper:
+  [Chhikara et al., arXiv:2504.19413](https://arxiv.org/abs/2504.19413),
+  Appendix A, “Prompt Template for LLM as a Judge”
+- Local adaptation: `prompts/autorater_mem0_v1.txt`. It preserves the Mem0
+  correctness/date-matching instructions and JSON label contract.
+
+Cache isolation is enforced: reader, teacher, and autorater factories reject
+non-null `llm_response_hash`. The answer pipeline clears prior generated
+artifacts under the selected run id and regenerates from question one.
+Autorater rewrites all of its outputs and refuses source predictions marked
+`cached=true`. It never modifies source `predictions.jsonl`, `metrics.json`,
+or `run_meta.json`.
+
+Outputs under `experiments/<run_id>/autorater/`:
+
+| Artifact | Contents |
+|----------|----------|
+| `autorater_verdicts.jsonl` | Fresh per-question F1, BLEU-1, J label, usage, reader/judge latency; overwritten each invocation |
+| `autorater_metrics.json` | Overall and category metrics; category 5 excluded from J |
+| `tables/overall.csv` | This run's F1/BLEU-1/J, token usage, p50/p95 latency |
+| `tables/vs_literature.csv` | This run next to published Mem0 Table 2 J/latency values |
+| `tables/vs_literature_by_category.csv` | Published Mem0 Table 1 category values |
+| `plots/` | Correct/wrong verdict bar, continuous-score histograms/boxplots, category bars, and latency comparisons |
+| `SUMMARY.md` | Compact interpretation and paper citation |
+
+Published rows are **literature pins**, not local re-runs of Mem0. Scores use
+the Mem0 paper's percentage scale in comparison tables. Mem0 F1 is distinct
+from this repository's LoCoMo F1 and SPEC token F1.
 
 ---
 
@@ -310,8 +403,8 @@ locomo10.json                 # official: dialog + summaries + gold QA
     → preprocessing_pipeline.py  # HLD (i): SessionBlock[]
     → mem0/run_index.py       # write-index dumps (mem0 / mem0g); not QA
     → teacher_orchestrator.py # HLD (ii): one session block, passthrough, no LLM
-    → memory.py               # experimental: Memory.text (incl. load/retrieve from mem0 dumps)
-    → prompts/qa_mem0_v1.txt  # frozen Mem0-parity answer prompt (override qa_v1 as a separate axis)
+    → memory.py               # experimental: Memory.text (raw_chunks / session_summaries / teacher_session_summaries / mem0 / mem0g)
+    → prompts/qa_mem0_v1.txt  # pinned Mem0-parity answer prompt (override qa_v1 as a separate axis)
     → readers.py              # answer LLM (no LlmResponseHash in this phase) (swap only for robustness, not a memory claim)
     → metrics + report        # scorer uses gold; reports for humans
 ```

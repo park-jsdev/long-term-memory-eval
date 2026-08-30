@@ -28,7 +28,9 @@ from src.locomo_eval.metrics import exact_match, score_row, summarize_prediction
 from src.locomo_eval.models import (
     BASELINE_READER_MODEL,
     FAMILY_GPT41,
+    FAMILY_GPT4O,
     FAMILY_GPT56,
+    GPT41_MINI,
     GPT56_LUNA,
     GPT56_TERRA,
     chat_create_kwargs,
@@ -160,12 +162,12 @@ class TestModelCatalog(unittest.TestCase):
     def test_resolve_model_maps_luna_alias_to_gpt56_luna_id(self):
         self.assertEqual(resolve_model("luna").model_id, GPT56_LUNA)
 
-    def test_resolve_model_maps_baseline_alias_to_gpt41_mini(self):
+    def test_resolve_model_maps_baseline_alias_to_mem0_gpt4o_mini(self):
         self.assertEqual(resolve_model("baseline").model_id, BASELINE_READER_MODEL)
 
-    def test_gpt41_mini_and_luna_are_different_families(self):
+    def test_baseline_gpt4o_mini_and_luna_are_different_families(self):
         self.assertFalse(same_family(BASELINE_READER_MODEL, GPT56_LUNA))
-        self.assertEqual(resolve_model(BASELINE_READER_MODEL).family, FAMILY_GPT41)
+        self.assertEqual(resolve_model(BASELINE_READER_MODEL).family, FAMILY_GPT4O)
         self.assertEqual(resolve_model(GPT56_LUNA).family, FAMILY_GPT56)
 
     def test_luna_and_terra_share_gpt56_family(self):
@@ -188,7 +190,7 @@ class TestModelCatalog(unittest.TestCase):
         self.assertEqual(kwargs.get("reasoning_effort"), "none")
 
     def test_chat_create_kwargs_for_gpt41_mini_keeps_max_tokens_and_temperature(self):
-        spec = resolve_model(BASELINE_READER_MODEL)
+        spec = resolve_model(GPT41_MINI)
         kwargs = chat_create_kwargs(
             spec,
             messages=[{"role": "user", "content": "hi"}],
@@ -197,6 +199,16 @@ class TestModelCatalog(unittest.TestCase):
         )
         self.assertIn("max_tokens", kwargs)
         self.assertIn("temperature", kwargs)
+
+    def test_chat_create_kwargs_omits_max_tokens_when_mem0_parity_sets_null(self):
+        kwargs = chat_create_kwargs(
+            resolve_model(BASELINE_READER_MODEL),
+            messages=[{"role": "system", "content": "prompt"}],
+            temperature=0.0,
+            max_tokens=None,
+        )
+        self.assertNotIn("max_tokens", kwargs)
+        self.assertEqual(kwargs["temperature"], 0.0)
         self.assertNotIn("max_completion_tokens", kwargs)
 
 

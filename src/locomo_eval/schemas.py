@@ -1,9 +1,11 @@
 """Typed records that move through one LoCoMo QA run.
 
-Read path (wired in run.py):
-    locomo10.json → dataset.py Conversation → Memory → Reader → Prediction → score
+Load (dataset.py) → Memory (memory.py) → Reader (readers.py) → Prediction
+→ score (metrics.py / offline_evaluate.py) and optionally → Autorater
+(autorater.py / scripts.analysis.run_benchmark). Orchestrated by
+run_locomo_pipeline_with_memory_config in run.py (one memory YAML per call).
 
-Write-path preprocess (HLD i):
+Write-path preprocess (HLD i; not the QA scorer):
     locomo10.json → DataIngestor → PreprocessingPipeline
         → experiments/<run_id>/preprocess/ (SessionBlock + SessionDocument, no LLM)
         → raw_chunks / session_summaries retrieve/format (or Conversation fallback)
@@ -26,6 +28,8 @@ Write-path preprocess (HLD i):
          │
          ▼
     Prediction                   one JSONL row: Q + gold + pred + memory snapshot
+         ├── deterministic scorer (EM / token F1 / LoCoMo F1)
+         └── optional LLM autorater (Mem0 F1 / BLEU-1 / J)
 """
 
 from __future__ import annotations

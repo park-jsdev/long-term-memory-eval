@@ -1,4 +1,4 @@
-# LoCoMo-provided session summaries. Standalone YAML — same condition as configs/baseline.yaml.
+# LoCoMo session summaries with the original QA controls; not mem0_baseline.yaml.
 #   python -m src.locomo_eval.run --config configs/session_summaries.yaml --run-id ...
 # Sanity memory vs mem0: freeze reader/prompt (gpt-4o-mini + qa_mem0_v1).
 

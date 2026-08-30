@@ -14,9 +14,10 @@ from typing import Any
 
 
 # Canonical ids used in configs, logs, and tests.
-BASELINE_READER_MODEL = "gpt-4.1-mini"  # robustness catalog / tests; not the Mem0-parity default
-MEM0_READER_MODEL = "gpt-4o-mini"  # default reader in YAML (Mem0 eval harness)
-GPT4O_MINI = MEM0_READER_MODEL
+GPT41_MINI = "gpt-4.1-mini"
+GPT4O = "gpt-4o"
+GPT4O_MINI = "gpt-4o-mini"
+BASELINE_READER_MODEL = GPT4O_MINI
 GPT56_LUNA = "gpt-5.6-luna"
 GPT56_TERRA = "gpt-5.6-terra"
 GPT56_SOL = "gpt-5.6-sol"
@@ -24,6 +25,9 @@ GPT56_SOL = "gpt-5.6-sol"
 FAMILY_GPT41 = "gpt-4.1"
 FAMILY_GPT4O = "gpt-4o"
 FAMILY_GPT56 = "gpt-5.6"
+
+# Mem0 paper/released evaluation defaults for both answering and judging.
+DEFAULT_AUTORATER_MODEL = GPT4O_MINI
 
 
 @dataclass(frozen=True)
@@ -43,8 +47,8 @@ class ModelSpec:
 
 
 _CATALOG: dict[str, ModelSpec] = {
-    BASELINE_READER_MODEL: ModelSpec(
-        model_id=BASELINE_READER_MODEL,
+    GPT41_MINI: ModelSpec(
+        model_id=GPT41_MINI,
         family=FAMILY_GPT41,
         display_name="GPT-4.1 mini",
         max_tokens_field="max_tokens",
@@ -54,6 +58,13 @@ _CATALOG: dict[str, ModelSpec] = {
         model_id="gpt-4.1",
         family=FAMILY_GPT41,
         display_name="GPT-4.1",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    GPT4O: ModelSpec(
+        model_id=GPT4O,
+        family=FAMILY_GPT4O,
+        display_name="GPT-4o",
         max_tokens_field="max_tokens",
         supports_temperature=True,
     ),
@@ -97,9 +108,11 @@ _ALIASES: dict[str, str] = {
     "terra": GPT56_TERRA,
     "sol": GPT56_SOL,
     "gpt-5.6": GPT56_SOL,  # OpenAI alias routes gpt-5.6 → sol
-    "mini": BASELINE_READER_MODEL,
+    "mini": GPT41_MINI,
     "baseline": BASELINE_READER_MODEL,
-    "gpt-4.1-mini": BASELINE_READER_MODEL,
+    "gpt-4.1-mini": GPT41_MINI,
+    "gpt-4o": GPT4O,
+    "4o": GPT4O,
     "gpt-4o-mini": GPT4O_MINI,
     "4o-mini": GPT4O_MINI,
 }
@@ -152,17 +165,18 @@ def chat_create_kwargs(
     *,
     messages: list[dict[str, str]],
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
 ) -> dict[str, Any]:
     """Kwargs for ``client.chat.completions.create`` for this model."""
-    n = int(max_tokens)
-    if spec.max_tokens_field == "max_completion_tokens":
-        n = max(n, 16)  # GPT-5.6 Luna rejects values below 16
     kwargs: dict[str, Any] = {
         "model": spec.model_id,
         "messages": messages,
-        spec.max_tokens_field: n,
     }
+    if max_tokens is not None:
+        n = int(max_tokens)
+        if spec.max_tokens_field == "max_completion_tokens":
+            n = max(n, 16)  # GPT-5.6 Luna rejects values below 16
+        kwargs[spec.max_tokens_field] = n
     if spec.supports_temperature:
         kwargs["temperature"] = float(temperature)
     if spec.reasoning_effort is not None:

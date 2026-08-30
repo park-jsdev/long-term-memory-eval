@@ -1,4 +1,4 @@
-"""Reusable offline analysis helpers (no API, not an LLM autorater).
+"""Reusable experiment analyses.
 
 Figure 1 (single run): predicted + reference → LoCoMo string scorer → metrics.
   That lives in ``src/locomo_eval/metrics.py`` / ``offline_evaluate.py``.
@@ -10,4 +10,7 @@ Figure 2 (two runs): experimental output A + B → ``compare_predictions`` →
 Dataset histograms / naive-retrieval bars: ``dataset_stats`` (implementation
 in ``src.locomo_eval.preprocess.dataset_stats``; CLI via
 ``scripts/export_session_documents.py``).
+
+Online benchmark: finished predictions → ``run_benchmark`` → Mem0 lexical
+metrics + LLM autorater + literature/latency tables and plots.
 """

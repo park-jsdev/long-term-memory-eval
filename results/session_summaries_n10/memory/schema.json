@@ -1,0 +1,34 @@
+{
+  "schema_version": "memory_io.v1",
+  "memory_type": "session_summaries",
+  "max_chars_config": null,
+  "layout": {
+    "builder": "SessionSummaryMemoryBuilder",
+    "code": "src/locomo_eval/memory.py",
+    "source_fields": [
+      "session_summary.session_k_summary"
+    ],
+    "text_layout": "[Session {k}]\n{session_k_summary text}\n\n[Session {k+1}]\n…",
+    "notes": "LoCoMo-provided summaries; chronological by session id."
+  },
+  "documentation": "docs/schemas/memory_runtime.md",
+  "json_schema": "docs/schemas/memory_io.schema.json",
+  "object_fields": {
+    "memory_type": "condition id",
+    "text": "full string injected as prompt {memory}",
+    "source_ids": "provenance list",
+    "schema_version": "memory_io.v1",
+    "teacher_model": "write-path model id when memory_type is teacher_session_summaries",
+    "teacher_provider": "openai | mock"
+  },
+  "teacher_model": null,
+  "teacher_provider": null,
+  "injection": {
+    "prompt_placeholders": [
+      "{memory}",
+      "{question}"
+    ],
+    "gold_answer_in_memory": false
+  },
+  "n_unique_samples": 1
+}

@@ -441,7 +441,7 @@ class TestDefaultYamlPinsMem0ReaderAndPrompt(unittest.TestCase):
         from src.config import load_config
 
         for rel in (
-            "configs/baseline.yaml",
+            "configs/mem0_baseline.yaml",
             "configs/raw_chunks.yaml",
             "configs/session_summaries.yaml",
             "configs/mem0.yaml",

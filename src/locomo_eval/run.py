@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -48,7 +49,6 @@ from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
 from src.locomo_eval.teachers import get_teacher
-import json
 
 
 def _mem0_builder_kwargs(
@@ -167,24 +167,27 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
     )
 
 
-def _load_existing_predictions(path: Path) -> dict[str, dict]:
-    """Run checkpoint: question_id -> row so the same --run-id can resume.
+def _reset_run_output(run_dir: Path) -> None:
+    """Clear generated artifacts so one run id always means one fresh run.
 
-    Distinct from LlmResponseHash (utils/; future optimization, not wired here).
+    Evaluation must never reuse answer responses. Removing the dependent
+    autorater pack also prevents reports based on old predictions surviving a
+    regenerated source run.
     """
-    if not path.is_file():
-        return {}
-    out: dict[str, dict] = {}
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            qid = row.get("question_id")
-            if qid:
-                out[qid] = row
-    return out
+    for dirname in ("plots", "memory", "autorater"):
+        path = run_dir / dirname
+        if path.is_dir():
+            shutil.rmtree(path)
+    for filename in (
+        "predictions.jsonl",
+        "predictions.csv",
+        "metrics.json",
+        "metrics_by_category.csv",
+        "run_meta.json",
+    ):
+        path = run_dir / filename
+        if path.is_file():
+            path.unlink()
 
 
 def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namespace) -> Path:
@@ -195,7 +198,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     plus ``scripts/compare_full_runs.py`` (or ``compare_cross_model.py``).
 
     Which memory builder runs is ``cfg["pipeline"]["memory"]``, unless
-    ``--memory`` overrides it. Not tied to ``configs/baseline.yaml``.
+    ``--memory`` overrides it. Not tied to ``configs/mem0_baseline.yaml``.
     """
     data_path = Path(overrides.data or cfg["data"]["raw_path"])
     # Builder id (raw_chunks / session_summaries), not a path to another YAML.
@@ -213,6 +216,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
     run_dir = out_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    _reset_run_output(run_dir)
     pred_path = run_dir / "predictions.jsonl"
 
     prompt_version, prompt_template = load_prompt_template(prompt_path)
@@ -231,16 +235,38 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     )
 
     rate_cfg = cfg.get("reader") or {}
+    temperature_override = getattr(overrides, "temperature", None)
+    reader_temperature = (
+        float(temperature_override)
+        if temperature_override is not None
+        else float(rate_cfg.get("temperature", 0.0))
+    )
+    max_tokens_override = getattr(overrides, "max_tokens", None)
+    reader_max_tokens_raw = (
+        max_tokens_override
+        if max_tokens_override is not None
+        else rate_cfg.get("max_tokens", 64)
+    )
+    reader_max_tokens = (
+        int(reader_max_tokens_raw) if reader_max_tokens_raw is not None else None
+    )
+    message_layout_override = getattr(overrides, "message_layout", None)
+    reader_message_layout = str(
+        message_layout_override
+        or rate_cfg.get("message_layout")
+        or "default_system_user"
+    )
     reader_model = "mock" if reader_name.lower() == "mock" else model
     reader = get_reader(
         reader_name,
         model=reader_model,
-        temperature=float(rate_cfg.get("temperature", 0.0)),
-        max_tokens=int(rate_cfg.get("max_tokens", 64)),
-        llm_response_hash=None,  # future optimization; do not wire until E2E is trusted
+        temperature=reader_temperature,
+        max_tokens=reader_max_tokens,
+        llm_response_hash=None,  # evaluation factories prohibit response stores
         max_retries=int(rate_cfg.get("max_retries", 8)),
         min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
         max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
+        message_layout=reader_message_layout,
     )
 
     conversations = load_conversations(data_path)
@@ -270,8 +296,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             pairs, int(max_questions), mode=str(question_sample)
         )
 
-    existing = _load_existing_predictions(pred_path)
-    n_resume = sum(1 for _, q in pairs if q.question_id in existing)
     teacher_model = getattr(builder, "teacher_model", None)
     teacher_provider = getattr(builder, "teacher_provider", None)
     print(
@@ -279,36 +303,14 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         f"reader={reader_name}/{reader.model_name}"
         + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
         + f" | question_sample={question_sample}"
-        + f" | resume_hits={n_resume}"
     )
-    if n_resume:
-        print(f"  Resuming from {pred_path} ({n_resume} finished questions).")
 
     prediction_rows: list[dict] = []
     n_api = 0
-    n_skip = 0
     used_memories: dict[str, Memory] = {}
     example_question: str | None = None
     try:
         for i, (conv, q) in enumerate(pairs, start=1):
-            if q.question_id in existing:
-                prediction_rows.append(existing[q.question_id])
-                n_skip += 1
-                row = existing[q.question_id]
-                if conv.sample_id not in used_memories and row.get("memory_text") is not None:
-                    used_memories[conv.sample_id] = Memory(
-                        memory_type=str(row.get("memory_type") or builder.name),
-                        text=str(row["memory_text"]),
-                        source_ids=[],
-                        teacher_model=row.get("teacher_model"),
-                        teacher_provider=row.get("teacher_provider"),
-                    )
-                if example_question is None:
-                    example_question = q.question
-                if i % 10 == 0 or i == len(pairs):
-                    print(f"  [{i}/{len(pairs)}] {q.question_id} resume=True")
-                continue
-
             if conv.sample_id in memory_by_sample:
                 memory = memory_by_sample[conv.sample_id]
             else:
@@ -318,6 +320,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 example_question = q.question
 
             answer, meta = reader.answer(memory.text, q.question, prompt_template)
+            if meta.get("cached"):
+                raise RuntimeError(
+                    "Cached answer returned in cache-free evaluation pipeline."
+                )
             n_api += 1
 
             pred = Prediction(
@@ -333,7 +339,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 prompt_version=prompt_version,
                 evidence=list(q.evidence),
                 run_id=run_id,
-                cached=bool(meta.get("cached")),
+                cached=False,
                 teacher_model=memory.teacher_model,
                 teacher_provider=memory.teacher_provider,
             )
@@ -342,9 +348,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             row["usage"] = meta.get("usage")
             row["memory_schema_version"] = memory.schema_version
             prediction_rows.append(row)
-            existing[q.question_id] = row
 
-            # Flush after each Q so a crash or rate-limit still leaves a resumable checkpoint.
+            # Flush for audit after a crash. The next invocation clears this
+            # partial file and regenerates; it never resumes.
             write_jsonl(pred_path, prediction_rows)
 
             if i % 10 == 0 or i == len(pairs):
@@ -364,8 +370,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         print(
             f"\nStopped early ({type(exc).__name__}: {exc})\n"
             f"Saved {len(prediction_rows)} rows to {pred_path}\n"
-            f"  resume={n_skip} new_api={n_api}\n"
-            f"Re-run the same --run-id to resume (finished Qs skip the API).\n"
+            f"  new_api={n_api}\n"
+            f"Re-run the same --run-id to regenerate from the beginning.\n"
             f"If error is RPD rate limit, wait for the daily window to reset "
             f"or add payment method / raise limits at platform.openai.com."
         )
@@ -409,8 +415,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "teacher_provider": teacher_provider,
         "teacher_model": teacher_model,
         "teacher_family": resolve_model(teacher_model).family if teacher_model else None,
-        "temperature": rate_cfg.get("temperature", 0.0),
-        "max_tokens": rate_cfg.get("max_tokens", 64),
+        "temperature": reader_temperature,
+        "max_tokens": reader_max_tokens,
+        "message_layout": reader_message_layout,
         "max_retries": rate_cfg.get("max_retries", 8),
         "min_request_interval_s": rate_cfg.get("min_request_interval_s", 0.0),
         "prompt_path": str(prompt_path),
@@ -418,7 +425,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "max_questions": max_questions,
         "question_sample": question_sample,
         "n_predictions": len(prediction_rows),
-        "n_resumed": n_skip,
+        "regenerated_from_scratch": True,
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
         "package_version": "0.1.4",
@@ -431,7 +438,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     for k, v in paths.items():
         print(f"  {k}: {v}")
     print(
-        f"API stats: resume={n_skip} new_api={n_api}"
+        f"API stats: new_api={n_api} (cache/resume disabled)"
     )
     print("Metrics:", summary["metrics"])
     return run_dir
@@ -446,8 +453,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--config",
-        default="configs/baseline.yaml",
-        help="YAML path (default: session_summaries). Also configs/raw_chunks.yaml, configs/session_summaries.yaml",
+        default="configs/mem0_baseline.yaml",
+        help="YAML path (default: Mem0-parity controls over session_summaries)",
     )
     p.add_argument("--data", default=None, help="Override path to locomo10.json")
     p.add_argument(
@@ -457,6 +464,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--reader", default=None, help="openai | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
+    p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
+    p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
+    p.add_argument(
+        "--message-layout",
+        choices=("default_system_user", "mem0_system_only"),
+        default=None,
+        help="Override Chat Completions message layout",
+    )
     p.add_argument("--teacher", default=None, help="Teacher provider: openai | mock (teacher_session_summaries only)")
     p.add_argument(
         "--teacher-model",
