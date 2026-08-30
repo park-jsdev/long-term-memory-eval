@@ -21,10 +21,19 @@ BASELINE_READER_MODEL = GPT4O_MINI
 GPT56_LUNA = "gpt-5.6-luna"
 GPT56_TERRA = "gpt-5.6-terra"
 GPT56_SOL = "gpt-5.6-sol"
+CLAUDE_HAIKU_45 = "claude-haiku-4-5"
+DEEPSEEK_V4_FLASH = "deepseek-v4-flash"
+
+# Cheap teacher ids for multi-teacher plumbing (not the frozen reader).
+SANITY_TEACHER_OPENAI = GPT4O_MINI
+SANITY_TEACHER_ANTHROPIC = CLAUDE_HAIKU_45
+SANITY_TEACHER_DEEPSEEK = DEEPSEEK_V4_FLASH
 
 FAMILY_GPT41 = "gpt-4.1"
 FAMILY_GPT4O = "gpt-4o"
 FAMILY_GPT56 = "gpt-5.6"
+FAMILY_CLAUDE_HAIKU = "claude-haiku"
+FAMILY_DEEPSEEK_V4 = "deepseek-v4"
 
 # Mem0 paper/released evaluation defaults for both answering and judging.
 DEFAULT_AUTORATER_MODEL = GPT4O_MINI
@@ -99,6 +108,20 @@ _CATALOG: dict[str, ModelSpec] = {
         supports_temperature=False,
         reasoning_effort="none",
     ),
+    CLAUDE_HAIKU_45: ModelSpec(
+        model_id=CLAUDE_HAIKU_45,
+        family=FAMILY_CLAUDE_HAIKU,
+        display_name="Claude Haiku 4.5",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    DEEPSEEK_V4_FLASH: ModelSpec(
+        model_id=DEEPSEEK_V4_FLASH,
+        family=FAMILY_DEEPSEEK_V4,
+        display_name="DeepSeek V4 Flash",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
 }
 
 # Short names for CLI / tests. Keys are lowercase.
@@ -115,6 +138,13 @@ _ALIASES: dict[str, str] = {
     "4o": GPT4O,
     "gpt-4o-mini": GPT4O_MINI,
     "4o-mini": GPT4O_MINI,
+    "haiku": CLAUDE_HAIKU_45,
+    "claude-haiku": CLAUDE_HAIKU_45,
+    "claude-haiku-4-5": CLAUDE_HAIKU_45,
+    "claude-haiku-4-5-20251001": CLAUDE_HAIKU_45,
+    "deepseek": DEEPSEEK_V4_FLASH,
+    "deepseek-chat": DEEPSEEK_V4_FLASH,  # retired alias; Flash is the cheap V4 id
+    "deepseek-v4-flash": DEEPSEEK_V4_FLASH,
 }
 
 
@@ -129,6 +159,16 @@ def infer_family(model_id: str) -> str:
         return "gpt-4o"
     if mid.startswith("gpt-5"):
         return "gpt-5"
+    if mid.startswith("claude"):
+        if "haiku" in mid:
+            return FAMILY_CLAUDE_HAIKU
+        if "sonnet" in mid:
+            return "claude-sonnet"
+        if "opus" in mid:
+            return "claude-opus"
+        return "claude"
+    if mid.startswith("deepseek"):
+        return FAMILY_DEEPSEEK_V4 if "v4" in mid or mid == "deepseek-chat" else "deepseek"
     return model_id
 
 
@@ -158,6 +198,48 @@ def same_family(a: str, b: str) -> bool:
 
 def models_in_family(family: str) -> list[str]:
     return [spec.model_id for spec in _CATALOG.values() if spec.family == family]
+
+
+# Write-path overlay only. The frozen GPT-5.6 *reader* stays catalog `none`.
+TEACHER_THINKING_EFFORT = "high"
+TEACHER_THINKING_MIN_OUTPUT_TOKENS = 1024
+
+
+def supports_reasoning_effort(spec: ModelSpec) -> bool:
+    """True for GPT-5.x / o-series. gpt-4o-mini has no reasoning_effort knob."""
+    if spec.reasoning_effort is not None:
+        return True
+    family = (spec.family or "").lower()
+    mid = (spec.model_id or "").lower()
+    return (
+        family.startswith("gpt-5")
+        or family.startswith("o1")
+        or family.startswith("o3")
+        or mid.startswith("o1")
+        or mid.startswith("o3")
+    )
+
+
+def apply_openai_thinking(
+    spec: ModelSpec,
+    kwargs: dict[str, Any],
+    thinking: bool | None,
+) -> dict[str, Any]:
+    """Overlay teacher thinking onto Chat Completions kwargs.
+
+    ``None`` leaves the catalog pin (reader: GPT-5.6 ``reasoning_effort=none``).
+    ``True`` sets teacher effort on models that support it; ``False`` forces
+    ``none``. gpt-4o-mini is a no-op either way.
+    """
+    out = dict(kwargs)
+    if thinking is None or not supports_reasoning_effort(spec):
+        return out
+    out["reasoning_effort"] = TEACHER_THINKING_EFFORT if thinking else "none"
+    if thinking:
+        field = spec.max_tokens_field
+        n = int(out.get(field) or 16)
+        out[field] = max(n, TEACHER_THINKING_MIN_OUTPUT_TOKENS)
+    return out
 
 
 def chat_create_kwargs(

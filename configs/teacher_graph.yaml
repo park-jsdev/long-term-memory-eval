@@ -1,18 +1,17 @@
-# Live single-teacher session summaries. Swap teacher.model (or --teacher-model)
-# within a family. Freeze reader.model when attributing score deltas to the teacher.
+# Single interchangeable teacher writes locked Mem0GraphMemory.
+# Swap teacher.model / --teacher-model (openai | anthropic | deepseek).
+# Freeze reader.model when attributing score deltas to the teacher.
 #
-#   python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml \
-#       --reader mock --teacher mock --teacher-model gpt-4.1-mini \
-#       --max-questions 3 --run-id smoke_teacher_mock
-#   python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml \
-#       --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
+#   python -m src.locomo_eval.run --config configs/teacher_graph.yaml \
+#       --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
+#   python -m src.locomo_eval.ping_teachers --providers openai
 
 data:
   raw_path: data/raw/locomo10.json
   locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
 
 pipeline:
-  memory: teacher_session_summaries
+  memory: teacher_graph
   prompt_path: prompts/qa_mem0_v1.txt
   max_questions: null
 
@@ -27,8 +26,9 @@ reader:
 
 teacher:
   provider: openai
-  model: gpt-4.1-mini
+  model: gpt-4o-mini
   prompt_path: prompts/teacher_session_v1.txt
+  graph_prompt_path: prompts/teacher_graph_v1.txt
   temperature: 0.0
   max_tokens: 512
   max_retries: 8
@@ -36,6 +36,11 @@ teacher:
   max_wait_s: 3600
   thinking: true
   thinking_budget_tokens: 1024
+
+orchestrator:
+  pool: single
+  fusion: none
+  rng_seed: 0
 
 run:
   run_id: null

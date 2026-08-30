@@ -22,7 +22,7 @@ Passed from builder → runner → prompt fill. Never includes the gold answer.
 | `source_ids` | list[string] | Provenance ids (turn `dia_id`s or `session_k_summary`) |
 | `schema_version` | string | Always `memory_io.v1` for this layout family |
 | `teacher_model` | string or null | Write-path model id when using `teacher_session_summaries` |
-| `teacher_provider` | string or null | `openai` or `mock` |
+| `teacher_provider` | string or null | `openai`, `anthropic`, `deepseek`, `mock`, or `+`-joined |
 
 JSON shape (also in `memory_io.schema.json`):
 
@@ -85,6 +85,22 @@ Config: `configs/teacher_session_summaries.yaml` · `teacher.model` / `--teacher
 
 Same `[Session k]` concatenation as `session_summaries`, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
 
+### Condition `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph`
+
+Configs: `configs/teacher_graph.yaml`, `pooled_teacher_graph.yaml`, `fused_teacher_graph.yaml`.
+
+Teachers extract Mem0-shaped triples; `TeacherOrchestrator` writes **locked** `Mem0GraphMemory` (`ingest_triples`). `{memory}` is:
+
+```text
+Conversation between {speaker_a} and {speaker_b}.
+
+Graph relations:
+{source} -- {relationship} -- {target}
+...
+```
+
+`pooled_teacher_graph` uses `orchestrator.pool` (`equal_weight` | `random` | `round_robin`). `fused_teacher_graph` keeps triples with majority votes. Gold answers never enter teacher prompts.
+
 ### Injection into the fixed prompt
 
 ```text
@@ -108,6 +124,10 @@ Every Phase‑1 run writes under `experiments/<run_id>/memory/`:
 | `memory/index.jsonl` | One line per **unique** `sample_id` used in the run: ids, char counts, sha256 of `text`, head/tail previews |
 | `memory/by_sample/<sample_id>.txt` | **Full** `Memory.text` for that conversation (what the model saw as memory; same for all Qs under that sample for current builders) |
 | `memory/prompt_fill_example.txt` | One concrete filled prompt (memory + first question), truncated if huge |
+| `memory/teachers/` | Write-path LLM traces when a teacher ran (`index.jsonl`, `calls.jsonl`, `by_teacher/<id>/`, `fusion.jsonl`) |
+| `memory/graph/` | Fused Mem0g snapshot (`by_sample/<id>.json`) for graph conditions |
+
+Answer-LLM traces live under `experiments/<run_id>/reader/` (`traces.jsonl` + a copy of `predictions.jsonl`). Judge traces live under `autorater/traces.jsonl`. Run-root `predictions.jsonl` is a compatibility copy of `reader/predictions.jsonl`.
 
 Also retained on every prediction row (full audit, larger files):
 

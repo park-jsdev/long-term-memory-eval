@@ -326,8 +326,6 @@ Everything for one experiment is under `experiments/<run_id>/`:
 | `memory/graph/` | Fused Mem0g snapshot per sample |
 | `plots/*.png` | Quick visual of overall + by-category scores |
 
-`run_meta.json` includes `audit_layout` paths. An eval branch should load packs with `src.locomo_eval.experiments.load` (see [`docs/schemas/experiment_pack.md`](../schemas/experiment_pack.md)) and not edit `run.py` / teachers.
-
 `predictions.jsonl` is an audit artifact. Reusing a run id clears generated
 artifacts and rebuilds from question one.
 

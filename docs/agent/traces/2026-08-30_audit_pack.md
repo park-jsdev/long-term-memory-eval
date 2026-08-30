@@ -55,7 +55,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
-| `docs/schemas/experiment_pack.md` | Read-only `experiments/<run_id>/` contract for eval branches |
+| `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `src/locomo_eval/` | Baseline package |
 | `scripts/compare_full_runs.py` | Sandwich report for finished run packs; infers frozen prompt from run metadata |
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
@@ -91,8 +91,6 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Pack I/O: `layout` + `load` (eval) vs `write` (run.py only) |
-| `audit_pack.py` | Compat shim re-exporting `experiments.write` / `layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
 ---
@@ -132,9 +130,9 @@ python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval
 python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -167,20 +165,18 @@ python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --think
 
 Each run under `experiments/<run_id>/` must include:
 
-- `predictions.jsonl` — one row per question (incl. memory text); also copied to `reader/`
+- `predictions.jsonl` — one row per question (incl. memory text)
 - `predictions.csv` — spreadsheet-friendly + scores + memory preview
 - `metrics.json` — overall + by-category
 - `metrics_by_category.csv`
-- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp, `audit_layout`
+- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp
 - `plots/` — overall + category bars
-- `reader/` — answer-LLM traces (`traces.jsonl`) + LoCoMo predictions
-- `memory/` — `{memory}` payload; `memory/teachers/` when a teacher wrote (calls, reasoning, fusion votes); `memory/graph/` when graph memory was built
+- `memory/teacher_calls.jsonl` — when a teacher wrote memory (thinking flag + reasoning text/tokens)
 
 Agents must not silently skip CSV/plots when code paths change.
 
 An autorater pack under `experiments/<run_id>/autorater/` must include
-`autorater_verdicts.jsonl`, `traces.jsonl` (judge reasoning), `schema.json`,
-`autorater_metrics.json`, `run_meta.json`,
+`autorater_verdicts.jsonl`, `autorater_metrics.json`, `run_meta.json`,
 `SUMMARY.md`, `tables/`, and `plots/`. It is a snapshot: every invocation
 clears these generated artifacts and regenerates from one prediction file.
 Never append autorater analyses.
@@ -212,7 +208,6 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
    response stores, JSONL skip, or per-sample index skip.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
-8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.load` (and `layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.write` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
 
 ---
 

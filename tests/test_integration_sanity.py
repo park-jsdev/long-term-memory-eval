@@ -33,6 +33,9 @@ from src.locomo_eval.models import (
     GPT41_MINI,
     GPT56_LUNA,
     GPT56_TERRA,
+    TEACHER_THINKING_EFFORT,
+    TEACHER_THINKING_MIN_OUTPUT_TOKENS,
+    apply_openai_thinking,
     chat_create_kwargs,
     models_in_family,
     resolve_model,
@@ -183,6 +186,42 @@ class TestModelCatalog(unittest.TestCase):
         self.assertNotIn("max_tokens", kwargs)
         self.assertNotIn("temperature", kwargs)
         self.assertEqual(kwargs.get("reasoning_effort"), "none")
+
+    def test_apply_openai_thinking_none_leaves_luna_catalog_none(self):
+        spec = resolve_model(GPT56_LUNA)
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        out = apply_openai_thinking(spec, kwargs, None)
+        self.assertEqual(out.get("reasoning_effort"), "none")
+
+    def test_apply_openai_thinking_true_sets_luna_teacher_effort_high(self):
+        spec = resolve_model(GPT56_LUNA)
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        out = apply_openai_thinking(spec, kwargs, True)
+        self.assertEqual(out.get("reasoning_effort"), TEACHER_THINKING_EFFORT)
+        self.assertGreaterEqual(
+            out["max_completion_tokens"], TEACHER_THINKING_MIN_OUTPUT_TOKENS
+        )
+
+    def test_apply_openai_thinking_true_is_noop_for_gpt4o_mini(self):
+        spec = resolve_model(BASELINE_READER_MODEL)
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        out = apply_openai_thinking(spec, kwargs, True)
+        self.assertNotIn("reasoning_effort", out)
 
     def test_chat_create_kwargs_for_gpt41_mini_keeps_max_tokens_and_temperature(self):
         spec = resolve_model(GPT41_MINI)

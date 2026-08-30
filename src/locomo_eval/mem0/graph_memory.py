@@ -148,6 +148,28 @@ class Mem0GraphMemory(GraphMemory):
         self.edges: list[GraphEdge] = []
         self._edge_n = 0
 
+    def ingest_triples(
+        self,
+        *,
+        entities: list[dict[str, str]],
+        relations: list[dict[str, str]],
+        user_id: str,
+        timestamp: str,
+        text: str = "",
+    ) -> list[dict[str, Any]]:
+        """MERGE + invalidate from already-extracted triples (no LLM).
+
+        Teacher fusion feeds this so the store stays Mem0GraphMemory regardless
+        of which model proposed the edges.
+        """
+        return self._apply_triples(
+            entities=entities,
+            relations=relations,
+            user_id=user_id,
+            timestamp=timestamp,
+            text=text,
+        )
+
     def _new_edge_id(self) -> str:
         eid = f"e{self._edge_n:04d}"
         self._edge_n += 1
@@ -182,9 +204,26 @@ class Mem0GraphMemory(GraphMemory):
         user_id: str,
         timestamp: str,
     ) -> list[dict[str, Any]]:
-        ops: list[dict[str, Any]] = []
         entities = self.entity_extractor(text, user_id)
         relations = self.relation_extractor(text, entities, user_id)
+        return self._apply_triples(
+            entities=entities,
+            relations=relations,
+            user_id=user_id,
+            timestamp=timestamp,
+            text=text,
+        )
+
+    def _apply_triples(
+        self,
+        *,
+        entities: list[dict[str, str]],
+        relations: list[dict[str, str]],
+        user_id: str,
+        timestamp: str,
+        text: str,
+    ) -> list[dict[str, Any]]:
+        ops: list[dict[str, Any]] = []
         names = {normalize_entity_name(user_id)}
         for ent in entities:
             names.add(normalize_entity_name(ent.get("entity") or ""))

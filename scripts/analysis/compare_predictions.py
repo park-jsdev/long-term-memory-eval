@@ -33,51 +33,8 @@ from scripts.analysis.plots import (
     write_locomo_f1_histograms,
     write_locomo_f1_overall_bars,
 )
+from src.locomo_eval.experiments.load import resolve_predictions_jsonl
 from src.locomo_eval.metrics import score_row
-
-
-def resolve_predictions_jsonl(path: str | Path) -> Path:
-    """Resolve a run dir, run id, or JSONL file to ``predictions.jsonl``.
-
-    Accepts ``experiments/cmp_raw_chunks``, ``cmp_raw_chunks``, or a direct ``.jsonl`` path.
-    Relative paths are tried from cwd and from the repo root.
-    """
-    raw = Path(path)
-    candidates: list[Path] = []
-
-    def _add(p: Path) -> None:
-        p = p.resolve() if p.exists() else p
-        if p not in candidates:
-            candidates.append(p)
-
-    _add(raw)
-    if not raw.is_absolute():
-        _add(ROOT / raw)
-        _add(ROOT / "experiments" / raw)
-        _add(ROOT / "experiments" / raw.name)
-
-    existing_dirs = [c for c in candidates if c.is_dir()]
-    for c in existing_dirs:
-        jsonl = c / "predictions.jsonl"
-        if jsonl.is_file():
-            return jsonl
-        raise FileNotFoundError(
-            f"Run directory {c} has no predictions.jsonl. "
-            f"Finish the pipeline for that --run-id first."
-        )
-
-    for c in candidates:
-        if c.is_file():
-            return c
-
-    tried = ", ".join(str(c) for c in candidates)
-    hint_id = raw.name if raw.suffix != ".jsonl" else raw.stem
-    raise FileNotFoundError(
-        f"No predictions found for {path!s}. Tried: {tried}. "
-        f"Create a run pack first, for example:\n"
-        f"  python -m src.locomo_eval.run --config configs/raw_chunks.yaml "
-        f"--reader mock --max-questions 5 --run-id {hint_id}"
-    )
 
 
 def load_prediction_rows(path: str | Path) -> list[dict[str, Any]]:

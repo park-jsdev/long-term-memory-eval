@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.analysis.compare_predictions import write_compare_prediction_plots
+from src.locomo_eval.experiments.load import load_qa_pack
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.prompts import load_prompt_template
 
@@ -41,25 +42,7 @@ def load_jsonl(path: Path) -> list[dict]:
 
 
 def load_pack(run_dir: Path) -> dict[str, Any]:
-    run_dir = Path(run_dir)
-    metrics_path = run_dir / "metrics.json"
-    if not metrics_path.is_file():
-        raise FileNotFoundError(f"Missing {metrics_path}")
-    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-    meta = {}
-    meta_path = run_dir / "run_meta.json"
-    if meta_path.is_file():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    preds = load_jsonl(run_dir / "predictions.jsonl")
-    by_qid = {r["question_id"]: r for r in preds if r.get("question_id")}
-    return {
-        "dir": str(run_dir),
-        "run_id": meta.get("run_id") or run_dir.name,
-        "metrics": metrics,
-        "meta": meta,
-        "predictions": preds,
-        "by_qid": by_qid,
-    }
+    return load_qa_pack(run_dir)
 
 
 def resolve_prompt_path(packs: list[dict], explicit: str | Path | None = None) -> Path | None:

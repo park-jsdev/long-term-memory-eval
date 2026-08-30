@@ -142,7 +142,7 @@ python -m src.locomo_eval.ping_teachers --mock
 python -m src.locomo_eval.ping_teachers --providers openai,anthropic,deepseek
 ```
 
-Ping keeps **thinking off** so a 64-token pong is not eaten by chain-of-thought. Live teacher runs default **thinking on** (`teacher.thinking: true` / `--thinking on`). That is the write path only: the frozen answer reader still uses catalog `reasoning_effort=none` (GPT-5.6) or no reasoning field (gpt-4o-mini). Cheap OpenAI teacher `gpt-4o-mini` has no extended-thinking API — the flag is logged as `thinking_supported: false`. Swap the OpenAI teacher to `gpt-5.6-luna` (or terra/sol) to actually send `reasoning_effort=high`. Teacher reasoning and triples land in `memory/teachers/` (index by `teacher_id`). Claude and DeepSeek return reasoning text; GPT-5.x often only reports `reasoning_tokens`.
+Ping keeps **thinking off** so a 64-token pong is not eaten by chain-of-thought. Live teacher runs default **thinking on** (`teacher.thinking: true` / `--thinking on`). That is the write path only: the frozen answer reader still uses catalog `reasoning_effort=none` (GPT-5.6) or no reasoning field (gpt-4o-mini). Cheap OpenAI teacher `gpt-4o-mini` has no extended-thinking API — the flag is logged as `thinking_supported: false`. Swap the OpenAI teacher to `gpt-5.6-luna` (or terra/sol) to actually send `reasoning_effort=high`. Claude and DeepSeek return reasoning text in `memory/teacher_calls.jsonl`.
 
 ---
 
@@ -314,19 +314,13 @@ Everything for one experiment is under `experiments/<run_id>/`:
 
 | File | Why open it |
 |------|-------------|
-| `reader/traces.jsonl` | Answer LLM output + reasoning (usually empty on frozen gpt-4o-mini) |
-| `reader/predictions.jsonl` | LoCoMo QA rows (same as run-root `predictions.jsonl`) |
 | `predictions.csv` | Spreadsheet audit: Q, gold, pred, scores, memory clip |
-| `predictions.jsonl` | Full rows including full memory text (compat copy at run root) |
+| `predictions.jsonl` | Full rows including full memory text |
 | `metrics.json` | Overall exact match / token F1 / **LoCoMo F1** |
 | `metrics_by_category.csv` | Category breakdown (single-hop, temporal, …) |
-| `run_meta.json` | Model, prompt version, data SHA, git hash, time, `audit_layout` |
-| `memory/` | `{memory}` payload (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
-| `memory/teachers/` | Per-teacher reasoning, triples, `fusion.jsonl` (`proposed_by` / `kept`) |
-| `memory/graph/` | Fused Mem0g snapshot per sample |
+| `run_meta.json` | Model, prompt version, data SHA, git hash, time |
+| `memory/` | Runtime memory audit (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
 | `plots/*.png` | Quick visual of overall + by-category scores |
-
-`run_meta.json` includes `audit_layout` paths. An eval branch should load packs with `src.locomo_eval.experiments.load` (see [`docs/schemas/experiment_pack.md`](../schemas/experiment_pack.md)) and not edit `run.py` / teachers.
 
 `predictions.jsonl` is an audit artifact. Reusing a run id clears generated
 artifacts and rebuilds from question one.
@@ -390,7 +384,6 @@ Outputs under `experiments/<run_id>/autorater/`:
 | Artifact | Contents |
 |----------|----------|
 | `autorater_verdicts.jsonl` | Fresh per-question F1, BLEU-1, J label, usage, reader/judge latency; overwritten each invocation |
-| `traces.jsonl` | Judge LLM subset: label, reasoning, raw_text, usage |
 | `autorater_metrics.json` | Overall and category metrics; category 5 excluded from J |
 | `tables/overall.csv` | This run's F1/BLEU-1/J, token usage, p50/p95 latency |
 | `tables/vs_literature.csv` | This run next to published Mem0 Table 2 J/latency values |

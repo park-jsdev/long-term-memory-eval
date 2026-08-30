@@ -58,6 +58,7 @@ from src.locomo_eval.mem0_baselines import (
     TABLE2_OVERALL,
     table2_by_method,
 )
+from src.locomo_eval.experiments.write import write_autorater_traces
 from src.locomo_eval.mem0_metrics import score_mem0_lexical, summarize_latencies
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.models import DEFAULT_AUTORATER_MODEL, resolve_model
@@ -100,6 +101,8 @@ def _reset_benchmark_output(out_dir: Path) -> None:
             shutil.rmtree(path)
     for filename in (
         "autorater_verdicts.jsonl",
+        "traces.jsonl",
+        "schema.json",
         "autorater_metrics.json",
         "run_meta.json",
         "SUMMARY.md",
@@ -774,10 +777,12 @@ def run_benchmark(
             if not row.get("skipped"):
                 n_ratings += 1
             write_jsonl(verdict_path, scored)
+            write_autorater_traces(out, scored)
             if i % 10 == 0 or i == len(rows):
                 print(f"  [{i}/{len(rows)}] ratings={n_ratings}")
     except Exception as exc:
         write_jsonl(verdict_path, scored)
+        write_autorater_traces(out, scored)
         print(
             f"\nStopped early ({type(exc).__name__}: {exc})\n"
             f"Saved {len(scored)} rows to {verdict_path}\n"
@@ -824,6 +829,7 @@ def run_benchmark(
     )
     write_json(out / "autorater_metrics.json", summary)
     write_json(out / "run_meta.json", meta)
+    write_autorater_traces(out, scored)
     write_summary_md(
         out / "SUMMARY.md",
         our_label=label,
