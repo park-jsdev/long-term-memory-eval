@@ -18,8 +18,8 @@ Two phases (do not fold them into ``run.py``):
    ``python -m src.locomo_eval.mem0.run_index``
    walks HLD (i) session blocks as eval-style speaker pairs, extracts, updates,
    optionally fills ``GraphMemory``, dumps JSON under
-   ``experiments/<run_id>/mem0_index/``. Resume is per-sample JSON there —
-   not ``predictions.jsonl`` and not ``LlmResponseHash``.
+   ``experiments/<run_id>/mem0_index/``. Reusing a run id clears that dump
+   and regenerates every sample.
 2. **Read (builders, called from ``memory.get_memory_builder``):**
    ``mem0`` / ``mem0g`` load that dump and cosine-retrieve top-k NL facts
    (default 30 per speaker). They must not re-extract. ``run.py`` then uses
@@ -53,8 +53,6 @@ Not this package
   consumes those blocks via ``DataIngestor`` + ``PreprocessingPipeline``.
 
 Public names below are the seam ``run_index``, ``memory.py``, and tests import.
-Factories reject a non-null ``llm_response_hash`` (same cache-free rule as
-the answer reader).
 """
 
 from .builders import Mem0IndexMemoryBuilder, Mem0gIndexMemoryBuilder

@@ -268,4 +268,4 @@ Record:
 * timestamp,
 * code commit hash.
 
-Cache model responses so interrupted runs can resume without repeating completed API calls.
+Each pipeline invocation starts from scratch so interrupted runs do not mix with later results.

@@ -77,7 +77,6 @@ def _mem0_builder_kwargs(
         "mem0_embedder": get_embedder(
             provider,
             model=embed_cfg.get("model") or "text-embedding-3-small",
-            llm_response_hash=None,
         ),
     }
 
@@ -138,10 +137,7 @@ def _file_sha256(path: Path) -> str | None:
 
 
 def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
-    """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML.
-
-    LlmResponseHash is not passed (future optimization; same as the answer reader).
-    """
+    """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML."""
     if resolve_memory_name(memory_name) != TeacherSessionMemoryBuilder.name:
         return None
     tcfg = cfg.get("teacher") or {}
@@ -159,7 +155,6 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
         model=model,
         temperature=float(tcfg.get("temperature", 0.0)),
         max_tokens=int(tcfg.get("max_tokens", 512)),
-        llm_response_hash=None,
         max_retries=int(tcfg.get("max_retries", 8)),
         min_request_interval_s=float(tcfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(tcfg.get("max_wait_s", 3600.0)),
@@ -170,9 +165,7 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
 def _reset_run_output(run_dir: Path) -> None:
     """Clear generated artifacts so one run id always means one fresh run.
 
-    Evaluation must never reuse answer responses. Removing the dependent
-    autorater pack also prevents reports based on old predictions surviving a
-    regenerated source run.
+    Reusing a run id must not keep old answers, metrics, or autorater reports.
     """
     for dirname in ("plots", "memory", "autorater"):
         path = run_dir / dirname
@@ -262,7 +255,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         model=reader_model,
         temperature=reader_temperature,
         max_tokens=reader_max_tokens,
-        llm_response_hash=None,  # evaluation factories prohibit response stores
         max_retries=int(rate_cfg.get("max_retries", 8)),
         min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
         max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
@@ -320,10 +312,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 example_question = q.question
 
             answer, meta = reader.answer(memory.text, q.question, prompt_template)
-            if meta.get("cached"):
-                raise RuntimeError(
-                    "Cached answer returned in cache-free evaluation pipeline."
-                )
             n_api += 1
 
             pred = Prediction(
@@ -339,7 +327,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 prompt_version=prompt_version,
                 evidence=list(q.evidence),
                 run_id=run_id,
-                cached=False,
                 teacher_model=memory.teacher_model,
                 teacher_provider=memory.teacher_provider,
             )
@@ -350,7 +337,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             prediction_rows.append(row)
 
             # Flush for audit after a crash. The next invocation clears this
-            # partial file and regenerates; it never resumes.
+            # partial file and regenerates.
             write_jsonl(pred_path, prediction_rows)
 
             if i % 10 == 0 or i == len(pairs):
@@ -425,7 +412,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "max_questions": max_questions,
         "question_sample": question_sample,
         "n_predictions": len(prediction_rows),
-        "regenerated_from_scratch": True,
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
         "package_version": "0.1.4",
@@ -438,7 +424,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     for k, v in paths.items():
         print(f"  {k}: {v}")
     print(
-        f"API stats: new_api={n_api} (cache/resume disabled)"
+        f"API stats: new_api={n_api}"
     )
     print("Metrics:", summary["metrics"])
     return run_dir

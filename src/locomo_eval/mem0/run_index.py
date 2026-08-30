@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ if str(ROOT) not in sys.path:
 
 from src.config import load_config
 from src.locomo_eval.env import load_env
-from src.locomo_eval.mem0.dump import sample_complete, write_index_meta, write_sample_dump
+from src.locomo_eval.mem0.dump import write_index_meta, write_sample_dump
 from src.locomo_eval.mem0.embeddings import get_embedder
 from src.locomo_eval.mem0.extract import get_fact_extractor
 from src.locomo_eval.mem0.graph_memory import Mem0GraphMemory, openai_graph_callables
@@ -76,7 +77,6 @@ def build_indexer(cfg: dict, overrides: argparse.Namespace) -> tuple[Mem0Indexer
         model=extract_model,
         temperature=float(extract_cfg.get("temperature", 0.0)),
         max_tokens=int(extract_cfg.get("max_tokens", 512)),
-        llm_response_hash=None,
         max_retries=int(extract_cfg.get("max_retries", 8)),
         min_request_interval_s=float(extract_cfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(extract_cfg.get("max_wait_s", 3600.0)),
@@ -87,7 +87,6 @@ def build_indexer(cfg: dict, overrides: argparse.Namespace) -> tuple[Mem0Indexer
         model=extract_model,
         temperature=float(extract_cfg.get("temperature", 0.0)),
         max_tokens=int(extract_cfg.get("max_tokens", 512)),
-        llm_response_hash=None,
         max_retries=int(extract_cfg.get("max_retries", 8)),
         min_request_interval_s=float(extract_cfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(extract_cfg.get("max_wait_s", 3600.0)),
@@ -96,7 +95,6 @@ def build_indexer(cfg: dict, overrides: argparse.Namespace) -> tuple[Mem0Indexer
     embedder = get_embedder(
         embedder_name,
         model=embed_cfg.get("model") or "text-embedding-3-small",
-        llm_response_hash=None,
     )
     graph = None
     if enable_graph:
@@ -111,7 +109,6 @@ def build_indexer(cfg: dict, overrides: argparse.Namespace) -> tuple[Mem0Indexer
                     extract_cfg.get("min_request_interval_s", 0.5)
                 ),
                 max_wait_s=float(extract_cfg.get("max_wait_s", 3600.0)),
-                llm_response_hash=None,
             )
         graph = Mem0GraphMemory(
             embedder,
@@ -149,9 +146,10 @@ def run_mem0_index(cfg: dict, overrides: argparse.Namespace) -> Path:
     ).strftime("%Y%m%dT%H%M%SZ")
     out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
     index_root = out_root / run_id / "mem0_index"
+    if index_root.exists():
+        shutil.rmtree(index_root)
     index_root.mkdir(parents=True, exist_ok=True)
 
-    overwrite = bool(getattr(overrides, "overwrite", False))
     enable_graph = bool((_mem0_section(cfg)).get("enable_graph", False))
     if getattr(overrides, "enable_graph", None) is not None:
         enable_graph = bool(overrides.enable_graph)
@@ -167,8 +165,6 @@ def run_mem0_index(cfg: dict, overrides: argparse.Namespace) -> Path:
 
     pipeline = PreprocessingPipeline()
     sample_rows: list[dict] = []
-    n_skip = 0
-    n_new = 0
     print(
         f"Mem0 index {run_id}: {len(conversations)} samples | "
         f"graph={enable_graph} | extractor={component_meta['extractor_provider']}/"
@@ -176,28 +172,6 @@ def run_mem0_index(cfg: dict, overrides: argparse.Namespace) -> Path:
     )
     for conv in conversations:
         processed = pipeline.process(conv)
-        if not overwrite and sample_complete(
-            index_root, processed.sample_id, enable_graph=enable_graph
-        ):
-            n_skip += 1
-            sample_dir = index_root / "by_sample" / processed.sample_id
-            sample_rows.append(
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "sample_id": processed.sample_id,
-                    "skipped": True,
-                    "n_session_blocks": len(processed.session_blocks),
-                    "speaker_a_path": f"by_sample/{processed.sample_id}/speaker_a.json",
-                    "speaker_b_path": f"by_sample/{processed.sample_id}/speaker_b.json",
-                    "graph_path": (
-                        f"by_sample/{processed.sample_id}/graph.json"
-                        if enable_graph
-                        else None
-                    ),
-                }
-            )
-            print(f"  skip {processed.sample_id} (dump complete)")
-            continue
         # Graph is per-sample: replace so samples do not share nodes.
         if enable_graph:
             prev = indexer.graph
@@ -221,7 +195,6 @@ def run_mem0_index(cfg: dict, overrides: argparse.Namespace) -> Path:
             ingest_log=log,
             graph=indexer.graph if enable_graph else None,
         )
-        n_new += 1
         n_edges = 0
         n_nodes = 0
         if enable_graph and indexer.graph is not None:
@@ -230,10 +203,9 @@ def run_mem0_index(cfg: dict, overrides: argparse.Namespace) -> Path:
             n_edges = len(dumped.get("edges") or [])
         sample_rows.append(
             {
-                "schema_version": SCHEMA_VERSION,
-                "sample_id": processed.sample_id,
-                "skipped": False,
-                "n_session_blocks": len(processed.session_blocks),
+                    "schema_version": SCHEMA_VERSION,
+                    "sample_id": processed.sample_id,
+                    "n_session_blocks": len(processed.session_blocks),
                 "n_facts_a": len(store_a.facts),
                 "n_facts_b": len(store_b.facts),
                 "n_graph_nodes": n_nodes,
@@ -270,14 +242,11 @@ def run_mem0_index(cfg: dict, overrides: argparse.Namespace) -> Path:
         "max_samples": overrides.max_samples,
         "max_sessions": overrides.max_sessions,
         "n_samples": len(sample_rows),
-        "n_skipped": n_skip,
-        "n_new": n_new,
-        "overwrite": overwrite,
         "gold_answer_in_index": False,
         **component_meta,
     }
     write_index_meta(index_root, samples=sample_rows, run_meta=run_meta)
-    print(f"Wrote {index_root} (new={n_new} skipped={n_skip})")
+    print(f"Wrote {index_root} (n_samples={len(sample_rows)})")
     return index_root
 
 
@@ -299,11 +268,6 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Override mem0.enable_graph",
-    )
-    p.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Re-index samples even if their dump is already complete.",
     )
     return p
 

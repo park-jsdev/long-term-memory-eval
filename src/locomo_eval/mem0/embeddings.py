@@ -13,7 +13,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from ..env import load_env
-from ..utils.llm_response_hash import LlmResponseHash
 
 DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 MOCK_DIM = 32
@@ -27,14 +26,6 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     if na == 0.0 or nb == 0.0:
         return 0.0
     return float(np.dot(va, vb) / (na * nb))
-
-
-def _reject_response_hash(llm_response_hash: LlmResponseHash | None) -> None:
-    if llm_response_hash is not None:
-        raise ValueError(
-            "Mem0 embedder factory rejects llm_response_hash. "
-            "Write-index resume is per-sample JSON dumps, not LlmResponseHash."
-        )
 
 
 class Embedder(ABC):
@@ -111,9 +102,7 @@ class OpenAIEmbedder(Embedder):
 def get_embedder(
     name: str,
     model: str = DEFAULT_EMBED_MODEL,
-    llm_response_hash: LlmResponseHash | None = None,
 ) -> Embedder:
-    _reject_response_hash(llm_response_hash)
     key = (name or "mock").strip().lower()
     if key == "mock":
         return MockEmbedder(model_name=model)

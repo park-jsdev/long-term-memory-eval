@@ -7,7 +7,6 @@ from typing import Any
 
 from ..report import write_json, write_jsonl
 from .graph_memory import GraphMemory
-from .retrieve import dump_complete
 from .schemas import SCHEMA_VERSION
 from .vector_store import VectorMemoryStore
 
@@ -57,10 +56,3 @@ def write_index_meta(
     write_json(root / "run_meta.json", run_meta)
     write_jsonl(root / "index.jsonl", samples)
     return root
-
-
-def sample_complete(index_root: Path, sample_id: str, *, enable_graph: bool) -> bool:
-    return dump_complete(
-        Path(index_root) / "by_sample" / sample_id,
-        enable_graph=enable_graph,
-    )

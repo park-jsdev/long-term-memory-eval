@@ -36,12 +36,6 @@ from src.locomo_eval.readers import (
     READER_MESSAGE_LAYOUT_MEM0,
     build_reader_messages,
 )
-from src.locomo_eval.utils.llm_request_hash import (
-    PIPELINE_STAGE_ANSWER_READER,
-    PIPELINE_STAGE_TEACHER,
-    llm_request_hash,
-)
-from src.locomo_eval.utils.llm_response_hash import llm_response_hash_dir_from_run_cfg
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
 from src.locomo_eval.run import build_parser, run_locomo_pipeline_with_memory_config
 
@@ -362,62 +356,80 @@ class TestRunLocomoPipelineWithMemoryConfig(unittest.TestCase):
             second = _run_one(root, run_id="fresh_lock", memory="session_summaries", max_questions=1)
             meta = _load_json(second / "run_meta.json")
             self.assertGreaterEqual(n_first, 1)
-            self.assertTrue(meta["regenerated_from_scratch"])
             self.assertNotIn("n_resumed", meta)
+            self.assertNotIn("regenerated_from_scratch", meta)
             self.assertGreaterEqual(meta["n_new_api_calls"], 1)
             self.assertFalse(stale.exists())
             self.assertEqual(second, first)
 
-    def test_run_meta_omits_llm_response_hash_fields_while_store_is_unwired(self):
+    def test_prediction_rows_and_run_meta_omit_cache_resume_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = _run_one(Path(tmp), run_id="no_cache", memory="session_summaries")
             meta = _load_json(run_dir / "run_meta.json")
             row = _load_jsonl(run_dir / "predictions.jsonl")[0]
+            self.assertNotIn("cached", row)
+            self.assertNotIn("llm_request_hash", row)
+            self.assertNotIn("n_resumed", meta)
             self.assertNotIn("n_llm_response_hash_hits", meta)
             self.assertNotIn("llm_response_hash_dir", meta)
-            self.assertNotIn("n_llm_response_cache_hits", meta)
-            self.assertNotIn("llm_response_cache_dir", meta)
-            self.assertFalse(row.get("cached"))
+            self.assertNotIn("regenerated_from_scratch", meta)
+            self.assertNotIn("llm_request_hash", meta)
+            csv_header = (run_dir / "predictions.csv").read_text(encoding="utf-8").splitlines()[0]
+            self.assertNotIn("cached", csv_header.split(","))
+            self.assertNotIn("llm_request_hash", csv_header.split(","))
 
 
-class TestLlmRequestHashIsStageSpecific(unittest.TestCase):
-    """Locks the unused-but-kept store utility (not wired into run.py)."""
+class TestRunsAreSelfContained(unittest.TestCase):
+    """Reusing a run id replaces artifacts; it does not append or skip."""
 
-    def test_llm_response_hash_dir_from_run_cfg_prefers_hash_dir_over_legacy_keys(self):
-        path = llm_response_hash_dir_from_run_cfg(
-            {
-                "llm_response_hash_dir": "experiments/llm_hash",
-                "llm_response_cache_dir": "experiments/llm_cache",
-                "cache_dir": "experiments/old",
+    def test_reusing_run_id_replaces_predictions_instead_of_appending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = _run_one(root, run_id="replace_lock", memory="session_summaries", max_questions=2)
+            self.assertEqual(_load_json(first / "run_meta.json")["n_predictions"], 2)
+            second = _run_one(root, run_id="replace_lock", memory="session_summaries", max_questions=1)
+            rows = _load_jsonl(second / "predictions.jsonl")
+            meta = _load_json(second / "run_meta.json")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(meta["n_predictions"], 1)
+            self.assertEqual(meta["n_new_api_calls"], 1)
+
+    def test_preseeded_stale_prediction_rows_are_gone_after_rerun(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = _run_one(root, run_id="stale_lock", memory="session_summaries", max_questions=1)
+            pred_path = run_dir / "predictions.jsonl"
+            stale = {
+                "sample_id": "stale-sample",
+                "question_id": "stale-qid",
+                "question": "stale?",
+                "reference_answer": GOLD_LOCK,
+                "predicted_answer": "leftover",
+                "category": 4,
+                "memory_type": "session_summaries",
+                "memory_text": "stale memory",
+                "reader_model": "mock",
+                "prompt_version": "qa_v1",
             }
-        )
-        self.assertEqual(path, "experiments/llm_hash")
+            with pred_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(stale) + "\n")
+            self.assertEqual(len(_load_jsonl(pred_path)), 2)
+            _run_one(root, run_id="stale_lock", memory="session_summaries", max_questions=1)
+            rows = _load_jsonl(pred_path)
+            self.assertEqual(len(rows), 1)
+            self.assertNotEqual(rows[0]["question_id"], "stale-qid")
+            self.assertNotEqual(rows[0]["predicted_answer"], "leftover")
 
-    def test_llm_response_hash_dir_from_run_cfg_falls_back_to_llm_response_cache_dir(self):
-        path = llm_response_hash_dir_from_run_cfg(
-            {"llm_response_cache_dir": "experiments/llm_cache", "cache_dir": "experiments/old"}
-        )
-        self.assertEqual(path, "experiments/llm_cache")
-
-    def test_llm_response_hash_dir_from_run_cfg_falls_back_to_legacy_cache_dir(self):
-        path = llm_response_hash_dir_from_run_cfg({"cache_dir": "experiments/old"})
-        self.assertEqual(path, "experiments/old")
-
-    def test_llm_request_hash_differs_when_pipeline_stage_is_answer_reader_vs_teacher(self):
-        shared = {
-            "provider": "openai",
-            "model": "gpt-4.1-mini",
-            "temperature": 0.0,
-            "max_tokens": 64,
-            "prompt": "same body",
-        }
-        reader_key = llm_request_hash(
-            {"pipeline_stage": PIPELINE_STAGE_ANSWER_READER, **shared}
-        )
-        teacher_key = llm_request_hash(
-            {"pipeline_stage": PIPELINE_STAGE_TEACHER, **shared}
-        )
-        self.assertNotEqual(reader_key, teacher_key)
+    def test_n_new_api_calls_equals_n_predictions_for_mock_reader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = _run_one(
+                Path(tmp), run_id="api_lock", memory="session_summaries", max_questions=2
+            )
+            meta = _load_json(run_dir / "run_meta.json")
+            rows = _load_jsonl(run_dir / "predictions.jsonl")
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(meta["n_new_api_calls"], 2)
+            self.assertEqual(meta["n_new_api_calls"], meta["n_predictions"])
 
 
 class TestSandwichMemorySwapDoesNotRetouchReaderOrMetrics(unittest.TestCase):
@@ -464,7 +476,8 @@ class TestCompareAndOfflineEvaluateAfterTwoPipelineRuns(unittest.TestCase):
             paired = pair_analysis(packs, ROOT / "prompts" / "qa_v1.txt")
             self.assertEqual(paired["n_common"], 1)
             self.assertEqual(paired["fraction_same_memory_text"], 0.0)
-            self.assertEqual(paired["fraction_same_llm_request_hash"], 0.0)
+            self.assertNotIn("fraction_same_llm_request_hash", paired)
+            self.assertNotIn("cross_condition_request_hash_collision_ok", paired.get("sanity") or {})
             self.assertNotEqual(packs[0]["meta"]["memory_type"], packs[1]["meta"]["memory_type"])
 
     def test_offline_evaluate_rewrites_metrics_but_not_predicted_answers(self):

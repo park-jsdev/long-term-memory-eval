@@ -3,7 +3,7 @@
 Iterates one SessionBlock at a time so later batch teachers can attribute
 the same session/turn ids preprocess recorded.
 
-This file is not a write/ package. No LLM, no fusion, no LlmResponseHash.
+This file is not a write/ package. No LLM, no fusion.
 Promote when teachers actually generate memory.
 """
 

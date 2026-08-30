@@ -43,9 +43,6 @@ from src.locomo_eval.readers import MockReader, Reader, get_reader
 from src.locomo_eval.schemas import Prediction
 from src.locomo_eval.teachers import MockTeacher, get_teacher
 from src.metrics.locomo_qa import score_prediction
-from src.locomo_eval.utils.llm_request_hash import (
-    llm_request_hash_from_prediction,
-)
 from scripts.compare_cross_model import cross_model_analysis
 from scripts.compare_full_runs import load_pack
 
@@ -96,7 +93,6 @@ class DeterministicReader(Reader):
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
         text = self.answers.get(self.model_name, f"Unknown ({self.model_name}).")
         return text, {
-            "cached": False,
             "latency_s": 0.0,
             "usage": {},
             "model": self.model_name,
@@ -111,7 +107,6 @@ class EchoMemoryReader(Reader):
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
         return memory[:120], {
-            "cached": False,
             "latency_s": 0.0,
             "usage": {},
             "model": self.model_name,
@@ -251,27 +246,6 @@ class TestReaderModelSwap(unittest.TestCase):
         self.assertEqual(row_mini["reader_model"], BASELINE_READER_MODEL)
         self.assertEqual(row_luna["reader_model"], GPT56_LUNA)
         self.assertNotEqual(row_mini["reader_model"], row_luna["reader_model"])
-
-    def test_reader_model_swap_produces_different_llm_request_hashes(self):
-        memory = _session_summaries_memory_text()
-        q = parse_sample(MINI).questions[0]
-        tmpl = _qa_template()
-        meta = {"temperature": 0.0, "max_tokens": 64, "reader_model": BASELINE_READER_MODEL}
-        row_a = {
-            "reader_model": BASELINE_READER_MODEL,
-            "memory_text": memory,
-            "question": q.question,
-        }
-        row_b = {
-            "reader_model": GPT56_LUNA,
-            "memory_text": memory,
-            "question": q.question,
-        }
-        hash_a = llm_request_hash_from_prediction(row_a, meta, tmpl)
-        hash_b = llm_request_hash_from_prediction(
-            row_b, {**meta, "reader_model": GPT56_LUNA}, tmpl
-        )
-        self.assertNotEqual(hash_a, hash_b)
 
     def test_summarize_predictions_overall_metrics_differ_after_reader_swap(self):
         memory = _session_summaries_memory_text()
@@ -447,12 +421,12 @@ class TestCrossModelCompareScript(unittest.TestCase):
                 memory=memory,
             )
             packs = [load_pack(dir_a), load_pack(dir_b)]
-            paired = cross_model_analysis(packs, ROOT / "prompts" / "qa_v1.txt", "reader")
+            paired = cross_model_analysis(packs, "reader")
         self.assertEqual(paired["n_answer_disagreements"], 1)
         self.assertEqual(paired["fraction_same_answer"], 0.0)
         self.assertEqual(paired["fraction_same_memory_text"], 1.0)
-        self.assertEqual(paired["fraction_same_llm_request_hash"], 0.0)
-        self.assertTrue(paired["sanity"]["request_hashes_mostly_distinct"])
+        self.assertNotIn("fraction_same_llm_request_hash", paired)
+        self.assertNotIn("request_hashes_mostly_distinct", paired["sanity"])
         self.assertTrue(paired["sanity"]["reader_models_differ"])
         self.assertTrue(paired["sanity"]["memory_held_fixed"])
         self.assertNotEqual(paired["mean_delta_locomo_f1_b_minus_a"], 0)
@@ -481,7 +455,7 @@ class TestCrossModelCompareScript(unittest.TestCase):
                 teacher_model=GPT56_TERRA,
             )
             packs = [load_pack(dir_a), load_pack(dir_b)]
-            paired = cross_model_analysis(packs, ROOT / "prompts" / "qa_v1.txt", "teacher")
+            paired = cross_model_analysis(packs, "teacher")
         self.assertEqual(paired["fraction_same_memory_text"], 0.0)
         self.assertTrue(paired["sanity"]["teacher_models_differ"])
         self.assertTrue(paired["sanity"]["same_teacher_family"])

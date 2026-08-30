@@ -12,7 +12,7 @@ or still build from Conversation.
 
 from .conversation_log import SCHEMA_VERSION, write_conversation_run_log
 from .data_ingestor import DataIngestor
-from .dump import MissingPreprocessIndexError, sample_complete, write_sample_dump
+from .dump import MissingPreprocessIndexError, write_sample_dump
 from .preprocessing_pipeline import (
     PreprocessingPipeline,
     assign_turn_ids,
@@ -37,7 +37,6 @@ __all__ = [
     "naive_rank_session_ids",
     "normalize_speakers_and_times",
     "parse_session_datetime",
-    "sample_complete",
     "segment_sessions",
     "write_conversation_run_log",
     "write_sample_dump",

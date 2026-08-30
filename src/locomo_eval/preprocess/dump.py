@@ -36,10 +36,6 @@ def dump_complete(sample_dir: Path) -> bool:
     ).is_file()
 
 
-def sample_complete(index_root: Path, sample_id: str) -> bool:
-    return dump_complete(sample_index_dir(index_root, sample_id))
-
-
 def write_sample_dump(
     index_root: Path,
     *,

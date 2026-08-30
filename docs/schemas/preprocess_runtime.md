@@ -77,13 +77,13 @@ CLI `python -m src.locomo_eval.preprocess.run_index` writes `experiments/<run_id
 |------|----------|
 | `schema.json` | Machine description of `preprocess_io.v1` |
 | `run_meta.json` | data SHA, git hash, `llm_calls=0` |
-| `index.jsonl` | One line per sample: counts, paths, skip flag |
+| `index.jsonl` | One line per sample: counts, paths |
 | `by_sample/<sample_id>/sessions.jsonl` | One `SessionBlock` JSON object per line |
 | `by_sample/<sample_id>/documents.jsonl` | One `SessionDocument` JSON object per line (turns + dataset summary + obs/events; no QA gold) |
 
 `raw_chunks` / `session_summaries` can load this dump (`--preprocess-index-run-id`). Default retrieve is concatenate-all; `preprocess.top_k` / `--retrieve-top-k` is a later naive-rank hook. `write_conversation_run_log` still writes sessions-only for older tests.
 
-Complete sample (resume skip unless `--overwrite`): both `sessions.jsonl` and `documents.jsonl`.
+Complete sample (required before a later retrieve/format load): both `sessions.jsonl` and `documents.jsonl`.
 
 ---
 
@@ -106,4 +106,4 @@ Complete sample (resume skip unless `--overwrite`): both `sessions.jsonl` and `d
 
 ## 5. Teacher orchestrator (HLD ii, thin seam)
 
-`src/locomo_eval/teacher_orchestrator.py` iterates **one `SessionBlock` at a time** and returns a passthrough record (`status="passthrough"`). No LLM, no fusion, no `LlmResponseHash`. Promote to a `write/` package only when teachers actually generate memory.
+`src/locomo_eval/teacher_orchestrator.py` iterates **one `SessionBlock` at a time** and returns a passthrough record (`status="passthrough"`). No LLM, no fusion. Promote to a `write/` package only when teachers actually generate memory.

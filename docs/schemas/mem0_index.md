@@ -18,13 +18,13 @@ Gold answers never appear in these files.
 |------|----------|
 | `schema.json` | `mem0_index.v1` field map |
 | `run_meta.json` | extract/update/embed models, `batch_size`, `similar_s`, `top_k`, `enable_graph`, data SHA, git hash |
-| `index.jsonl` | one row per sample (fact counts, paths, skip flag) |
+| `index.jsonl` | one row per sample (fact counts, paths) |
 | `by_sample/<sample_id>/speaker_a.json` | vector facts + embeddings for speaker A’s index |
 | `by_sample/<sample_id>/speaker_b.json` | same for speaker B (role-flipped ingest) |
 | `by_sample/<sample_id>/graph.json` | nodes + edges when `enable_graph` (`mem0g`) |
 | `by_sample/<sample_id>/ingest_log.jsonl` | pair id, `turn_ids`, ops applied |
 
-Complete sample (resume skip unless `--overwrite`): both speaker JSON files, plus `graph.json` if graph is on.
+Complete sample (required before a later retrieve/format load): both speaker JSON files, plus `graph.json` if graph is on.
 
 ---
 

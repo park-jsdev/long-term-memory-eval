@@ -17,8 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.dataset import parse_sample
 from src.locomo_eval.memory import get_memory_builder, is_question_independent
-from src.locomo_eval.mem0.embeddings import MockEmbedder, cosine_similarity, get_embedder
-from src.locomo_eval.mem0.extract import MockFactExtractor, get_fact_extractor
+from src.locomo_eval.mem0.embeddings import MockEmbedder, cosine_similarity
+from src.locomo_eval.mem0.extract import MockFactExtractor
 from src.locomo_eval.mem0.graph_memory import Mem0GraphMemory
 from src.locomo_eval.mem0.ingest import iter_speaker_pairs, user_messages_text
 from src.locomo_eval.mem0.indexer import Mem0Indexer
@@ -32,7 +32,6 @@ from src.locomo_eval.mem0.schemas import ADD, DELETE, NONE, UPDATE, Fact, Update
 from src.locomo_eval.mem0.update import (
     MockMemoryUpdater,
     apply_update_events,
-    get_memory_updater,
     parse_update_events,
 )
 from src.locomo_eval.mem0.vector_store import VectorMemoryStore
@@ -360,17 +359,6 @@ class TestMem0BuildersAreQuestionDependent(unittest.TestCase):
         self.assertTrue(is_question_independent("session_summaries"))
 
 
-class TestFactoriesRejectLlmResponseHash(unittest.TestCase):
-    def test_extract_update_embed_factories_raise_when_hash_store_is_passed(self):
-        sentinel = object()
-        with self.assertRaises(ValueError):
-            get_fact_extractor("mock", model="gpt-4o-mini", llm_response_hash=sentinel)
-        with self.assertRaises(ValueError):
-            get_memory_updater("mock", model="gpt-4o-mini", llm_response_hash=sentinel)
-        with self.assertRaises(ValueError):
-            get_embedder("mock", llm_response_hash=sentinel)
-
-
 class TestFormatMem0TextTimestampedLines(unittest.TestCase):
     def test_format_uses_timestamp_colon_memory_and_optional_graph_block(self):
         fact = Fact(
@@ -421,7 +409,6 @@ class TestRunIndexCliMockWritesDump(unittest.TestCase):
                 extractor="mock",
                 embedder="mock",
                 enable_graph=True,
-                overwrite=False,
             )
             index_root = run_mem0_index(cfg, overrides)
             self.assertTrue((index_root / "by_sample" / "conv-mem0" / "speaker_a.json").is_file())
@@ -430,10 +417,14 @@ class TestRunIndexCliMockWritesDump(unittest.TestCase):
                 encoding="utf-8"
             )
             self.assertNotIn(GOLD_LOCK, log)
-            # resume skip
+            stale = index_root / "stale.txt"
+            stale.write_text("old", encoding="utf-8")
             again = run_mem0_index(cfg, overrides)
+            self.assertFalse(stale.exists())
             meta = json.loads((again / "run_meta.json").read_text(encoding="utf-8"))
-            self.assertEqual(meta["n_skipped"], 1)
+            self.assertEqual(meta["n_samples"], 1)
+            self.assertNotIn("regenerated_from_scratch", meta)
+            self.assertNotIn("n_skipped", meta)
 
 
 class TestDefaultYamlPinsMem0ReaderAndPrompt(unittest.TestCase):

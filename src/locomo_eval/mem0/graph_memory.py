@@ -16,7 +16,6 @@ from typing import Any, Callable
 
 from ..prompts import load_prompt_template
 from ..readers import OpenAIChatCaller
-from ..utils.llm_response_hash import LlmResponseHash
 from .embeddings import Embedder, cosine_similarity
 from .json_util import parse_json_object
 from .schemas import GraphEdge, GraphNode
@@ -293,19 +292,12 @@ def openai_graph_callables(
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
-    llm_response_hash: LlmResponseHash | None = None,
 ) -> tuple[EntityExtractor, RelationExtractor, ConflictResolver]:
-    """Live entity/relation/conflict LLMs. Factories still reject a hash store."""
-    if llm_response_hash is not None:
-        raise ValueError(
-            "Mem0 graph extractors reject llm_response_hash. "
-            "Write-index resume is per-sample JSON dumps, not LlmResponseHash."
-        )
+    """Live entity/relation/conflict LLMs."""
     chat = OpenAIChatCaller(
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
-        llm_response_hash=None,
         max_retries=max_retries,
         min_request_interval_s=min_request_interval_s,
         max_wait_s=max_wait_s,
@@ -316,10 +308,7 @@ def openai_graph_callables(
 
     def entities(text: str, user_id: str) -> list[dict[str, str]]:
         prompt = ent_t.format(user_id=user_id, text=text)
-        raw, _ = chat.complete(
-            [{"role": "user", "content": prompt}],
-            request_extra={"role": "mem0g_entities", "prompt": prompt},
-        )
+        raw, _ = chat.complete([{"role": "user", "content": prompt}])
         try:
             obj = parse_json_object(raw)
         except ValueError:
@@ -342,10 +331,7 @@ def openai_graph_callables(
         text: str, ents: list[dict[str, str]], user_id: str
     ) -> list[dict[str, str]]:
         prompt = rel_t.format(user_id=user_id, entities=ents, text=text)
-        raw, _ = chat.complete(
-            [{"role": "user", "content": prompt}],
-            request_extra={"role": "mem0g_relations", "prompt": prompt},
-        )
+        raw, _ = chat.complete([{"role": "user", "content": prompt}])
         try:
             obj = parse_json_object(raw)
         except ValueError:
@@ -378,10 +364,7 @@ def openai_graph_callables(
             existing_memories="\n".join(mem_lines) or "(none)",
             new_text=new_text,
         )
-        raw, _ = chat.complete(
-            [{"role": "user", "content": prompt}],
-            request_extra={"role": "mem0g_conflict", "prompt": prompt},
-        )
+        raw, _ = chat.complete([{"role": "user", "content": prompt}])
         try:
             obj = parse_json_object(raw)
         except ValueError:

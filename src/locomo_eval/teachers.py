@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from .utils.llm_response_hash import LlmResponseHash
 from .models import resolve_model
 from .prompts import load_prompt_template, render_teacher_session_prompt
 from .readers import OpenAIChatCaller
@@ -65,7 +64,6 @@ class MockTeacher(Teacher):
             body = body[:240] + "…"
         text = f"[{self.model_name}] {date_time}: {body}".strip()
         return text, {
-            "cached": False,
             "latency_s": 0.0,
             "usage": {},
             "model": self.model_name,
@@ -83,7 +81,6 @@ class OpenAITeacher(Teacher):
         model: str,
         temperature: float = 0.0,
         max_tokens: int = 512,
-        llm_response_hash: LlmResponseHash | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
@@ -94,7 +91,6 @@ class OpenAITeacher(Teacher):
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_hash=llm_response_hash,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
@@ -126,14 +122,7 @@ class OpenAITeacher(Teacher):
             },
             {"role": "user", "content": prompt},
         ]
-        text, meta = self._chat.complete(
-            messages,
-            request_extra={
-                "role": "teacher",
-                "prompt_version": self.prompt_version,
-                "prompt": prompt,
-            },
-        )
+        text, meta = self._chat.complete(messages)
         meta = {**meta, "role": "teacher", "prompt_version": self.prompt_version}
         return text, meta
 
@@ -143,14 +132,11 @@ def get_teacher(
     model: str,
     temperature: float = 0.0,
     max_tokens: int = 512,
-    llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
     prompt_path: str | Path | None = None,
 ) -> Teacher:
-    if llm_response_hash is not None:
-        raise ValueError("LLM response caching is disabled for evaluation pipelines.")
     name = (name or "mock").lower()
     if name == "mock":
         return MockTeacher(model_name=model or "mock")
@@ -159,7 +145,6 @@ def get_teacher(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_hash=llm_response_hash,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

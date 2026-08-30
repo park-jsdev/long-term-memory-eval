@@ -26,11 +26,10 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
-# --- Run artifacts, API cache, local logs ---
+# --- Run artifacts, local logs ---
 # Per-run preds, metrics, plots, memory dumps
 experiments/*
 !experiments/.gitkeep
-# Shared LlmResponseCache files (future optimization; not used by run.py yet)
 logs/*
 !logs/.gitkeep
 outputs/

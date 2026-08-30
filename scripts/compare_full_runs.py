@@ -2,7 +2,7 @@
 
 Use this after two ``python -m src.locomo_eval.run`` calls. It reads
 ``experiments/<run_id>/`` (predictions + metrics + run_meta) and writes
-overall/category tables, memory/prompt-hash sanity, SUMMARY.md, and the
+overall/category tables, memory-text sanity, SUMMARY.md, and the
 LoCoMo F1 boxplot/histograms from ``scripts.analysis.compare_predictions``.
 
 For JSONL-only LoCoMo F1 plots (no sandwich SUMMARY), use
@@ -26,9 +26,6 @@ if str(ROOT) not in sys.path:
 from scripts.analysis.compare_predictions import write_compare_prediction_plots
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.prompts import load_prompt_template
-from src.locomo_eval.utils.llm_request_hash import (
-    llm_request_hash_from_prediction,
-)
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -95,10 +92,7 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
         "exact_match",
         "token_f1",
         "locomo_f1",
-        "n_llm_response_hash_hits",
         "n_new_api_calls",
-        "n_resumed",
-        "cached_rate_in_predictions",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -107,8 +101,6 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
             m = pack["metrics"]
             meta = pack["meta"]
             overall = m.get("metrics") or {}
-            preds = pack["predictions"]
-            n_cached = sum(1 for r in preds if r.get("cached"))
             w.writerow(
                 {
                     "run_dir": pack["dir"],
@@ -120,14 +112,7 @@ def write_overall_csv(path: Path, packs: list[dict]) -> None:
                     "exact_match": overall.get("exact_match"),
                     "token_f1": overall.get("token_f1"),
                     "locomo_f1": overall.get("locomo_f1"),
-                    "n_llm_response_hash_hits": meta.get("n_llm_response_hash_hits")
-                    or meta.get("n_llm_response_cache_hits")
-                    or meta.get("n_disk_cache_hits"),
                     "n_new_api_calls": meta.get("n_new_api_calls"),
-                    "n_resumed": meta.get("n_resumed"),
-                    "cached_rate_in_predictions": (
-                        round(n_cached / len(preds), 4) if preds else None
-                    ),
                 }
             )
 
@@ -165,11 +150,7 @@ def write_category_csv(path: Path, packs: list[dict]) -> None:
 
 
 def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]:
-    """Pairwise sanity for first two runs: memory / answer / request-hash distinctness.
-
-    The request hash is rebuilt offline from stored memory + question + reader
-    model. It is not a live cache lookup.
-    """
+    """Pairwise sanity for the first two runs: memory-text and answer distinctness."""
     if len(packs) < 2:
         return {"note": "Need ≥2 runs for pairwise analysis."}
 
@@ -178,14 +159,8 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
     only_a = sorted(set(a["by_qid"]) - set(b["by_qid"]))
     only_b = sorted(set(b["by_qid"]) - set(a["by_qid"]))
 
-    template = None
-    prompt_version = None
-    if prompt_path and prompt_path.is_file():
-        prompt_version, template = load_prompt_template(prompt_path)
-
     same_memory = 0
     same_answer = 0
-    same_request_hash = 0
     mem_chars_a = []
     mem_chars_b = []
     deltas = []
@@ -201,15 +176,6 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
             same_answer += 1
         mem_chars_a.append(len(ma))
         mem_chars_b.append(len(mb))
-
-        hash_a = hash_b = None
-        if template is not None:
-            # Offline distinctness: same SHA-256 ⇒ same intended reader request.
-            # Not a disk lookup (LlmResponseHash is unwired from run.py).
-            hash_a = llm_request_hash_from_prediction(ra, a["meta"], template)
-            hash_b = llm_request_hash_from_prediction(rb, b["meta"], template)
-            if hash_a == hash_b:
-                same_request_hash += 1
 
         sa = score_row(pa, str(ra.get("reference_answer", "")), int(ra.get("category", 0)))
         sb = score_row(pb, str(rb.get("reference_answer", "")), int(rb.get("category", 0)))
@@ -230,15 +196,15 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
                 "locomo_f1_a": round(sa["locomo_f1"], 4),
                 "locomo_f1_b": round(sb["locomo_f1"], 4),
                 "delta_locomo_f1_b_minus_a": round(delta_f1, 4),
-                "llm_request_hash_a": hash_a,
-                "llm_request_hash_b": hash_b,
-                "same_llm_request_hash": (
-                    hash_a == hash_b if hash_a else None
-                ),
             }
         )
 
     n = len(common) or 1
+    prompt_version = None
+    if prompt_path and Path(prompt_path).is_file():
+        prompt_version, _ = load_prompt_template(prompt_path)
+    else:
+        prompt_version = a["meta"].get("prompt_version") or b["meta"].get("prompt_version")
     return {
         "run_a": a["run_id"],
         "run_b": b["run_id"],
@@ -250,23 +216,14 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
         "prompt_version": prompt_version,
         "fraction_same_memory_text": round(same_memory / n, 4) if common else None,
         "fraction_same_answer": round(same_answer / n, 4) if common else None,
-        "fraction_same_llm_request_hash": (
-            round(same_request_hash / n, 4) if common and template else None
-        ),
         "mean_memory_chars_a": round(sum(mem_chars_a) / n, 1) if common else None,
         "mean_memory_chars_b": round(sum(mem_chars_b) / n, 1) if common else None,
         "mean_delta_locomo_f1_b_minus_a": round(sum(deltas) / n, 4) if common else None,
         "sanity": {
             "conditions_look_distinct": (same_memory / n < 0.05) if common else None,
-            "cross_condition_request_hash_collision_ok": (same_request_hash / n < 0.05)
-            if common and template
-            else None,
             "note": (
-                "same_llm_request_hash is a SHA-256 of the LLM request "
-                "(model + filled QA prompt). LlmResponseHash is not wired "
-                "into run.py; this is an offline distinctness check. ~0 means "
-                "raw_chunks vs session_summaries prompts differed. High same_memory_text "
-                "implies a builder bug."
+                "High same_memory_text implies a builder bug for "
+                "raw_chunks vs session_summaries."
             ),
         },
         "paired_rows": paired_rows,
@@ -338,13 +295,7 @@ def make_compare_plots(packs: list[dict], paired: dict, out_dir: Path) -> list[P
 
         frac_same_m = paired.get("fraction_same_memory_text") or 0
         frac_same_a = paired.get("fraction_same_answer") or 0
-        frac_same_h = paired.get("fraction_same_llm_request_hash")
-        names = ["same\nmemory", "same\nanswer"]
-        vals = [frac_same_m, frac_same_a]
-        if frac_same_h is not None:
-            names.append("same\nrequest hash")
-            vals.append(frac_same_h)
-        axes[1].bar(names, vals, color="#54A24B")
+        axes[1].bar(["same\nmemory", "same\nanswer"], [frac_same_m, frac_same_a], color="#54A24B")
         axes[1].set_ylim(0, 1.05)
         axes[1].set_title("Condition distinctness (lower ≈ better)")
         axes[1].axhline(0.05, color="red", ls="--", lw=1, label="5% alert")
@@ -496,17 +447,8 @@ def write_text_report(
             f"token_f1={overall.get('token_f1')}, exact_match={overall.get('exact_match')}"
         )
         lines.append(
-            f"- API/meta: new_api={meta.get('n_new_api_calls')}, "
-            f"llm_response_hash_hits={meta.get('n_llm_response_hash_hits') or meta.get('n_llm_response_cache_hits') or meta.get('n_disk_cache_hits')}, "
-            f"resumed={meta.get('n_resumed')}"
+            f"- API/meta: new_api={meta.get('n_new_api_calls')}"
         )
-        preds = pack["predictions"]
-        if preds:
-            n_c = sum(1 for r in preds if r.get("cached"))
-            lines.append(
-                f"- prediction.cached flag: {n_c}/{len(preds)} "
-                f"({n_c / len(preds):.1%}) - mostly resume/cache *within* condition"
-            )
         lines.append("")
 
     lines.extend(condition_diff_lines(packs))
@@ -516,7 +458,7 @@ def write_text_report(
         lines.append(bottom_warn)
         lines.append("")
 
-    lines.append("## Paired condition sanity (memory / request hash)")
+    lines.append("## Paired condition sanity (memory text)")
     if paired.get("n_common") is None and "note" in paired:
         lines.append(paired["note"])
     else:
@@ -537,20 +479,11 @@ def write_text_report(
             f"- fraction same predicted answer: **{paired.get('fraction_same_answer')}**"
         )
         lines.append(
-            f"- fraction same llm request hash: "
-            f"**{paired.get('fraction_same_llm_request_hash')}** "
-            f"(want ~0; SHA-256 of model + filled QA prompt, not a live store lookup)"
-        )
-        lines.append(
             f"- mean delta LoCoMo F1 (B-A): **{paired.get('mean_delta_locomo_f1_b_minus_a')}**"
         )
         san = paired.get("sanity") or {}
         lines.append(
             f"- conditions_look_distinct: {san.get('conditions_look_distinct')}"
-        )
-        lines.append(
-            f"- cross_condition_request_hash_collision_ok: "
-            f"{san.get('cross_condition_request_hash_collision_ok')}"
         )
         lines.append(f"- note: {san.get('note')}")
     lines.append("")
@@ -573,28 +506,6 @@ def write_text_report(
             lines.append(f"- `{p}`")
         lines.append("")
 
-    lines.append("## How to read request-hash sanity")
-    lines.append(
-        "Live `LlmResponseHash` is **not wired** into `run.py` (future optimization). "
-        "`fraction_same_llm_request_hash` still hashes what the LLM request "
-        "would have been, so memory-condition distinctness can be checked without a disk store."
-    )
-    lines.append(
-        "1. **Within a run** (`prediction.cached` / `n_llm_response_hash_hits`): "
-        "expect unused/absent until the store is passed to `get_reader`. "
-        "JSONL resume is `n_resumed`, not this hash."
-    )
-    lines.append(
-        "2. **Across memory conditions**: recompute SHA-256 hashes from stored `memory_text`. "
-        "Fraction same_llm_request_hash ≈ 0 means the experimental middle "
-        "layer changed the prompt payload — conditions did something different."
-    )
-    lines.append(
-        "3. Shared `experiments/cache/` directory is normal; keys are content hashes, "
-        "not condition labels. That directory is unused until the store is wired."
-    )
-    lines.append("")
-
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -610,7 +521,7 @@ def main() -> None:
     p.add_argument(
         "--prompt",
         default=None,
-        help="Override prompt for hash rebuilding (default: infer from run_meta.json)",
+        help="Override frozen answer prompt (default: infer from run_meta.json)",
     )
     args = p.parse_args()
 
@@ -661,11 +572,7 @@ def main() -> None:
     print(f"Wrote {out / 'compare.json'}")
     for plot in plot_paths:
         print(f"Plot: {plot}")
-    if paired_slim.get("fraction_same_llm_request_hash") is not None:
-        print(
-            f"Sanity same_request_hash={paired_slim['fraction_same_llm_request_hash']} "
-            f"same_memory={paired_slim.get('fraction_same_memory_text')}"
-        )
+    print(f"Sanity same_memory={paired_slim.get('fraction_same_memory_text')}")
 
 
 if __name__ == "__main__":
