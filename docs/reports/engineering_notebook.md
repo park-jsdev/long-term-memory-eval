@@ -13,7 +13,7 @@ Borrowed from Bowman et al. (2022) “scalable oversight” sandwich: fix top + 
 | Layer | Role | Status in this repo |
 |-------|------|---------------------|
 | **Top (fixed)** | LoCoMo conversations + questions | `dataset.py` + `data/raw/locomo10.json` |
-| **Middle (variable)** | How “memory” text is produced (`raw_chunks`, `session_summaries`, later teacher/fusion) | `memory.py` (+ later write/fusion/store) |
+| **Middle (variable)** | How “memory” text is produced (`raw_chunks`, `session_summaries`, `mem0`, `mem0g`, later teacher/fusion) | `memory.py` + `mem0/` write-index |
 | **Bottom (fixed)** | Answer prompt, answer LLM, metrics, reporting | `prompts/`, `readers.py`, `metrics.py`, `report.py` |
 
 **Attribution rule:** if you change prompt *or* model *and* memory between two runs, you cannot cleanly attribute the score delta to memory design alone.
@@ -28,7 +28,7 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions | `openai` Python package → `chat.completions.create` | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader and judge for Mem0 parity; GPT-4.1/GPT-5.6 for separate experiments | `reader.model`, `teacher.model`, `configs/autorater.yaml`, CLI overrides | `OpenAIReader` / `OpenAITeacher` / `OpenAIAutorater` via `models.py` |
+| OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader, Mem0 writer, and judge; **`gpt-4.1-mini`** / **`gpt-5.6-luna`** (reader robustness); **`gpt-4.1`** / **`gpt-5.6-terra`** / **`gpt-5.6-sol`**; **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model`, `configs/autorater.yaml` | `OpenAIReader` / `OpenAITeacher` / `OpenAIAutorater` / `OpenAIFactExtractor` / `OpenAIEmbedder` via `models.py` |
 
 **Default baseline request shape (answer LLM):**
 
@@ -48,6 +48,9 @@ python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-ques
 python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --run-id ...
 python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
 python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
+python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --run-id mem0_locomo10
+python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
 python -m scripts.analysis.run_benchmark --run experiments/<run_id>  # released GPT-4o-mini judge
 ```
 
@@ -60,6 +63,9 @@ python -m scripts.analysis.run_benchmark --run experiments/<run_id> --autorater 
 python scripts/compare_full_runs.py --runs ... --out ...
 python scripts/compare_cross_model.py --runs ... --axis reader --out ...
 python scripts/prepare_data.py --split all --no-jsonl
+python -m src.locomo_eval.mem0.run_index --extractor mock --embedder mock ...
+python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
+python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 ```
 
@@ -150,6 +156,8 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 | `raw_chunks` | Full raw dialog turns (chronological), optional char cap | Does structure help at all? |
 | `session_summaries` | LoCoMo-released session summaries (dataset “memory”) | How strong is a structured session-memory bank? |
 | `teacher_session_summaries` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
+| `mem0` | Top-k timestamped facts from a Mem0 write-index dump (both speakers) | Does the paper extract+update path beat session summaries? Architecture clone — not paper J. |
+| `mem0g` | `mem0` plus serialized graph relations | Does the graph add anything if extract is frozen? Later distilled graphs swap `GraphMemory` only. |
 | `top1_teacher` (future) | Top-1 of K teacher memories | Selection enough? |
 | `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
 | `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
@@ -200,6 +208,12 @@ Do **not** fork prompts per condition for the main table. If you ablate prompts,
 **Teacher (`teacher_session_summaries`):** YAML `teacher.model` (or `--teacher-model`) selects the write-path LLM. Logged on `Memory.teacher_model`, `run_meta.json`, and each prediction row. Do not change `reader.model` in the same comparison if you want the delta attributed to the teacher.
 
 **Reader-model robustness:** YAML `reader.model` / `--model` / `configs/session_summaries_reader_gpt56_luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a memory-condition claim.
+
+**Mem0 write-index (`mem0` / `mem0g`):** `python -m src.locomo_eval.mem0.run_index` walks HLD (i) session blocks as eval-style message pairs (`batch_size=2`, dual speaker indexes, role-flip, user-only extract). Vector update is ADD/UPDATE/DELETE/NONE vs top `s=10`. `mem0g` also fills an in-memory `GraphMemory` (no Neo4j). Dumps: `experiments/<run_id>/mem0_index/`. Builders **load** that dump and cosine-retrieve (`top_k=30` NL facts per speaker); they must not re-extract. Freeze extract+update **and** this retriever when the claim is “new graph only” (swap `GraphMemory`).
+
+**Deterministic preprocess dump:** `python -m src.locomo_eval.preprocess.run_index` parses locomo10.json with no LLM (`llm_calls=0`). Dump: `experiments/<run_id>/preprocess/` (SessionBlocks + SessionDocuments). `raw_chunks` / `session_summaries` can format from that dump (`--preprocess-index-run-id`); default retrieve is concatenate-all. `--eval-questions 10` then runs the frozen reader on those two sanity memories (10 questions each). Later write/retrieve paths (top-k, LLM compress) should consume the same dump rather than re-parse JSON.
+
+Default **reader** is `gpt-4o-mini` + `prompts/qa_mem0_v1.txt` (Mem0 ANSWER_PROMPT with `{memory}`/`{question}`) for `raw_chunks`, `session_summaries`, `mem0`, and `mem0g`. Override YAML/`--model`/`--prompt` for a separate bottom-layer axis. This is an **architecture clone**, not a number clone of Tables 1–2.
 
 ### 4.3 True multi-teacher write path (later, still middle)
 
@@ -300,8 +314,8 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 
 1. `raw_chunks` vs `session_summaries` under frozen prompt/model (this draft).  
 2. Lock short-answer prompt if needed; re-run both conditions.  
-3. Persist mid-layer JSON per sample.  
-4. Live `teacher_session_summaries` (API generation → `Memory.text`).  
+3. Mem0 / Mem0g write-index over locomo10, then a later QA command with frozen `qa_v1` (or a separate Mem0-answer-prompt setup).  
+4. Swap only `GraphMemory` (distilled graph) with extract frozen.  
 5. Later `top1_teacher` / `whole_memory_aggregation` / `claim_fusion` + fixed retriever budget.  
 
 ---
@@ -314,12 +328,15 @@ configs/raw_chunks.yaml
 configs/session_summaries.yaml
 configs/session_summaries_reader_gpt56_luna.yaml  # session_summaries + GPT-5.6 Luna reader
 configs/teacher_session_summaries.yaml            # live single teacher
-prompts/qa_v1.txt
+configs/mem0.yaml / mem0g.yaml     # Mem0 write-index + load/retrieve seam
+prompts/qa_v1.txt                 # alternate reader prompt
 prompts/qa_mem0_v1.txt             # pinned released Mem0 answer prompt
 prompts/teacher_session_v1.txt
+prompts/mem0_extract_v1.txt        # + mem0_update_v1 / mem0g_*.txt
 src/locomo_eval/models.py          # model catalog / API kwargs
 src/locomo_eval/teachers.py        # Mock + OpenAI teacher
-src/locomo_eval/memory.py          # raw_chunks / session_summaries / teacher_session_summaries
+src/locomo_eval/memory.py          # builders including mem0 / mem0g
+src/locomo_eval/mem0/              # write-index package
 src/locomo_eval/utils/llm_request_hash.py   # SHA-256 of the intended LLM request (offline distinctness)
 src/locomo_eval/utils/llm_response_hash.py  # LLM reply memo (unwired; future optimization)
 src/locomo_eval/run.py             # wires builder → reader → report

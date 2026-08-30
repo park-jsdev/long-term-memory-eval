@@ -1,0 +1,16 @@
+# Source: Mem0 graph extract_entities tool (mem0ai/mem0 @ 69a832dc
+# mem0/memory/graph_memory.py). Placeholders: {user_id}, {text}.
+
+Extract named entities from the text to build a knowledge graph.
+
+Rules:
+- If the text has self-references (I, me, my), use {user_id} as that entity.
+- Lowercase entity names; replace spaces with underscores.
+- Assign a coarse entity_type (person, place, organization, event, object, other).
+- Extract only entities that are explicitly present.
+
+Text:
+{text}
+
+Return JSON only:
+{{"entities": [{{"entity": "...", "entity_type": "..."}}]}}

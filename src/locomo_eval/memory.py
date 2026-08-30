@@ -6,6 +6,7 @@ Current conditions (ids are what reviewers see in logs):
   raw_chunks                  — raw dialogue turns (optional char budget)
   session_summaries           — LoCoMo-provided session summaries
   teacher_session_summaries   — live single-teacher session summaries (model-swappable)
+  mem0 / mem0g                — load a Mem0 write-index dump + cosine retrieve (no re-extract)
 
 See docs/reports/engineering_notebook.md.
 """
@@ -13,12 +14,14 @@ See docs/reports/engineering_notebook.md.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .schemas import Conversation, Memory, Question, Session
 
 if TYPE_CHECKING:
     from .teachers import Teacher
+    from .mem0.embeddings import Embedder
 
 
 class MemoryBuilder(ABC):
@@ -59,10 +62,35 @@ class RawConversationMemoryBuilder(MemoryBuilder):
 
     name = "raw_chunks"
 
-    def __init__(self, max_chars: int | None = None):
+    def __init__(
+        self,
+        max_chars: int | None = None,
+        preprocess_index_dir: str | Path | None = None,
+        retrieve_top_k: int | None = None,
+    ):
         self.max_chars = max_chars
+        self.preprocess_index_dir = (
+            Path(preprocess_index_dir) if preprocess_index_dir else None
+        )
+        self.retrieve_top_k = retrieve_top_k
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
+        if self.preprocess_index_dir is not None:
+            from .preprocess.retrieve import build_raw_chunks_from_index
+
+            text, source_ids = build_raw_chunks_from_index(
+                self.preprocess_index_dir,
+                conversation,
+                question,
+                max_chars=self.max_chars,
+                top_k=self.retrieve_top_k,
+            )
+            return Memory(
+                memory_type=self.name,
+                text=text,
+                source_ids=source_ids,
+            )
+
         chunks: list[str] = []
         source_ids: list[str] = []
         header = (
@@ -110,7 +138,32 @@ class SessionSummaryMemoryBuilder(MemoryBuilder):
 
     name = "session_summaries"
 
+    def __init__(
+        self,
+        preprocess_index_dir: str | Path | None = None,
+        retrieve_top_k: int | None = None,
+    ):
+        self.preprocess_index_dir = (
+            Path(preprocess_index_dir) if preprocess_index_dir else None
+        )
+        self.retrieve_top_k = retrieve_top_k
+
     def build(self, conversation: Conversation, question: Question) -> Memory:
+        if self.preprocess_index_dir is not None:
+            from .preprocess.retrieve import build_session_summaries_from_index
+
+            text, source_ids = build_session_summaries_from_index(
+                self.preprocess_index_dir,
+                conversation,
+                question,
+                top_k=self.retrieve_top_k,
+            )
+            return Memory(
+                memory_type=self.name,
+                text=text,
+                source_ids=source_ids,
+            )
+
         chunks: list[str] = []
         source_ids: list[str] = []
         for sid, text in conversation.chronological_summaries():
@@ -202,18 +255,20 @@ _ALIASES: dict[str, str] = {
     "session_summary": SessionSummaryMemoryBuilder.name,
     "c1_teacher": TeacherSessionMemoryBuilder.name,
     "teacher": TeacherSessionMemoryBuilder.name,
+    "mem0": "mem0",
+    "mem0g": "mem0g",
 }
 
 
 def resolve_memory_name(name: str) -> str:
     key = name.strip().lower() if name else ""
-    if key in _BUILDERS:
+    if key in _BUILDERS or key in ("mem0", "mem0g"):
         return key
     if key in _ALIASES:
         return _ALIASES[key]
     raise ValueError(
         f"Unknown memory builder '{name}'. "
-        f"Known: {sorted(_BUILDERS)} aliases={sorted(_ALIASES)}"
+        f"Known: {sorted(list(_BUILDERS) + ['mem0', 'mem0g'])} aliases={sorted(_ALIASES)}"
     )
 
 
@@ -221,11 +276,40 @@ def get_memory_builder(
     name: str,
     max_chars: int | None = None,
     teacher: Teacher | None = None,
+    mem0_index_dir: str | Path | None = None,
+    mem0_top_k: int = 30,
+    mem0_embedder: Embedder | None = None,
+    preprocess_index_dir: str | Path | None = None,
+    retrieve_top_k: int | None = None,
 ) -> MemoryBuilder:
     resolved = resolve_memory_name(name)
+    if resolved in ("mem0", "mem0g"):
+        from .mem0.builders import Mem0IndexMemoryBuilder, Mem0gIndexMemoryBuilder
+
+        if mem0_index_dir is None:
+            raise ValueError(
+                f"{resolved} requires a write-index directory. "
+                "Set mem0.index_run_id in YAML (experiments/<id>/mem0_index) "
+                "after python -m src.locomo_eval.mem0.run_index."
+            )
+        cls = Mem0IndexMemoryBuilder if resolved == "mem0" else Mem0gIndexMemoryBuilder
+        return cls(
+            index_dir=mem0_index_dir,
+            embedder=mem0_embedder,
+            top_k=mem0_top_k,
+        )
     cls = _BUILDERS[resolved]
     if resolved == RawConversationMemoryBuilder.name:
-        return cls(max_chars=max_chars)
+        return cls(
+            max_chars=max_chars,
+            preprocess_index_dir=preprocess_index_dir,
+            retrieve_top_k=retrieve_top_k,
+        )
+    if resolved == SessionSummaryMemoryBuilder.name:
+        return cls(
+            preprocess_index_dir=preprocess_index_dir,
+            retrieve_top_k=retrieve_top_k,
+        )
     if resolved == TeacherSessionMemoryBuilder.name:
         if teacher is None:
             raise ValueError(
@@ -236,8 +320,10 @@ def get_memory_builder(
     return cls()
 
 
-def is_question_independent(name: str) -> bool:
+def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> bool:
     """True if memory text does not depend on the question (safe to cache per sample)."""
+    if retrieve_top_k is not None:
+        return False
     resolved = resolve_memory_name(name)
     return resolved in (
         RawConversationMemoryBuilder.name,

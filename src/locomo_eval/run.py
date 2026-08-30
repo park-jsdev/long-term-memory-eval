@@ -33,7 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.locomo_eval.dataset import iter_questions, load_conversations
+from src.locomo_eval.dataset import iter_questions, load_conversations, select_question_pairs
 from src.locomo_eval.env import load_env
 from src.locomo_eval.memory import (
     TeacherSessionMemoryBuilder,
@@ -49,6 +49,63 @@ from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
 from src.locomo_eval.teachers import get_teacher
+
+
+def _mem0_builder_kwargs(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
+) -> dict:
+    """Index-dir + query embedder for mem0/mem0g. Other builders ignore these kwargs."""
+    if resolve_memory_name(memory_name) not in ("mem0", "mem0g"):
+        return {}
+    mcfg = cfg.get("mem0") or {}
+    index_run = getattr(overrides, "mem0_index_run_id", None) or mcfg.get("index_run_id")
+    if not index_run:
+        raise SystemExit(
+            "mem0/mem0g requires mem0.index_run_id in YAML or --mem0-index-run-id "
+            "(after python -m src.locomo_eval.mem0.run_index)."
+        )
+    out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
+    embed_cfg = mcfg.get("embed") or {}
+    provider = embed_cfg.get("provider") or "openai"
+    if str(reader_name).lower() == "mock":
+        provider = "mock"
+    from src.locomo_eval.mem0.embeddings import get_embedder
+
+    return {
+        "mem0_index_dir": out_root / str(index_run) / "mem0_index",
+        "mem0_top_k": int(mcfg.get("top_k", 30)),
+        "mem0_embedder": get_embedder(
+            provider,
+            model=embed_cfg.get("model") or "text-embedding-3-small",
+            llm_response_hash=None,
+        ),
+    }
+
+
+def _preprocess_builder_kwargs(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str
+) -> dict:
+    """Optional dump dir for raw_chunks / session_summaries. Other builders ignore these."""
+    resolved = resolve_memory_name(memory_name)
+    if resolved not in ("raw_chunks", "session_summaries"):
+        return {}
+    pcfg = cfg.get("preprocess") or {}
+    index_run = getattr(overrides, "preprocess_index_run_id", None) or pcfg.get(
+        "index_run_id"
+    )
+    if not index_run:
+        return {}
+    out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
+    index_dir = out_root / str(index_run) / "preprocess"
+    top_k = pcfg.get("top_k")
+    if getattr(overrides, "retrieve_top_k", None) is not None:
+        top_k = overrides.retrieve_top_k
+    if top_k is not None:
+        top_k = int(top_k)
+    return {
+        "preprocess_index_dir": index_dir,
+        "retrieve_top_k": top_k,
+    }
 
 
 def _git_hash() -> str | None:
@@ -167,7 +224,15 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     if max_chars is not None:
         max_chars = int(max_chars)
     teacher = _build_teacher(cfg, overrides, memory_name, reader_name)
-    builder = get_memory_builder(memory_name, max_chars=max_chars, teacher=teacher)
+    mem0_kwargs = _mem0_builder_kwargs(cfg, overrides, memory_name, reader_name)
+    preprocess_kwargs = _preprocess_builder_kwargs(cfg, overrides, memory_name)
+    builder = get_memory_builder(
+        memory_name,
+        max_chars=max_chars,
+        teacher=teacher,
+        **mem0_kwargs,
+        **preprocess_kwargs,
+    )
 
     rate_cfg = cfg.get("reader") or {}
     temperature_override = getattr(overrides, "temperature", None)
@@ -212,7 +277,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
 
     # These builders do not depend on the question; build once per conversation.
     memory_by_sample = {}
-    if is_question_independent(memory_name):
+    retrieve_top_k = preprocess_kwargs.get("retrieve_top_k")
+    if is_question_independent(memory_name, retrieve_top_k=retrieve_top_k):
         for conv in conversations:
             q = conv.questions[0] if conv.questions else None
             if q is None:
@@ -220,8 +286,15 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             memory_by_sample[conv.sample_id] = builder.build(conv, q)
 
     pairs = list(iter_questions(conversations))
+    question_sample = (
+        getattr(overrides, "question_sample", None)
+        or (cfg.get("pipeline") or {}).get("question_sample")
+        or "round_robin"
+    )
     if max_questions is not None:
-        pairs = pairs[: int(max_questions)]
+        pairs = select_question_pairs(
+            pairs, int(max_questions), mode=str(question_sample)
+        )
 
     teacher_model = getattr(builder, "teacher_model", None)
     teacher_provider = getattr(builder, "teacher_provider", None)
@@ -229,6 +302,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
         f"reader={reader_name}/{reader.model_name}"
         + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
+        + f" | question_sample={question_sample}"
     )
 
     prediction_rows: list[dict] = []
@@ -332,6 +406,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "locomo_pin": cfg["data"].get("locomo_commit"),
         "memory_type": builder.name,
         "memory_max_chars": max_chars,
+        "preprocess_index_run_id": getattr(overrides, "preprocess_index_run_id", None)
+        or (cfg.get("preprocess") or {}).get("index_run_id"),
+        "retrieve_top_k": retrieve_top_k,
         "reader_provider": reader_name,
         "reader_model": reader.model_name,
         "reader_family": resolve_model(reader.model_name).family,
@@ -346,6 +423,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "prompt_path": str(prompt_path),
         "prompt_version": prompt_version,
         "max_questions": max_questions,
+        "question_sample": question_sample,
         "n_predictions": len(prediction_rows),
         "regenerated_from_scratch": True,
         "n_new_api_calls": n_api,
@@ -382,7 +460,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, mem0, mem0g)",
     )
     p.add_argument("--reader", default=None, help="openai | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
@@ -404,7 +482,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)
     p.add_argument("--max-questions", type=int, default=None)
+    p.add_argument(
+        "--question-sample",
+        default=None,
+        choices=("round_robin", "prefix"),
+        help="How --max-questions picks items: round_robin (default, one per conversation first) or prefix (file order)",
+    )
     p.add_argument("--sample-id", default=None, help="Restrict to one conversation")
+    p.add_argument(
+        "--mem0-index-run-id",
+        default=None,
+        help="experiments/<id>/mem0_index dump for mem0/mem0g builders",
+    )
+    p.add_argument(
+        "--preprocess-index-run-id",
+        default=None,
+        help="experiments/<id>/preprocess dump for raw_chunks / session_summaries",
+    )
+    p.add_argument(
+        "--retrieve-top-k",
+        type=int,
+        default=None,
+        help="Optional session-unit cap after naive rank (default: all units)",
+    )
     return p
 
 

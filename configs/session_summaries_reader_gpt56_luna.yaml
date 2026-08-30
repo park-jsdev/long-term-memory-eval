@@ -10,7 +10,7 @@ data:
 
 pipeline:
   memory: session_summaries
-  prompt_path: prompts/qa_v1.txt
+  prompt_path: prompts/qa_mem0_v1.txt
   max_questions: null
 
 reader:

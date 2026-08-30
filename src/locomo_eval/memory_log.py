@@ -62,6 +62,38 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "Not multi-teacher fusion."
         ),
     },
+    "mem0": {
+        "builder": "Mem0IndexMemoryBuilder",
+        "code": "src/locomo_eval/mem0/builders.py",
+        "source_fields": [
+            "experiments/<index_run_id>/mem0_index/by_sample/<id>/speaker_*.json",
+        ],
+        "text_layout": (
+            "Speaker {a} memories:\n{timestamp}: {fact}\n\n"
+            "Speaker {b} memories:\n{timestamp}: {fact}"
+        ),
+        "notes": (
+            "Loads a Mem0 write-index dump; cosine top_k=30 both speakers. "
+            "Does not re-extract. Not a paper-J claim."
+        ),
+    },
+    "mem0g": {
+        "builder": "Mem0gIndexMemoryBuilder",
+        "code": "src/locomo_eval/mem0/builders.py",
+        "source_fields": [
+            "experiments/<index_run_id>/mem0_index/by_sample/<id>/speaker_*.json",
+            "experiments/<index_run_id>/mem0_index/by_sample/<id>/graph.json",
+        ],
+        "text_layout": (
+            "Speaker {a} memories:\n{timestamp}: {fact}\n\n"
+            "Speaker {b} memories:\n{timestamp}: {fact}\n\n"
+            "Graph relations:\n{source} -- {relationship} -- {target}"
+        ),
+        "notes": (
+            "Mem0 vector retrieve plus in-memory graph relations. "
+            "Swap GraphMemory later; freeze extract for that claim."
+        ),
+    },
 }
 # Older run packs may still log the numbered ids.
 CONDITION_LAYOUTS["c0_raw"] = CONDITION_LAYOUTS["raw_chunks"]

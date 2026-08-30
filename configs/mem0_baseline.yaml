@@ -1,5 +1,7 @@
 # CLI default: Mem0-parity answer/evaluation controls over session_summaries.
 # pipeline.memory is a builder id in memory.py, not a pointer to another YAML.
+# Default reader/prompt match Mem0 eval (gpt-4o-mini + qa_mem0_v1). Override
+# reader.model / pipeline.prompt_path for a separate robustness axis.
 # Memory construction is not Mem0 extraction/update.
 
 data:
