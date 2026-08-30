@@ -1,0 +1,38 @@
+# Mem0 paper RAG baseline (token chunks + cosine top-k).
+# Index first:
+#   python -m src.locomo_eval.rag.run_index --config configs/rag.yaml --run-id rag_locomo10
+# Then QA (paper's strongest RAG cell is k=2, chunk=256, J=60.97):
+#   python -m src.locomo_eval.run --config configs/rag.yaml --run-id rag_k2_256_qa
+#
+# Architecture clone of evaluation/src/rag.py, not a Table 2 J claim.
+
+data:
+  raw_path: data/raw/locomo10.json
+  locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+
+pipeline:
+  memory: rag
+  prompt_path: prompts/qa_mem0_v1.txt
+  max_questions: null
+
+reader:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+
+rag:
+  index_run_id: rag_locomo10
+  chunk_size: 256
+  k: 2
+  encoding: cl100k_base
+  embed:
+    provider: openai
+    model: text-embedding-3-small
+
+run:
+  run_id: null
+  output_dir: experiments
