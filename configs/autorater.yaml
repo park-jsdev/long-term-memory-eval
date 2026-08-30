@@ -2,7 +2,6 @@
 # memory YAMLs. Used by scripts.analysis.run_benchmark, not by run.py.
 # Does not implement Mem0 extract/update; only the published judge + F1/BLEU-1.
 # Prompt source: https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py
-# Evaluation caches are prohibited.
 # Each invocation clears and regenerates its autorater output; it never appends.
 
 autorater:

@@ -35,7 +35,6 @@ flowchart TB
     MEM["memory.py"]
     PR["prompts.py"]
     RD["readers.py"]
-    HASH["utils/llm_response_hash.py\n(unwired)"]
     MET["metrics.py"]
     REP["report.py"]
   end
@@ -58,7 +57,6 @@ flowchart TB
   RUN --> REP
   DS --> SCH
   MEM --> SCH
-  RD -.-> HASH
   RD --> PR
   MET --> LOCOMO
   REP --> OUT
@@ -162,11 +160,11 @@ flowchart TB
 1. Same `prompt_path`, `reader.model`, `temperature`, `max_questions` / sample filter.  
 2. Differ only `pipeline.memory` (or config file).  
 3. Distinct `--run-id`s → then `scripts/compare_full_runs.py`.  
-4. Sanity: `fraction_same_llm_request_hash ≈ 0` and different mean `memory_chars` in the compare report. That hash is a SHA-256 of the intended LLM request (not a live store lookup).
+4. Sanity: `fraction_same_memory_text ≈ 0` and different mean `memory_chars` in the compare report.
 
 ### 4. Memory + LLM lifecycle — builder, schema, prompts
 
-Request path for one QA item. Evaluation factories prohibit `LlmResponseHash`.
+Request path for one QA item. Each invocation starts from question one.
 
 ```mermaid
 sequenceDiagram
@@ -195,7 +193,6 @@ sequenceDiagram
 | Builder → `Memory.text` | No | condition |
 | Prompt template file | Yes (after lock) | `prompts/qa_*.txt` |
 | Reader model / decode | Yes | `reader.*` in YAML |
-| Store | Prohibited in evaluation | `utils/llm_response_hash.py` remains unused; factories reject it |
 | Metrics | Always | `metrics.py` / LoCoMo F1 |
 
 ---
@@ -225,12 +222,12 @@ Update this section when you add Claude, Gemini, local HF, etc.
 
 | Command | API? | Notes |
 |---------|------|--------|
-| `python -m src.locomo_eval.run --config configs/raw_chunks.yaml ...` | Yes if `reader.provider: openai` | One fresh Chat Completions call per QA; cache/resume disabled |
+| `python -m src.locomo_eval.run --config configs/raw_chunks.yaml ...` | Yes if `reader.provider: openai` | One fresh Chat Completions call per QA |
 | `... --reader mock` | No | Offline plumbing |
 | `python -m src.locomo_eval.offline_evaluate --predictions ...` | No | String-metric rescore only (not an LLM autorater) |
 | `python -m scripts.analysis.run_benchmark --run ...` | Yes | GPT-4o Mem0 LLM-as-a-Judge over stored answers |
 | `python -m scripts.analysis.run_benchmark --run ... --autorater mock` | No | Autorater/report plumbing smoke |
-| `python scripts/compare_full_runs.py ...` | No | Metrics / plots / cache-key *rehash* offline |
+| `python scripts/compare_full_runs.py ...` | No | Metrics / plots / memory-text distinctness offline |
 | `python scripts/prepare_data.py ...` | No | Local JSON → CSV/JSONL |
 | `python scripts/fetch_locomo.py` | GitHub raw HTTP | Dataset file only, not OpenAI |
 
@@ -266,7 +263,6 @@ python -m src.locomo_eval.run --config configs/session_summaries.yaml \
 | Full LoCoMo | ~1986 Qs per condition → ~1986 requests if starting cold |
 | Free/low tier | Can hit **RPD ~50/day** → use small `max_questions` and distinct run ids |
 | Prompt size | `raw_chunks` can be ~tens of k chars (truncated by `memory_max_chars`); drives **input tokens** not request count |
-| LLM response hash | Utility remains in `utils/llm_response_hash.py`, but evaluation factories reject it |
 | Raising limits | [Billing](https://platform.openai.com/account/billing) + [Rate limits](https://platform.openai.com/account/rate-limits) |
 
 ### Planned swaps (not wired)
@@ -293,7 +289,7 @@ For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (gitignor
 
 ## OpenAI rate limits
 
-See **External APIs & models** above for the authoritative inventory. Full evaluation needs sufficient request limits because runs do not resume.
+See **External APIs & models** above for the authoritative inventory. Full evaluation needs sufficient request limits because each invocation starts from question one.
 ---
 
 ## Phase 1 — raw_chunks vs session_summaries (frozen reader/prompt, vary memory)
@@ -312,7 +308,7 @@ python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks_n20 experi
 ```
 
 Outputs under `experiments/<run_id>/`: `predictions.csv`, `metrics.json`, `plots/`, `run_meta.json`, and **`memory/`** (exact `{memory}` texts + schema — see [`docs/schemas/memory_runtime.md`](docs/schemas/memory_runtime.md)).  
-Compare also writes `SUMMARY.md`, `paired_questions.csv`, and cache/memory sanity plots under `experiments/compare_raw_chunks_session_summaries/`.
+Compare also writes `SUMMARY.md`, `paired_questions.csv`, and memory-distinctness plots under `experiments/compare_raw_chunks_session_summaries/`.
 
 Flatten the dataset for inspection:
 
@@ -343,7 +339,7 @@ dates correct, is logged as `mock_sanity_not_llm_judge`, and is excluded from
 the literature J comparison. Actual J requires the live GPT-4o command.
 Every invocation clears the prior generated autorater tables, plots, verdicts,
 metrics, and metadata, then regenerates them from one prediction file. It
-never resumes or appends autorater analysis.
+never appends autorater analysis.
 
 This implements the Mem0 judge protocol and published baseline tables, not
 Mem0 extraction/update. It skips adversarial category 5 as the paper does.
@@ -358,10 +354,9 @@ Baseline answer-prompt source: Mem0's pinned
 [`evaluation/src/openai/predict.py`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/src/openai/predict.py).
 The local placeholder adaptation is `prompts/qa_mem0_v1.txt`.
 
-No evaluation cache or resume is active. Reader, teacher, and autorater
-factories reject non-null `llm_response_hash`; answer runs clear prior
-generated artifacts for the run id and regenerate from question one.
-Autorater runs also regenerate and reject source rows marked `cached=true`.
+Each pipeline run is self-contained. Answer runs clear prior generated
+artifacts for the run id and regenerate from question one. Autorater packs
+do the same for their output directory.
 
 Tests:
 

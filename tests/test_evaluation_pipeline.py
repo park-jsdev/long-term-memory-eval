@@ -9,9 +9,8 @@ HLD components:
 Online / LLM autoraters are out of scope until that split is designed.
 
 Parse and memory-builder checks remain in this module as the frozen *inputs*
-to the scorer, including a raw_chunks vs session_summaries llm_request_hash
-sanity check (different memories must not hash to the same intended reader
-request).
+to the scorer, including a raw_chunks vs session_summaries prompt-text
+check (different memories must fill different reader prompts).
 Dedicated pre-processing / teacher-memory test modules wait on HLD lock-in —
 do not rename production classes to match an unfinished LLD.
 """
@@ -37,16 +36,7 @@ from src.locomo_eval.memory import (
 )
 from src.locomo_eval.metrics import exact_match, normalize_answer, token_f1
 from src.locomo_eval.prompts import load_prompt_template, render_qa_prompt
-from src.locomo_eval.utils.llm_request_hash import (
-    llm_request_hash_for_reader,
-    llm_request_hash_from_prediction,
-)
 from src.metrics.locomo_qa import score_prediction
-
-# Frozen memory-condition controls; Mem0 default parity is separately locked in regressions.
-_ANSWER_READER_MODEL = "gpt-4.1-mini"
-_ANSWER_READER_TEMPERATURE = 0.0
-_ANSWER_READER_MAX_TOKENS = 64
 
 
 MINI = {
@@ -201,23 +191,8 @@ class TestRawConversationMemoryBuilder(unittest.TestCase):
         self.assertLessEqual(len(mem.text), 40 + len("[... earlier turns truncated to max_chars ...]\n"))
 
 
-def _hash_llm_request(memory_text: str, question: str, template: str) -> str:
-    """SHA-256 of the intended LLM request (same helper compare scripts use)."""
-    prompt = render_qa_prompt(template, memory=memory_text, question=question)
-    return llm_request_hash_for_reader(
-        model=_ANSWER_READER_MODEL,
-        temperature=_ANSWER_READER_TEMPERATURE,
-        max_tokens=_ANSWER_READER_MAX_TOKENS,
-        prompt=prompt,
-    )
-
-
-class TestRawChunksAndSessionSummariesWouldNotShareLlmRequestHashes(unittest.TestCase):
-    """Different conditions → different memory → different prompts → different hashes.
-
-    LlmResponseHash is unwired; this locks distinctness for when it returns.
-    Keep here until a memory-component test module exists.
-    """
+class TestRawChunksAndSessionSummariesFillDifferentReaderPrompts(unittest.TestCase):
+    """Different conditions → different memory → different filled reader prompts."""
 
     def setUp(self):
         conv = parse_sample(MINI)
@@ -231,37 +206,12 @@ class TestRawChunksAndSessionSummariesWouldNotShareLlmRequestHashes(unittest.Tes
         self.assertIn("I started painting", self.mem_raw.text)
         self.assertIn("Alice said she started painting", self.mem_summaries.text)
 
-    def test_same_session_summaries_memory_and_question_hash_to_the_same_llm_request_hash(self):
-        hash_a = _hash_llm_request(self.mem_summaries.text, self.question.question, self.template)
-        hash_b = _hash_llm_request(self.mem_summaries.text, self.question.question, self.template)
-        self.assertEqual(hash_a, hash_b)
-
-    def test_raw_chunks_and_session_summaries_rendered_prompts_hash_to_different_request_hashes(self):
+    def test_raw_chunks_and_session_summaries_render_different_reader_prompts(self):
         prompt_raw = render_qa_prompt(self.template, self.mem_raw.text, self.question.question)
-        prompt_summaries = render_qa_prompt(self.template, self.mem_summaries.text, self.question.question)
+        prompt_summaries = render_qa_prompt(
+            self.template, self.mem_summaries.text, self.question.question
+        )
         self.assertNotEqual(prompt_raw, prompt_summaries)
-        hash_raw = _hash_llm_request(self.mem_raw.text, self.question.question, self.template)
-        hash_summaries = _hash_llm_request(self.mem_summaries.text, self.question.question, self.template)
-        self.assertNotEqual(hash_raw, hash_summaries)
-
-    def test_from_prediction_rebuilds_the_same_hash_as_the_filled_prompt(self):
-        prompt = render_qa_prompt(self.template, self.mem_summaries.text, self.question.question)
-        direct = llm_request_hash_for_reader(
-            model=_ANSWER_READER_MODEL,
-            temperature=_ANSWER_READER_TEMPERATURE,
-            max_tokens=_ANSWER_READER_MAX_TOKENS,
-            prompt=prompt,
-        )
-        rebuilt = llm_request_hash_from_prediction(
-            {
-                "reader_model": _ANSWER_READER_MODEL,
-                "memory_text": self.mem_summaries.text,
-                "question": self.question.question,
-            },
-            {"temperature": _ANSWER_READER_TEMPERATURE, "max_tokens": _ANSWER_READER_MAX_TOKENS},
-            self.template,
-        )
-        self.assertEqual(direct, rebuilt)
 
 
 class TestResolveMemoryName(unittest.TestCase):

@@ -321,7 +321,7 @@ def get_memory_builder(
 
 
 def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> bool:
-    """True if memory text does not depend on the question (safe to cache per sample)."""
+    """True if memory text does not depend on the question (build once per conversation)."""
     if retrieve_top_k is not None:
         return False
     resolved = resolve_memory_name(name)

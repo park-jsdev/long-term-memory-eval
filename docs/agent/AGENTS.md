@@ -81,8 +81,6 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `autorater.py` | Mem0-style CORRECT/WRONG LLM judge; GPT-4o + mock |
 | `mem0_metrics.py` | Mem0 lexical F1/BLEU-1 and latency summaries |
 | `mem0_baselines.py` | Published Mem0 Tables 1–2 values (literature pins, not re-runs) |
-| `utils/llm_response_hash.py` | Disk memo of LLM replies, keyed by `llm_request_hash` (implemented; **not wired** into run.py — future optimization) |
-| `utils/llm_request_hash.py` | SHA-256 of the intended LLM request; offline distinctness (not a live store lookup) |
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
@@ -125,9 +123,9 @@ python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval
 python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -161,12 +159,12 @@ An autorater pack under `experiments/<run_id>/autorater/` must include
 `autorater_verdicts.jsonl`, `autorater_metrics.json`, `run_meta.json`,
 `SUMMARY.md`, `tables/`, and `plots/`. It is a snapshot: every invocation
 clears these generated artifacts and regenerates from one prediction file.
-Never resume or append autorater analyses.
+Never append autorater analyses.
 
 A Mem0 write-index under `experiments/<run_id>/mem0_index/` must include
 `run_meta.json`, `schema.json`, `index.jsonl`, and `by_sample/<id>/speaker_a.json`
-+ `speaker_b.json` (and `graph.json` when `enable_graph`). Skip complete samples
-unless `--overwrite`. This is **not** `LlmResponseHash` and not QA resume.
++ `speaker_b.json` (and `graph.json` when `enable_graph`). Reusing a run id
+clears that dump and regenerates every sample.
 
 A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must include
 `run_meta.json`, `schema.json`, `index.jsonl`, and `by_sample/<id>/sessions.jsonl`
@@ -184,13 +182,10 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
    separately; Mem0 category 5 is excluded from J.
    Mock autorater output is plumbing-only (`mock_sanity_not_llm_judge`), must
    not occupy the literature J column, and must never log a live model id.
-5. **No evaluation caches or resume.** Reader, teacher, and autorater factories
-   reject non-null `llm_response_hash`. Every answer run clears generated
-   artifacts for its run id and starts from question one. Autorater regenerates
-   its output and rejects source prediction rows marked `cached=true`.
-   `LlmResponseHash` remains an unused utility; do not wire it.
-   Mem0 extract/update/embed factories also reject a non-null store.
-   Write-index resume is per-sample JSON under `mem0_index/` (not QA resume).
+5. **Runs are self-contained.** Every pipeline invocation (QA, autorater, Mem0
+   index, preprocess index) clears its generated output and regenerates.
+   `predictions.jsonl` is an audit artifact, not a checkpoint. Do not add
+   response stores, JSONL skip, or per-sample index skip.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
 
@@ -200,9 +195,9 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 From review. Follow these when adding or renaming code.
 
-**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (`LlmResponseHash` vs audit JSONL vs `llm_request_hash`; baseline YAML vs `session_summaries`). Condition ids are descriptive (`raw_chunks`), not numbered (`C0`).
+**Names.** Unambiguous, justified, and kept current. If a name no longer matches the behavior, rename it (e.g. a generic orchestrator must not be called `run_baseline` when “baseline” is a config). Do not overload research terms across different mechanisms (audit JSONL vs a live store; baseline YAML vs `session_summaries`). Condition ids are descriptive (`raw_chunks`), not numbered (`C0`).
 
-**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`LlmResponseHash` vs audit JSONL vs `llm_request_hash`; `offline_evaluate.py` string scoring vs `autorater.py` online LLM judging).
+**Comments.** Explain *why* and the surrounding context, not a restatement of the next line. Ambiguous helpers need a one-liner on what they pin for later reproduction (`_git_hash`, `_file_sha256`). Distinguish lookalike layers (`offline_evaluate.py` string scoring vs `autorater.py` online LLM judging).
 
 **Schemas / data-model classes.** The module docstring should map how types connect and which pipeline step uses them (load → memory → reader → prediction → score). Each class gets a short “what it is / who consumes it” note. Label gold answers as scorer-only (never in the reader prompt).
 
@@ -230,12 +225,12 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] One-question and full-run share the same command  
 - [ ] Predictions JSONL deterministic fields  
 - [ ] Metrics include EM, token F1, LoCoMo F1 by category  
-- [ ] Autorater includes Mem0 F1/BLEU-1/J, category-5 exclusion, fresh tables, and fresh plots (no resume/append)
+- [ ] Autorater includes Mem0 F1/BLEU-1/J, category-5 exclusion, fresh tables, and fresh plots (never appends)
 - [ ] Memory builder swappable without changing reader/evaluator  
 - [ ] Tests for parse, memory, preprocess session blocks, session-document join, Mem0 index (mock), normalize  
 - [ ] Model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
 - [ ] `tests/test_autorater_sanity.py` stays green (mock only; no API)
-- [ ] `tests/test_mem0_index.py` and `tests/test_regressions.py` stay green (mock only; no API)
+- [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, and `tests/test_run_isolation.py` stay green (mock only; no API)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---

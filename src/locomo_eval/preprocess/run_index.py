@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -32,7 +33,6 @@ from src.locomo_eval.env import load_env
 from src.locomo_eval.preprocess import DataIngestor, PreprocessingPipeline
 from src.locomo_eval.preprocess.dump import (
     SCHEMA_VERSION,
-    sample_complete,
     write_index_meta,
     write_sample_dump,
 )
@@ -77,9 +77,10 @@ def run_preprocess_index(cfg: dict, overrides: argparse.Namespace) -> Path:
     ).strftime("%Y%m%dT%H%M%SZ")
     out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
     index_root = out_root / str(run_id) / "preprocess"
+    if index_root.exists():
+        shutil.rmtree(index_root)
     index_root.mkdir(parents=True, exist_ok=True)
 
-    overwrite = bool(getattr(overrides, "overwrite", False))
     samples = load_raw(data_path)
     if getattr(overrides, "sample_id", None):
         samples = [s for s in samples if str(s.get("sample_id")) == overrides.sample_id]
@@ -91,37 +92,19 @@ def run_preprocess_index(cfg: dict, overrides: argparse.Namespace) -> Path:
     ingestor = DataIngestor()
     pipeline = PreprocessingPipeline()
     sample_rows: list[dict] = []
-    n_skip = 0
-    n_new = 0
     print(f"Preprocess index {run_id}: {len(samples)} samples | llm_calls=0")
     for sample in samples:
-        sample_id = str(sample["sample_id"])
-        if not overwrite and sample_complete(index_root, sample_id):
-            n_skip += 1
-            sample_rows.append(
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "sample_id": sample_id,
-                    "skipped": True,
-                    "sessions_path": f"by_sample/{sample_id}/sessions.jsonl",
-                    "documents_path": f"by_sample/{sample_id}/documents.jsonl",
-                }
-            )
-            print(f"  skip {sample_id} (dump complete)")
-            continue
         conv = ingestor.ingest_sample(sample)
         processed = pipeline.process(conv)
         documents = build_session_documents(sample)
         write_sample_dump(
             index_root, processed=processed, documents=documents
         )
-        n_new += 1
         n_turns = sum(len(b.turns) for b in processed.session_blocks)
         sample_rows.append(
             {
                 "schema_version": SCHEMA_VERSION,
                 "sample_id": processed.sample_id,
-                "skipped": False,
                 "n_session_blocks": len(processed.session_blocks),
                 "n_documents": len(documents),
                 "n_turns": n_turns,
@@ -145,14 +128,11 @@ def run_preprocess_index(cfg: dict, overrides: argparse.Namespace) -> Path:
         "code_git_hash": _git_hash(),
         "max_samples": getattr(overrides, "max_samples", None),
         "n_samples": len(sample_rows),
-        "n_skipped": n_skip,
-        "n_new": n_new,
-        "overwrite": overwrite,
         "gold_answer_in_index": False,
         "llm_calls": 0,
     }
     write_index_meta(index_root, samples=sample_rows, run_meta=run_meta)
-    print(f"Wrote {index_root} (new={n_new} skipped={n_skip})")
+    print(f"Wrote {index_root} (n_samples={len(sample_rows)})")
     return index_root
 
 
@@ -189,6 +169,10 @@ def _eval_after_index(
             sample_id=None,
             mem0_index_run_id=None,
             preprocess_index_run_id=index_run_id,
+            retrieve_top_k=None,
+            temperature=None,
+            max_tokens=None,
+            message_layout=None,
             question_sample=getattr(overrides, "question_sample", None) or "round_robin",
         )
         run_dir = run_locomo_pipeline_with_memory_config(eval_cfg, ns)
@@ -208,11 +192,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id", default=None)
     p.add_argument("--sample-id", default=None)
     p.add_argument("--max-samples", type=int, default=None)
-    p.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Re-parse samples even if their dump is already complete.",
-    )
     p.add_argument(
         "--eval-questions",
         type=int,

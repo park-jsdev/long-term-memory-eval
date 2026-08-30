@@ -42,7 +42,6 @@ def write_predictions_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "reader_model",
         "teacher_model",
         "prompt_version",
-        "cached",  # LlmResponseHash hit if wired; currently always false from run.py
         "memory_chars",
         "memory_preview",
     ]

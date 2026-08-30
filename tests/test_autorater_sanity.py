@@ -86,10 +86,6 @@ class TestAutoraterPromptAndModel(unittest.TestCase):
         self.assertEqual(DEFAULT_AUTORATER_MODEL, GPT4O_MINI)
         self.assertEqual(resolve_model(GPT4O_MINI).family, "gpt-4o")
 
-    def test_get_autorater_rejects_response_cache(self):
-        with self.assertRaisesRegex(ValueError, "caching is disabled"):
-            get_autorater("mock", llm_response_hash=object())
-
     def test_render_autorater_prompt_includes_question_gold_and_prediction(self):
         rendered = render_autorater_prompt(
             "Q={question}\nG={gold_answer}\nP={generated_answer}",
@@ -250,33 +246,12 @@ class TestAutoraterBenchmark(unittest.TestCase):
                 .splitlines()
                 if line
             ]
-            self.assertTrue(second["regenerated_from_scratch"])
             self.assertEqual(second["n_new_ratings"], 1)
             self.assertEqual(second["n_new_judge_calls"], 0)
             self.assertEqual(len(verdicts), 1)
             self.assertEqual(verdicts[0]["label"], "WRONG")
             self.assertFalse(stale_plot.exists())
-
-    def test_run_benchmark_rejects_cached_source_predictions(self):
-        pred = _prediction("conv-test-q-0", predicted_answer="painting")
-        pred["cached"] = True
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            pred_path = root / "predictions.jsonl"
-            pred_path.write_text(json.dumps(pred) + "\n", encoding="utf-8")
-            out = root / "autorater"
-            out.mkdir()
-            stale = out / "autorater_metrics.json"
-            stale.write_text("{}", encoding="utf-8")
-
-            with self.assertRaisesRegex(ValueError, "cached prediction rows"):
-                run_benchmark(
-                    pred_path,
-                    out_dir=out,
-                    autorater=MockAutorater(),
-                    our_label="test",
-                )
-            self.assertFalse(stale.exists())
+            self.assertNotIn("regenerated_from_scratch", second)
 
 
 class TestMem0LiteraturePins(unittest.TestCase):

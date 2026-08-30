@@ -237,9 +237,10 @@ Offline teacher smoke (no API):
 python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --reader mock --teacher mock --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
 ```
 
-`compare_cross_model.py` writes `overall.csv`, `paired_questions.csv`, `SUMMARY.md`, `compare.json`. Check `run_meta.json` for `reader_model` / `teacher_model` / `*_family`. Distinctness uses `fraction_same_llm_request_hash` (SHA-256 of the intended reader request; **not** a live store hit).
+`compare_cross_model.py` writes `overall.csv`, `paired_questions.csv`, `SUMMARY.md`, `compare.json`. Check `run_meta.json` for `reader_model` / `teacher_model` / `*_family`. Distinctness is `fraction_same_memory_text` and `fraction_same_answer` (inspect traces if you need to confirm the filled prompt changed).
 
 Unit tests for these seams (no API): `python -m unittest tests/test_integration_sanity.py`.
+Isolation (no store, self-contained run ids): `python -m unittest tests/test_run_isolation.py tests/test_regressions.py`.
 
 ---
 
@@ -302,10 +303,8 @@ Everything for one experiment is under `experiments/<run_id>/`:
 | `memory/` | Runtime memory audit (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
 | `plots/*.png` | Quick visual of overall + by-category scores |
 
-`predictions.jsonl` is an audit artifact, not a response cache or resume
-checkpoint. Reusing a run id clears generated run artifacts and regenerates
-answers from question one. `LlmResponseHash` remains implemented under
-`src/locomo_eval/utils/`, but evaluation factories reject attempts to pass it.
+`predictions.jsonl` is an audit artifact. Reusing a run id clears generated
+artifacts and rebuilds from question one.
 
 Recompute string metrics without re-calling the API (not an LLM autorater):
 
@@ -335,7 +334,7 @@ Reports label it `mock_sanity_not_llm_judge`, omit it from the literature J
 column, and never identify it as GPT-4o. Use the live command for actual J.
 Every invocation removes prior generated autorater artifacts in that output
 directory and regenerates from one prediction file. Autorater results never
-resume or append, so mock/live or different source runs cannot overlap.
+append, so mock/live or different source runs cannot overlap.
 
 The default `configs/autorater.yaml` judge is the released Mem0
 `gpt-4o-mini` configuration. The
@@ -356,12 +355,10 @@ Prompt provenance:
 - Local adaptation: `prompts/autorater_mem0_v1.txt`. It preserves the Mem0
   correctness/date-matching instructions and JSON label contract.
 
-Cache isolation is enforced: reader, teacher, and autorater factories reject
-non-null `llm_response_hash`. The answer pipeline clears prior generated
-artifacts under the selected run id and regenerates from question one.
-Autorater rewrites all of its outputs and refuses source predictions marked
-`cached=true`. It never modifies source `predictions.jsonl`, `metrics.json`,
-or `run_meta.json`.
+Each pipeline invocation is self-contained: the answer pipeline clears prior
+generated artifacts under the selected run id and regenerates from question one.
+Autorater rewrites all of its outputs. It never modifies source
+`predictions.jsonl`, `metrics.json`, or `run_meta.json`.
 
 Outputs under `experiments/<run_id>/autorater/`:
 
@@ -405,7 +402,7 @@ locomo10.json                 # official: dialog + summaries + gold QA
     → teacher_orchestrator.py # HLD (ii): one session block, passthrough, no LLM
     → memory.py               # experimental: Memory.text (raw_chunks / session_summaries / teacher_session_summaries / mem0 / mem0g)
     → prompts/qa_mem0_v1.txt  # pinned Mem0-parity answer prompt (override qa_v1 as a separate axis)
-    → readers.py              # answer LLM (no LlmResponseHash in this phase) (swap only for robustness, not a memory claim)
+    → readers.py              # answer LLM (swap only for robustness, not a memory claim)
     → metrics + report        # scorer uses gold; reports for humans
 ```
 
@@ -434,7 +431,7 @@ Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this basel
 
 **Do:** extend memory builders or `GraphMemory`, swap reader/teacher models for robustness checks, improve reports, run Mem0 indexes, keep docs current.
 
-**Don’t (yet):** claim paper Table 1–2 J from this OSS clone, call Mem0 Platform / Neo4j, multi-LLM fusion, training loops, silent metric changes, deleting `experiments/cache/` or data, committing secrets.
+**Don’t (yet):** claim paper Table 1–2 J from this OSS clone, call Mem0 Platform / Neo4j, multi-LLM fusion, training loops, silent metric changes, deleting experiment data, committing secrets.
 
 ---
 

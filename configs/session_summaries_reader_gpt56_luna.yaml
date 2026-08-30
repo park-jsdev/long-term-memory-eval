@@ -25,4 +25,3 @@ reader:
 run:
   run_id: null
   output_dir: experiments
-  cache_dir: experiments/cache

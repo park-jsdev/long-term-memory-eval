@@ -23,5 +23,3 @@ reader:
 run:
   run_id: null
   output_dir: experiments
-  # Future optimization (unwired): src/locomo_eval/utils/llm_response_hash.py
-  # llm_response_hash_dir: experiments/cache

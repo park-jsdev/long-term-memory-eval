@@ -1,8 +1,8 @@
 """Compare runs that differ by reader and/or teacher model.
 
 Unlike ``compare_full_runs.py`` (freeze bottom, vary memory), this script *expects*
-model identity to change. It reports answer agreement, score deltas, llm-request
-hash distinctness, and whether logs recorded the swap.
+model identity to change. It reports answer agreement, score deltas, memory-text
+overlap, and whether logs recorded the swap.
 
 Foundation for later cross-model robustness tables (same memory, different
 answer LLM; or same reader, different teacher within a family).
@@ -32,10 +32,6 @@ if str(ROOT) not in sys.path:
 from scripts.compare_full_runs import load_pack, resolve_prompt_path  # noqa: E402
 from src.locomo_eval.metrics import score_row  # noqa: E402
 from src.locomo_eval.models import resolve_model  # noqa: E402
-from src.locomo_eval.prompts import load_prompt_template  # noqa: E402
-from src.locomo_eval.utils.llm_request_hash import (  # noqa: E402
-    llm_request_hash_from_prediction,
-)
 
 
 def _meta_model(pack: dict, field: str) -> str | None:
@@ -50,7 +46,6 @@ def _meta_model(pack: dict, field: str) -> str | None:
 
 def cross_model_analysis(
     packs: list[dict],
-    prompt_path: Path | None,
     axis: str,
 ) -> dict[str, Any]:
     """Pairwise robustness stats for the first two run packs."""
@@ -59,16 +54,13 @@ def cross_model_analysis(
 
     a, b = packs[0], packs[1]
     common = sorted(set(a["by_qid"]) & set(b["by_qid"]))
-    template = None
-    if prompt_path and prompt_path.is_file():
-        _, template = load_prompt_template(prompt_path)
 
     reader_a = _meta_model(a, "reader_model")
     reader_b = _meta_model(b, "reader_model")
     teacher_a = _meta_model(a, "teacher_model")
     teacher_b = _meta_model(b, "teacher_model")
 
-    same_memory = same_answer = same_request_hash = 0
+    same_memory = same_answer = 0
     deltas: list[float] = []
     paired_rows: list[dict[str, Any]] = []
 
@@ -80,14 +72,6 @@ def cross_model_analysis(
             same_memory += 1
         if pa == pb:
             same_answer += 1
-        hash_a = hash_b = None
-        if template is not None:
-            # Offline distinctness: same SHA-256 ⇒ same intended reader request.
-            # Not a disk lookup (LlmResponseHash is unwired from run.py).
-            hash_a = llm_request_hash_from_prediction(ra, a["meta"], template)
-            hash_b = llm_request_hash_from_prediction(rb, b["meta"], template)
-            if hash_a == hash_b:
-                same_request_hash += 1
         sa = score_row(pa, str(ra.get("reference_answer", "")), int(ra.get("category", 0)))
         sb = score_row(pb, str(rb.get("reference_answer", "")), int(rb.get("category", 0)))
         delta = sb["locomo_f1"] - sa["locomo_f1"]
@@ -109,18 +93,12 @@ def cross_model_analysis(
                 "reader_model_b": rb.get("reader_model") or reader_b,
                 "teacher_model_a": ra.get("teacher_model") or teacher_a,
                 "teacher_model_b": rb.get("teacher_model") or teacher_b,
-                "same_llm_request_hash": (
-                    hash_a == hash_b if hash_a else None
-                ),
             }
         )
 
     n = len(common) or 1
     frac_same_mem = round(same_memory / n, 4) if common else None
     frac_same_ans = round(same_answer / n, 4) if common else None
-    frac_same_hash = (
-        round(same_request_hash / n, 4) if common and template else None
-    )
 
     reader_differ = bool(reader_a and reader_b and reader_a != reader_b)
     teacher_differ = bool(teacher_a and teacher_b and teacher_a != teacher_b)
@@ -142,14 +120,11 @@ def cross_model_analysis(
         "logs_record_teacher_models": bool(teacher_a or teacher_b),
         "teacher_models_differ": teacher_differ,
         "same_teacher_family": same_teacher_family,
-        "request_hashes_mostly_distinct": (
-            frac_same_hash is not None and frac_same_hash < 0.05
-        ),
     }
     if axis == "reader":
         sanity["expected"] = (
             "Same memory (frozen middle); different reader_model in logs; "
-            "different llm_request_hash values; answers/scores may differ."
+            "answers/scores may differ."
         )
         sanity["memory_held_fixed"] = frac_same_mem == 1.0 if common else None
     elif axis == "teacher":
@@ -173,7 +148,6 @@ def cross_model_analysis(
         "n_common": len(common),
         "fraction_same_memory_text": frac_same_mem,
         "fraction_same_answer": frac_same_ans,
-        "fraction_same_llm_request_hash": frac_same_hash,
         "n_answer_disagreements": (len(common) - same_answer) if common else 0,
         "mean_delta_locomo_f1_b_minus_a": round(sum(deltas) / n, 4) if common else None,
         "sanity": sanity,
@@ -251,19 +225,7 @@ def write_text_report(path: Path, packs: list[dict], paired: dict) -> None:
         lines.append(f"- fraction_same_memory_text: {paired.get('fraction_same_memory_text')}")
         lines.append(f"- fraction_same_answer: {paired.get('fraction_same_answer')}")
         lines.append(f"- n_answer_disagreements: {paired.get('n_answer_disagreements')}")
-        lines.append(
-            f"- fraction_same_llm_request_hash: "
-            f"{paired.get('fraction_same_llm_request_hash')}"
-        )
         lines.append(f"- mean_delta_locomo_f1 (B−A): {paired.get('mean_delta_locomo_f1_b_minus_a')}")
-        lines.append("")
-        lines.append("## How to read the request hash")
-        lines.append(
-            "`fraction_same_llm_request_hash` is a SHA-256 of the "
-            "intended LLM request (model + filled QA prompt). It is "
-            "**not** a live `LlmResponseHash` lookup (`run.py` does not pass a "
-            "store). ≈ 0 means the two runs would not have been the same API call."
-        )
         lines.append("")
         lines.append("## Sanity")
         for k, v in (paired.get("sanity") or {}).items():
@@ -285,7 +247,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--prompt",
         default=None,
-        help="Override prompt for hash rebuilding (default: infer from run_meta.json)",
+        help="Override frozen answer prompt (default: infer from run_meta.json)",
     )
     args = p.parse_args(argv)
 
@@ -293,9 +255,8 @@ def main(argv: list[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     packs = [load_pack(Path(r)) for r in args.runs]
     write_overall_csv(out / "overall.csv", packs)
-    paired = cross_model_analysis(
-        packs, resolve_prompt_path(packs, args.prompt), args.axis
-    )
+    resolve_prompt_path(packs, args.prompt)
+    paired = cross_model_analysis(packs, args.axis)
     write_paired_csv(out / "paired_questions.csv", paired)
     slim = {k: v for k, v in paired.items() if k != "paired_rows"}
     write_text_report(out / "SUMMARY.md", packs, slim)
@@ -308,8 +269,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Wrote {out / 'SUMMARY.md'}")
     print(
         f"axis={args.axis} same_answer={slim.get('fraction_same_answer')} "
-        f"same_memory={slim.get('fraction_same_memory_text')} "
-        f"same_request_hash={slim.get('fraction_same_llm_request_hash')}"
+        f"same_memory={slim.get('fraction_same_memory_text')}"
     )
 
 

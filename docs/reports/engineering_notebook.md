@@ -72,7 +72,7 @@ python scripts/fetch_locomo.py   # HTTP to GitHub raw only
 Mock autorater output is a token-overlap plumbing check, not LLM-as-a-Judge:
 it is logged as provider/model `mock`, excluded from literature J plots/tables,
 and may overrate contradictory answers that share dates or topic words.
-Autorater never resumes or appends analysis. Every invocation clears its known
+Autorater never appends analysis. Every invocation clears its known
 generated files plus `plots/` and `tables/`, then rates one prediction file
 from scratch.
 
@@ -80,10 +80,10 @@ from scratch.
 
 | Concern | Practice |
 |---------|----------|
-| Rate limits / RPD | Low tiers (~50/day): use small `max_questions`; evaluation does not resume |
+| Rate limits / RPD | Low tiers (~50/day): use small `max_questions`; each invocation starts from question one |
 | Cost | Tokens ∝ memory string length (`raw_chunks` >> `session_summaries` typically); requests ∝ question count per invocation |
 | Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json` |
-| Cache | Evaluation factories reject `LlmResponseHash`; JSONL is audit-only |
+| Isolation | Each run id is regenerated from scratch; JSONL is audit-only |
 | Security | Never commit `.env`; example only in `.env.example` |
 
 **Autorater prompt provenance:** local
@@ -93,10 +93,10 @@ and the paper's
 [Appendix A](https://arxiv.org/abs/2504.19413) “Prompt Template for LLM as a
 Judge.”
 
-**No-cache invariant:** reader, teacher, and autorater factories reject
-non-null `llm_response_hash`. `run.py` clears generated artifacts for a run id
-and starts from question one; `predictions.jsonl` is audit-only. Autorater
-clears and rewrites its pack and rejects source rows marked `cached=true`.
+**Run isolation:** every pipeline invocation (QA, autorater, Mem0 index,
+preprocess index) clears its generated output and regenerates. `run.py`
+clears artifacts for a run id and starts from question one;
+`predictions.jsonl` is audit-only. Autorater clears and rewrites its pack.
 
 ### Planned (not implemented)
 
@@ -237,7 +237,7 @@ Orchestrator stays **software** (prompts, parallel IO, JSON checks), not one mon
 
 | Item | Location | Notes |
 |------|----------|--------|
-| OpenAI / mock | `readers.py` | Optional `LlmResponseHash` hook (unwired from `run.py`; see `utils/llm_response_hash.py`) |
+| OpenAI / mock | `readers.py` | One Chat Completions call per question |
 | Env / keys | `.env` + `env.py` | never commit secrets |
 | Scoring | `metrics.py`, `src/metrics/locomo_qa.py` | dual: SPEC + LoCoMo F1 |
 | Offline rescore | `python -m src.locomo_eval.offline_evaluate ...` | string metrics only; no API; not an LLM autorater |
@@ -263,7 +263,7 @@ python scripts/compare_full_runs.py \
   --out experiments/compare_raw_chunks_session_summaries
 ```
 
-Writes `overall.csv`, `by_category.csv`, `paired_questions.csv`, `SUMMARY.md`, `plots/` (including LoCoMo F1 **boxplot** + side-by-side **histograms**), and memory / request-hash **sanity** (`fraction_same_llm_request_hash` ≈ 0 means conditions asked the reader different things; not a live store lookup).
+Writes `overall.csv`, `by_category.csv`, `paired_questions.csv`, `SUMMARY.md`, `plots/` (including LoCoMo F1 **boxplot** + side-by-side **histograms**), and memory-text **sanity** (`fraction_same_memory_text` ≈ 0 means conditions filled the reader with different strings).
 
 Two-pack LoCoMo F1 plots alone (no sandwich SUMMARY):
 
@@ -292,7 +292,7 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 - [ ] Same `reader_model`, `temperature`, `prompt_version`
 - [ ] Same question subset (`max_questions` / sample filter)
 - [ ] Differ only in `memory_type` / builder
-- [ ] Both condition runs regenerated without cache/resume; all prediction rows have `cached=false`.
+- [ ] Both condition runs regenerated from scratch (reusing a run id does not keep old answers).
 
 ---
 
@@ -337,8 +337,6 @@ src/locomo_eval/models.py          # model catalog / API kwargs
 src/locomo_eval/teachers.py        # Mock + OpenAI teacher
 src/locomo_eval/memory.py          # builders including mem0 / mem0g
 src/locomo_eval/mem0/              # write-index package
-src/locomo_eval/utils/llm_request_hash.py   # SHA-256 of the intended LLM request (offline distinctness)
-src/locomo_eval/utils/llm_response_hash.py  # LLM reply memo (unwired; future optimization)
 src/locomo_eval/run.py             # wires builder → reader → report
 scripts/compare_full_runs.py            # two memory conditions side-by-side
 scripts/analysis/compare_predictions.py  # two-pack LoCoMo F1 boxplot + histograms

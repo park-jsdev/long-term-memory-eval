@@ -222,7 +222,6 @@ class Prediction:
     prompt_version: str
     evidence: list[str] = field(default_factory=list)
     run_id: str = ""
-    cached: bool = False  # LlmResponseHash hit if a store is passed; run.py currently does not
     teacher_model: str | None = None
     teacher_provider: str | None = None
 

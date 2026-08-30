@@ -79,7 +79,6 @@ def _index_ns(data_path: Path, output_dir: Path, **extra) -> argparse.Namespace:
         "run_id": "locomo_preprocess",
         "sample_id": None,
         "max_samples": None,
-        "overwrite": False,
         "eval_questions": None,
         "eval_reader": None,
         "eval_configs": None,
@@ -118,7 +117,7 @@ class TestPreprocessRunIndexWritesGoldFreeDump(unittest.TestCase):
             self.assertEqual([d["session_id"] for d in docs], [1, 3])
             self.assertIn("painting", docs[0]["session_summary"])
 
-    def test_run_preprocess_index_skips_complete_samples_unless_overwrite(self):
+    def test_run_preprocess_index_regenerates_when_run_id_is_reused(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data_path = _write_mini(root / "locomo.json")
@@ -126,11 +125,15 @@ class TestPreprocessRunIndexWritesGoldFreeDump(unittest.TestCase):
             cfg = _index_cfg(data_path, out)
             first = run_preprocess_index(cfg, _index_ns(data_path, out))
             meta1 = json.loads((first / "run_meta.json").read_text(encoding="utf-8"))
-            self.assertEqual(meta1["n_new"], 1)
+            self.assertEqual(meta1["n_samples"], 1)
+            stale = first / "stale.txt"
+            stale.write_text("old", encoding="utf-8")
             second = run_preprocess_index(cfg, _index_ns(data_path, out))
+            self.assertFalse(stale.exists())
             meta2 = json.loads((second / "run_meta.json").read_text(encoding="utf-8"))
-            self.assertEqual(meta2["n_skipped"], 1)
-            self.assertEqual(meta2["n_new"], 0)
+            self.assertEqual(meta2["n_samples"], 1)
+            self.assertNotIn("regenerated_from_scratch", meta2)
+            self.assertNotIn("n_skipped", meta2)
 
 
 class TestDumpBackedMemoryMatchesConversationBuilders(unittest.TestCase):

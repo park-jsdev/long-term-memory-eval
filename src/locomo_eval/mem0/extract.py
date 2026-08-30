@@ -9,21 +9,12 @@ from typing import Any
 from ..models import resolve_model
 from ..prompts import load_prompt_template
 from ..readers import OpenAIChatCaller
-from ..utils.llm_response_hash import LlmResponseHash
 from .ingest import user_messages_text
 from .json_util import parse_json_object
 from .schemas import MessagePair
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_EXTRACT_PROMPT = ROOT / "prompts" / "mem0_extract_v1.txt"
-
-
-def _reject_response_hash(llm_response_hash: LlmResponseHash | None) -> None:
-    if llm_response_hash is not None:
-        raise ValueError(
-            "Mem0 FactExtractor factory rejects llm_response_hash. "
-            "Write-index resume is per-sample JSON dumps, not LlmResponseHash."
-        )
 
 
 class FactExtractor(ABC):
@@ -66,7 +57,6 @@ class MockFactExtractor(FactExtractor):
             if body:
                 facts.append(body)
         return facts, {
-            "cached": False,
             "latency_s": 0.0,
             "usage": {},
             "model": self.model_name,
@@ -84,19 +74,16 @@ class OpenAIFactExtractor(FactExtractor):
         model: str,
         temperature: float = 0.0,
         max_tokens: int = 512,
-        llm_response_hash: LlmResponseHash | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
         prompt_path: str | Path | None = None,
     ):
-        _reject_response_hash(llm_response_hash)
         self._chat = OpenAIChatCaller(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_hash=None,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
@@ -117,14 +104,7 @@ class OpenAIFactExtractor(FactExtractor):
             },
             {"role": "user", "content": prompt},
         ]
-        text, meta = self._chat.complete(
-            messages,
-            request_extra={
-                "role": "mem0_extract",
-                "prompt_version": self.prompt_version,
-                "prompt": prompt,
-            },
-        )
+        text, meta = self._chat.complete(messages)
         facts = _facts_from_response(text)
         meta = {**meta, "role": "mem0_extract", "prompt_version": self.prompt_version}
         return facts, meta
@@ -146,13 +126,11 @@ def get_fact_extractor(
     model: str,
     temperature: float = 0.0,
     max_tokens: int = 512,
-    llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
     prompt_path: str | Path | None = None,
 ) -> FactExtractor:
-    _reject_response_hash(llm_response_hash)
     key = (name or "mock").strip().lower()
     if key == "mock":
         return MockFactExtractor(model_name=model or "mock")
@@ -161,7 +139,6 @@ def get_fact_extractor(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_hash=None,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

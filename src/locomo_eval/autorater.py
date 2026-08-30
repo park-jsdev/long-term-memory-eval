@@ -29,8 +29,6 @@ from .mem0_baselines import ADVERSARIAL_CATEGORY
 from .models import DEFAULT_AUTORATER_MODEL
 from .prompts import load_prompt_template, render_autorater_prompt
 from .readers import OpenAIChatCaller
-from .utils.llm_request_hash import PIPELINE_STAGE_AUTORATER
-from .utils.llm_response_hash import LlmResponseHash
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_AUTORATER_PROMPT = ROOT / "prompts" / "autorater_mem0_v1.txt"
@@ -198,7 +196,6 @@ class OpenAIAutorater(Autorater):
         temperature: float = 0.0,
         max_tokens: int | None = DEFAULT_AUTORATER_MAX_TOKENS,
         api_key_env: str = "OPENAI_API_KEY",
-        llm_response_hash: LlmResponseHash | None = None,
         timeout_s: float = 60.0,
         max_retries: int = 8,
         min_request_interval_s: float = 0.0,
@@ -210,7 +207,6 @@ class OpenAIAutorater(Autorater):
             temperature=temperature,
             max_tokens=max_tokens,
             api_key_env=api_key_env,
-            llm_response_hash=llm_response_hash,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
@@ -219,7 +215,6 @@ class OpenAIAutorater(Autorater):
         self.model_name = self._chat.model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.llm_response_hash = llm_response_hash
         path = Path(prompt_path) if prompt_path else DEFAULT_AUTORATER_PROMPT
         self.prompt_version, self.prompt_template = load_prompt_template(path)
 
@@ -238,12 +233,6 @@ class OpenAIAutorater(Autorater):
         messages = [{"role": "user", "content": prompt}]
         text, meta = self._chat.complete(
             messages,
-            request_extra={
-                "role": "autorater",
-                "prompt": prompt,
-                "pipeline_stage": PIPELINE_STAGE_AUTORATER,
-                "response_format": "json_object",
-            },
             create_extra={"response_format": {"type": "json_object"}},
         )
         label, reasoning = parse_judge_label(text)
@@ -280,15 +269,12 @@ def get_autorater(
     model: str = DEFAULT_AUTORATER_MODEL,
     temperature: float = 0.0,
     max_tokens: int | None = DEFAULT_AUTORATER_MAX_TOKENS,
-    llm_response_hash: LlmResponseHash | None = None,
     max_retries: int = 8,
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
     prompt_path: str | Path | None = None,
 ) -> Autorater:
-    """Build a mock or OpenAI autorater. Response caching is prohibited."""
-    if llm_response_hash is not None:
-        raise ValueError("LLM response caching is disabled for evaluation pipelines.")
+    """Build a mock or OpenAI autorater."""
     name = (name or "").lower()
     if name == "mock":
         return MockAutorater()
@@ -297,7 +283,6 @@ def get_autorater(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            llm_response_hash=llm_response_hash,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,

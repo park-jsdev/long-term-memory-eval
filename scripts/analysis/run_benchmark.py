@@ -676,8 +676,7 @@ def write_summary_md(
         "This pack scores **already generated** answers. It does not run Mem0",
         "extract/update. Category 5 (adversarial) is skipped, matching Mem0.",
         "It reads the source prediction pack but does not modify its files.",
-        "Evaluation caches are prohibited. Cached source rows are rejected, and",
-        "each invocation clears prior analysis and regenerates from source predictions.",
+        "Each invocation clears prior analysis and regenerates from source predictions.",
         "",
         "## This run",
         "",
@@ -756,18 +755,6 @@ def run_benchmark(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     _reset_benchmark_output(out)
-    cached_ids = [
-        str(row.get("question_id") or "<missing-question-id>")
-        for row in rows
-        if row.get("cached")
-    ]
-    if cached_ids:
-        preview = ", ".join(cached_ids[:5])
-        raise ValueError(
-            f"Refusing to evaluate {len(cached_ids)} cached prediction rows "
-            f"({preview}). Regenerate the source run with the cache-free "
-            "pipeline, then run the autorater again."
-        )
     verdict_path = out / "autorater_verdicts.jsonl"
 
     label = our_label
@@ -825,8 +812,6 @@ def run_benchmark(
         "prompt_version": prompt_version,
         "skip_category": skip_category,
         "n_predictions": len(rows),
-        "source_cached_rows": 0,
-        "regenerated_from_scratch": True,
         "n_new_ratings": n_ratings,
         "n_new_judge_calls": n_ratings if autorater.provider == "openai" else 0,
         "cite": PAPER_CITE,
@@ -853,7 +838,6 @@ def run_benchmark(
         "meta": meta,
         "tables": {k: str(p) for k, p in table_paths.items()},
         "plots": [str(p) for p in plot_paths],
-        "regenerated_from_scratch": True,
         "n_new_ratings": n_ratings,
         "n_new_judge_calls": n_ratings if autorater.provider == "openai" else 0,
     }
@@ -935,7 +919,6 @@ def main(argv: list[str] | None = None) -> None:
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
-        llm_response_hash=None,
         max_retries=int(acfg.get("max_retries", 8)),
         min_request_interval_s=float(acfg.get("min_request_interval_s", 0.5)),
         max_wait_s=float(acfg.get("max_wait_s", 3600.0)),
