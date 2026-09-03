@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from .chat import DEFAULT_TEACHER_THINKING, get_chat_caller
+from .teacher_callers import DEFAULT_TEACHER_THINKING, get_teacher_caller
 from .mem0.graph_memory import mock_extract_entities, mock_extract_relations, normalize_entity_name
 from .mem0.json_util import parse_json_object
 from .models import resolve_model
@@ -196,7 +196,7 @@ class MockTeacher(Teacher):
 
 
 class ChatTeacher(Teacher):
-    """Live teacher via OpenAI, Anthropic, or DeepSeek ChatCaller."""
+    """Live teacher via OpenAI, Anthropic, or DeepSeek TeacherCaller."""
 
     def __init__(
         self,
@@ -216,7 +216,7 @@ class ChatTeacher(Teacher):
     ):
         self.provider = (provider or "openai").strip().lower()
         self.thinking = bool(thinking)
-        self._chat = get_chat_caller(
+        self._caller = get_teacher_caller(
             self.provider,
             model,
             temperature=temperature,
@@ -228,7 +228,7 @@ class ChatTeacher(Teacher):
             thinking=thinking,
             thinking_budget_tokens=thinking_budget_tokens,
         )
-        self.model_name = self._chat.model_name
+        self.model_name = self._caller.model_name
         self.teacher_id = teacher_id or self.model_name
         path = Path(prompt_path) if prompt_path else DEFAULT_TEACHER_PROMPT
         self.prompt_version, self.prompt_template = load_prompt_template(path)
@@ -257,7 +257,7 @@ class ChatTeacher(Teacher):
             },
             {"role": "user", "content": prompt},
         ]
-        text, meta = self._chat.complete(messages)
+        text, meta = self._caller.complete(messages)
         meta = {
             **meta,
             "role": "teacher",
@@ -285,7 +285,7 @@ class ChatTeacher(Teacher):
             },
             {"role": "user", "content": prompt},
         ]
-        raw, meta = self._chat.complete(messages)
+        raw, meta = self._caller.complete(messages)
         meta = {
             **meta,
             "role": "teacher_graph",
@@ -328,7 +328,7 @@ class ChatTeacher(Teacher):
             },
             {"role": "user", "content": "Reply with pong only."},
         ]
-        text, meta = self._chat.complete(messages, thinking=False)
+        text, meta = self._caller.complete(messages, thinking=False)
         return text, {**meta, "role": "teacher_ping", "provider": self.provider}
 
 

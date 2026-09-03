@@ -2,7 +2,7 @@
 
 Living notes for humans reviewing the LoCoMo sandwich pipeline.  
 **Update when** frozen/variable surfaces or condition IDs change.  
-Related: `docs/agent/HUMANS.md`, `docs/agent/AGENTS.md`, `docs/agent/SPEC_v1.md`.
+Related: `docs/agent/HUMANS.md`, `docs/agent/AGENTS.md`, `docs/agent/SPEC_v1.md`, `docs/reports/multi_teacher_methodologies.md` (teacher/fusion guide).
 
 ---
 
@@ -29,8 +29,8 @@ Keep this list current when providers/models change.
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
 | OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader, Mem0 writer, judge, and cheap OpenAI teacher; **`gpt-4.1-mini`** / **`gpt-5.6-luna`** (reader robustness); **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model`, `configs/autorater.yaml` | `OpenAIChatCaller` / readers / teachers / autorater / extract |
-| Anthropic | Messages API | `anthropic` Python package | `.env` → `ANTHROPIC_API_KEY` | **`claude-haiku-4-5`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: anthropic` | `AnthropicChatCaller` |
-| DeepSeek | OpenAI-compatible Chat Completions | `openai` package + `base_url=https://api.deepseek.com` | `.env` → `DEEPSEEK_API_KEY` | **`deepseek-v4-flash`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: deepseek` | `OpenAIChatCaller` with DeepSeek base URL |
+| Anthropic | Messages API | `anthropic` Python package | `.env` → `ANTHROPIC_API_KEY` | **`claude-haiku-4-5`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: anthropic` | `AnthropicTeacherCaller` (`teacher_callers.py`) |
+| DeepSeek | OpenAI-compatible Chat Completions | `openai` package + `base_url=https://api.deepseek.com` | `.env` → `DEEPSEEK_API_KEY` | **`deepseek-v4-flash`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: deepseek` | `OpenAIChatCaller` with DeepSeek base URL (`teacher_callers.py`) |
 
 **Default baseline request shape (answer LLM):**
 
@@ -105,7 +105,7 @@ clears artifacts for a run id and starts from question one;
 ### Planned (not implemented)
 
 - Strong teacher models (GPT-5.x, Claude Sonnet/Opus, DeepSeek Pro) on the write path.
-- Weighted / learned fusion beyond majority_vote.
+- Claim-level fusion + LLM validators (see `docs/reports/multi_teacher_methodologies.md` for current resolve baselines).
 - Distilled `GraphMemory` subclass (freeze extract).
 
 ---

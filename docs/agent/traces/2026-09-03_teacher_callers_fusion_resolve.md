@@ -10,8 +10,8 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase:** HLD (i) session-block preprocess, **Mem0 / Mem0g write-index**, and HLD (ii) **TeacherOrchestrator** (single teacher, naive pool, majority-vote + slot-resolve fusion) writing the **locked Mem0 graph**. Read path: `raw_chunks` / `session_summaries` / `teacher_session_summaries` / `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` / `mem0` / `mem0g`, plus a Mem0-style **LLM autorater**. Do not claim paper J (66.88 / 68.44) from the write-index or teacher graphs.
-See `docs/reports/engineering_notebook.md` for freeze/extend rules; `docs/reports/multi_teacher_methodologies.md` for teacher/fusion methodology.
+**Current phase:** HLD (i) session-block preprocess, **Mem0 / Mem0g write-index**, and HLD (ii) **TeacherOrchestrator** (single teacher, naive pool, majority-vote fusion) writing the **locked Mem0 graph**. Read path: `raw_chunks` / `session_summaries` / `teacher_session_summaries` / `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` / `mem0` / `mem0g`, plus a Mem0-style **LLM autorater**. Do not claim paper J (66.88 / 68.44) from the write-index or teacher graphs.
+See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
 Teacher fusion is a `MemoryBuilder` + orchestrator claim. Distilled memory later is a new `GraphMemory` subclass (freeze extract when attributing the graph). `Mem0GraphMemory` is the locked graph schema whenever a condition uses a graph.
 

@@ -1,7 +1,15 @@
-"""Provider chat callers for teachers (OpenAI, Anthropic, DeepSeek).
+"""Write-path LLM callers for teachers (OpenAI, Anthropic, DeepSeek).
 
-The frozen answer reader stays OpenAI. Write-path teachers may use any of
-these callers. DeepSeek is OpenAI-compatible (base_url + DEEPSEEK_API_KEY).
+This module is **not** the frozen answer reader. It supplies provider clients
+used exclusively on the **write path**:
+
+    TeacherOrchestrator → Teacher (``teachers.py``) → TeacherCaller → API
+
+``readers.py`` owns ``OpenAIChatCaller`` for QA/autorater; teachers reuse that
+class for OpenAI/DeepSeek via ``get_teacher_caller()``. Anthropic teachers use
+``AnthropicTeacherCaller`` here.
+
+Ping / smoke: ``python -m src.locomo_eval.ping_teachers`` (via ``get_teacher``).
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ from typing import Any
 from .env import load_env
 from .models import resolve_model
 from .readers import OpenAIChatCaller, _is_rate_limit_error, _retry_after_seconds
+from .reasoning_extractor import openai_reasoning_text, split_anthropic_content
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 ANTHROPIC_MIN_THINKING_BUDGET = 1024
@@ -32,65 +41,8 @@ PROVIDER_API_KEY_ENV = {
 }
 
 
-def openai_reasoning_text(message: Any) -> str:
-    """Visible chain-of-thought from DeepSeek/OpenAI chat messages, if returned.
-
-    GPT-5.x often hides the chain and only reports ``reasoning_tokens``.
-    """
-    text = getattr(message, "reasoning_content", None)
-    if text:
-        return str(text).strip()
-    reasoning = getattr(message, "reasoning", None)
-    if isinstance(reasoning, str) and reasoning.strip():
-        return reasoning.strip()
-    if reasoning is not None and not isinstance(reasoning, str):
-        for attr in ("content", "summary", "text"):
-            val = getattr(reasoning, attr, None)
-            if not val:
-                continue
-            if isinstance(val, list):
-                return "\n".join(str(part) for part in val if part).strip()
-            return str(val).strip()
-    extra = getattr(message, "model_extra", None) or {}
-    if isinstance(extra, dict):
-        return str(extra.get("reasoning_content") or extra.get("reasoning") or "").strip()
-    return ""
-
-
-def openai_reasoning_tokens(usage: Any) -> int | None:
-    """OpenAI ``completion_tokens_details.reasoning_tokens``, if present."""
-    if usage is None:
-        return None
-    details = getattr(usage, "completion_tokens_details", None)
-    if details is None:
-        return None
-    n = getattr(details, "reasoning_tokens", None)
-    try:
-        return int(n) if n is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def split_anthropic_content(content: Any) -> tuple[str, str]:
-    """Return (visible_text, thinking_text) from Messages API content blocks."""
-    texts: list[str] = []
-    thoughts: list[str] = []
-    for block in content or []:
-        btype = getattr(block, "type", None)
-        if btype == "thinking":
-            thoughts.append(str(getattr(block, "thinking", "") or ""))
-        elif btype == "redacted_thinking":
-            thoughts.append("[redacted_thinking]")
-        else:
-            texts.append(str(getattr(block, "text", "") or ""))
-    return (
-        "\n".join(part for part in texts if part).strip(),
-        "\n".join(part for part in thoughts if part).strip(),
-    )
-
-
-class ChatCaller(ABC):
-    """messages → (text, call_meta). Shared by teachers; not the answer reader."""
+class TeacherCaller(ABC):
+    """messages → (text, call_meta). Used by ``ChatTeacher`` on the write path."""
 
     model_name: str
     provider: str
@@ -105,7 +57,7 @@ class ChatCaller(ABC):
         ...
 
 
-class MockChatCaller(ChatCaller):
+class MockTeacherCaller(TeacherCaller):
     """Offline stand-in. Replies are tagged with the model id."""
 
     provider = PROVIDER_MOCK
@@ -142,8 +94,8 @@ class MockChatCaller(ChatCaller):
         }
 
 
-class AnthropicChatCaller(ChatCaller):
-    """Anthropic Messages API. Same retry/pace contract as OpenAIChatCaller."""
+class AnthropicTeacherCaller(TeacherCaller):
+    """Anthropic Messages API for graph/session teachers."""
 
     provider = PROVIDER_ANTHROPIC
 
@@ -293,7 +245,7 @@ class AnthropicChatCaller(ChatCaller):
         raise last_exc
 
 
-def get_chat_caller(
+def get_teacher_caller(
     provider: str,
     model: str,
     *,
@@ -305,11 +257,11 @@ def get_chat_caller(
     max_wait_s: float = 3600.0,
     thinking: bool = DEFAULT_TEACHER_THINKING,
     thinking_budget_tokens: int = ANTHROPIC_MIN_THINKING_BUDGET,
-) -> ChatCaller:
-    """Build a mock / OpenAI / Anthropic / DeepSeek chat caller."""
+) -> TeacherCaller:
+    """Build a mock / OpenAI / Anthropic / DeepSeek caller for teachers."""
     name = (provider or PROVIDER_MOCK).strip().lower()
     if name == PROVIDER_MOCK:
-        return MockChatCaller(model=model or "mock", thinking=thinking)
+        return MockTeacherCaller(model=model or "mock", thinking=thinking)
     if name == PROVIDER_OPENAI:
         return OpenAIChatCaller(
             model=model,
@@ -336,7 +288,7 @@ def get_chat_caller(
             thinking=thinking,
         )
     if name == PROVIDER_ANTHROPIC:
-        return AnthropicChatCaller(
+        return AnthropicTeacherCaller(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -349,7 +301,7 @@ def get_chat_caller(
             thinking_budget_tokens=thinking_budget_tokens,
         )
     raise ValueError(
-        f"Unknown chat provider '{provider}'. Use openai, anthropic, deepseek, or mock."
+        f"Unknown teacher provider '{provider}'. Use openai, anthropic, deepseek, or mock."
     )
 
 

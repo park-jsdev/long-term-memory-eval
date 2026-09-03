@@ -178,7 +178,7 @@ class OpenAIChatCaller:
         ``create_extra`` is merged into Chat Completions kwargs (e.g. JSON
         ``response_format`` for the autorater).
         """
-        from .chat import openai_reasoning_text, openai_reasoning_tokens
+        from .reasoning_extractor import openai_reasoning_text, openai_reasoning_tokens
 
         create_kwargs = chat_create_kwargs(
             self.spec,

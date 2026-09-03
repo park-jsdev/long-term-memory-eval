@@ -19,10 +19,12 @@ from typing import Any
 
 from .fusion import (
     FUSION_NONE,
+    FUSION_RESOLVE_POLICIES,
     POOL_SINGLE,
     GraphProposal,
     fuse_proposals,
     fusion_relation_audit,
+    fusion_slot_audit,
     select_teacher_ids,
 )
 from .mem0.embeddings import Embedder, MockEmbedder
@@ -154,7 +156,18 @@ class TeacherOrchestrator:
         for block in self.iter_session_blocks(processed):
             proposals = self._propose(block, session_index=block.session_index, rng=rng)
             entities, relations = fuse_proposals(
-                proposals, fusion=self.fusion, min_votes=self.min_votes
+                proposals,
+                fusion=self.fusion,
+                min_votes=self.min_votes,
+                rng=rng,
+                session_index=block.session_index,
+                teacher_order=[p.teacher_id for p in proposals],
+            )
+            audit_relations = fusion_relation_audit(proposals, relations)
+            slot_audit = (
+                fusion_slot_audit(proposals, relations)
+                if self.fusion in FUSION_RESOLVE_POLICIES
+                else []
             )
             self.fusion_log.append(
                 {
@@ -166,7 +179,8 @@ class TeacherOrchestrator:
                     "teacher_ids": [p.teacher_id for p in proposals],
                     "n_kept_entities": len(entities),
                     "n_kept_relations": len(relations),
-                    "relations": fusion_relation_audit(proposals, relations),
+                    "relations": audit_relations,
+                    "slots": slot_audit,
                 }
             )
             graph.ingest_triples(

@@ -18,6 +18,11 @@ from src.locomo_eval.dataset import parse_sample
 from src.locomo_eval.fusion import (
     FUSION_MAJORITY,
     FUSION_NONE,
+    FUSION_RESOLVE_CONFIDENCE,
+    FUSION_RESOLVE_FIRST,
+    FUSION_RESOLVE_RANDOM,
+    FUSION_RESOLVE_ROUND_ROBIN,
+    FUSION_RESOLVE_TOP_VOTED,
     POOL_EQUAL_WEIGHT,
     POOL_RANDOM,
     POOL_ROUND_ROBIN,
@@ -25,7 +30,9 @@ from src.locomo_eval.fusion import (
     GraphProposal,
     fuse_majority,
     fuse_proposals,
+    fuse_resolve,
     fusion_relation_audit,
+    fusion_slot_audit,
     relation_key,
     select_teacher_ids,
 )
@@ -37,7 +44,7 @@ from src.locomo_eval.memory import (
     is_question_independent,
     resolve_memory_name,
 )
-from src.locomo_eval.chat import _is_missing_anthropic_workspace
+from src.locomo_eval.teacher_callers import _is_missing_anthropic_workspace
 from src.locomo_eval.ping_teachers import format_ping_error, ping_teachers
 from src.locomo_eval.preprocess.preprocessing_pipeline import PreprocessingPipeline
 from src.locomo_eval.teacher_orchestrator import (
@@ -134,6 +141,133 @@ class TestSelectTeacherIdsPoolPolicies(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(len(a), 1)
         self.assertIn(a[0], roster)
+
+
+class TestFusionResolveStrategies(unittest.TestCase):
+    def _disagreement_proposals(self) -> list[GraphProposal]:
+        return [
+            GraphProposal(
+                teacher_id="openai",
+                provider="mock",
+                model="gpt-4o-mini",
+                relations=[{"source": "alice", "relationship": "lives_in", "target": "boston"}],
+            ),
+            GraphProposal(
+                teacher_id="anthropic",
+                provider="mock",
+                model="claude-haiku-4-5",
+                relations=[{"source": "alice", "relationship": "lives_in", "target": "nyc"}],
+            ),
+            GraphProposal(
+                teacher_id="deepseek",
+                provider="mock",
+                model="deepseek-v4-flash",
+                relations=[{"source": "alice", "relationship": "lives_in", "target": "la"}],
+            ),
+        ]
+
+    def test_resolve_top_voted_picks_two_vote_target_on_one_two_split(self):
+        proposals = [
+            GraphProposal(
+                teacher_id="openai",
+                provider="mock",
+                model="a",
+                relations=[{"source": "alice", "relationship": "lives_in", "target": "boston"}],
+            ),
+            GraphProposal(
+                teacher_id="anthropic",
+                provider="mock",
+                model="b",
+                relations=[{"source": "alice", "relationship": "lives_in", "target": "boston"}],
+            ),
+            GraphProposal(
+                teacher_id="deepseek",
+                provider="mock",
+                model="c",
+                relations=[{"source": "alice", "relationship": "lives_in", "target": "nyc"}],
+            ),
+        ]
+        _ents, rels = fuse_resolve(proposals, strategy=FUSION_RESOLVE_TOP_VOTED)
+        self.assertEqual(len(rels), 1)
+        self.assertEqual(rels[0]["target"], "boston")
+
+    def test_resolve_first_picks_first_teacher_target_on_one_one_one_split(self):
+        proposals = self._disagreement_proposals()
+        _ents, rels = fuse_resolve(proposals, strategy=FUSION_RESOLVE_FIRST)
+        self.assertEqual(rels[0]["target"], "boston")
+
+    def test_resolve_random_is_seeded(self):
+        proposals = self._disagreement_proposals()
+        rng = __import__("random").Random(42)
+        a = fuse_resolve(proposals, strategy=FUSION_RESOLVE_RANDOM, rng=rng)[1]
+        rng = __import__("random").Random(42)
+        b = fuse_resolve(proposals, strategy=FUSION_RESOLVE_RANDOM, rng=rng)[1]
+        self.assertEqual(a, b)
+        self.assertEqual(len(a), 1)
+
+    def test_resolve_round_robin_varies_by_session_index_on_ties(self):
+        proposals = self._disagreement_proposals()
+        a = fuse_resolve(
+            proposals, strategy=FUSION_RESOLVE_ROUND_ROBIN, session_index=0
+        )[1][0]["target"]
+        b = fuse_resolve(
+            proposals, strategy=FUSION_RESOLVE_ROUND_ROBIN, session_index=1
+        )[1][0]["target"]
+        self.assertNotEqual(a, b)
+
+    def test_resolve_confidence_beats_two_low_confidence_votes(self):
+        proposals = [
+            GraphProposal(
+                teacher_id="openai",
+                provider="mock",
+                model="a",
+                relations=[
+                    {
+                        "source": "alice",
+                        "relationship": "lives_in",
+                        "target": "boston",
+                        "confidence": 3.0,
+                    }
+                ],
+            ),
+            GraphProposal(
+                teacher_id="anthropic",
+                provider="mock",
+                model="b",
+                relations=[
+                    {
+                        "source": "alice",
+                        "relationship": "lives_in",
+                        "target": "nyc",
+                        "confidence": 0.5,
+                    }
+                ],
+            ),
+            GraphProposal(
+                teacher_id="deepseek",
+                provider="mock",
+                model="c",
+                relations=[
+                    {
+                        "source": "alice",
+                        "relationship": "lives_in",
+                        "target": "nyc",
+                        "confidence": 0.5,
+                    }
+                ],
+            ),
+        ]
+        _ents, rels = fuse_resolve(proposals, strategy=FUSION_RESOLVE_CONFIDENCE)
+        self.assertEqual(rels[0]["target"], "boston")
+
+    def test_fusion_slot_audit_marks_disagreements(self):
+        proposals = self._disagreement_proposals()
+        _ents, kept = fuse_resolve(proposals, strategy=FUSION_RESOLVE_FIRST)
+        rows = fusion_slot_audit(proposals, kept)
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["disagreement"])
+        self.assertEqual(rows[0]["n_targets"], 3)
+        self.assertIn(rows[0]["kept_target"], {"boston", "nyc", "la"})
 
 
 class TestFuseMajorityKeepsSharedTriples(unittest.TestCase):
@@ -338,7 +472,10 @@ class TestGetTeacherProvidersAndPing(unittest.TestCase):
 
 class TestTeacherThinkingMeta(unittest.TestCase):
     def test_openai_reasoning_text_reads_reasoning_content(self):
-        from src.locomo_eval.chat import openai_reasoning_text, openai_reasoning_tokens
+        from src.locomo_eval.reasoning_extractor import (
+            openai_reasoning_text,
+            openai_reasoning_tokens,
+        )
 
         class Message:
             reasoning_content = "step one"
@@ -354,7 +491,7 @@ class TestTeacherThinkingMeta(unittest.TestCase):
         self.assertEqual(openai_reasoning_tokens(Usage()), 12)
 
     def test_split_anthropic_content_separates_thinking_blocks(self):
-        from src.locomo_eval.chat import split_anthropic_content
+        from src.locomo_eval.reasoning_extractor import split_anthropic_content
 
         class Block:
             def __init__(self, type: str, **kwargs):

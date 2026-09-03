@@ -35,7 +35,13 @@ if str(ROOT) not in sys.path:
 from src.config import load_config
 from src.locomo_eval.dataset import iter_questions, load_conversations, select_question_pairs
 from src.locomo_eval.env import load_env
-from src.locomo_eval.fusion import FUSION_MAJORITY, FUSION_NONE, POOL_EQUAL_WEIGHT, POOL_SINGLE
+from src.locomo_eval.fusion import (
+    FUSION_MAJORITY,
+    FUSION_NONE,
+    FUSION_POLICIES,
+    POOL_EQUAL_WEIGHT,
+    POOL_SINGLE,
+)
 from src.locomo_eval.memory import (
     ORCHESTRATED_GRAPH_NAMES,
     TeacherSessionMemoryBuilder,
@@ -60,7 +66,7 @@ from src.locomo_eval.prompts import load_prompt_template
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
-from src.locomo_eval.chat import DEFAULT_TEACHER_THINKING
+from src.locomo_eval.teacher_callers import DEFAULT_TEACHER_THINKING
 from src.locomo_eval.teacher_orchestrator import TeacherOrchestrator
 from src.locomo_eval.teachers import get_teacher
 
@@ -673,7 +679,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--fusion",
         default=None,
-        choices=("none", "majority_vote"),
+        choices=FUSION_POLICIES,
         help="Override orchestrator.fusion for teacher graph conditions",
     )
     p.add_argument(

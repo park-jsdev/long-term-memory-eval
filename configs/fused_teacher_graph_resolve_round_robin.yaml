@@ -1,0 +1,53 @@
+# K teachers → round-robin slot resolution among tied targets (cycles by session index).
+#
+#   python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_round_robin.yaml \
+#       --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_resolve_round_robin
+
+data:
+  raw_path: data/raw/locomo10.json
+  locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+
+pipeline:
+  memory: fused_teacher_graph
+  prompt_path: prompts/qa_mem0_v1.txt
+  max_questions: null
+
+reader:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+
+teachers:
+  - id: openai
+    provider: openai
+    model: gpt-4o-mini
+  - id: anthropic
+    provider: anthropic
+    model: claude-haiku-4-5
+  - id: deepseek
+    provider: deepseek
+    model: deepseek-v4-flash
+
+teacher:
+  prompt_path: prompts/teacher_session_v1.txt
+  graph_prompt_path: prompts/teacher_graph_v1.txt
+  temperature: 0.0
+  max_tokens: 512
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+  thinking: true
+  thinking_budget_tokens: 1024
+
+orchestrator:
+  pool: equal_weight
+  fusion: resolve_round_robin
+  rng_seed: 0
+
+run:
+  run_id: null
+  output_dir: experiments
