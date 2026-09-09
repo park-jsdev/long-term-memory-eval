@@ -1,0 +1,12 @@
+method,source,f1,bleu1,j,mock_sanity_score,j_std,total_p50,total_p95,search_p50,search_p95,memory_tokens,reader_prompt_tokens_mean,autorater_total_tokens_mean,cite
+session_summaries,this_run,26.08,17.29,80.0,,,1.608,4.6799,,,,3918.8,403.5,
+RAG k=1 128,mem0_paper,,,47.77,,0.23,0.774,1.825,0.281,0.823,128,,,"Chhikara et al., arXiv:2504.19413"
+RAG k=1 256,mem0_paper,,,50.15,,0.16,0.745,1.628,0.251,0.71,256,,,"Chhikara et al., arXiv:2504.19413"
+RAG k=2 256,mem0_paper,,,60.97,,0.2,0.802,1.907,0.255,0.699,256,,,"Chhikara et al., arXiv:2504.19413"
+Full-context,mem0_paper,,,72.9,,0.19,9.87,17.117,,,26031,,,"Chhikara et al., arXiv:2504.19413"
+A-Mem,mem0_paper,,,48.38,,0.15,1.41,4.374,0.668,1.485,2520,,,"Chhikara et al., arXiv:2504.19413"
+LangMem,mem0_paper,,,58.1,,0.21,18.53,60.4,17.99,59.82,127,,,"Chhikara et al., arXiv:2504.19413"
+Zep,mem0_paper,,,65.99,,0.16,1.292,2.926,0.513,0.778,3911,,,"Chhikara et al., arXiv:2504.19413"
+OpenAI,mem0_paper,,,52.9,,0.14,0.466,0.889,,,4437,,,"Chhikara et al., arXiv:2504.19413"
+Mem0,mem0_paper,,,66.88,,0.15,0.708,1.44,0.148,0.2,1764,,,"Chhikara et al., arXiv:2504.19413"
+Mem0g,mem0_paper,,,68.44,,0.17,1.091,2.59,0.476,0.657,3616,,,"Chhikara et al., arXiv:2504.19413"

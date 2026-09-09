@@ -94,43 +94,6 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "Swap GraphMemory later; freeze extract for that claim."
         ),
     },
-    "rag": {
-        "builder": "RagMemoryBuilder",
-        "code": "src/locomo_eval/rag/builders.py",
-        "source_fields": [
-            "experiments/<index_run_id>/rag_index/by_sample/<id>/chunks.json",
-        ],
-        "text_layout": "{chunk_i}\\n<->\\n{chunk_j}  (cosine top-k token windows)",
-        "notes": (
-            "Mem0 paper RAG clone: tiktoken cl100k_base chunks, "
-            "text-embedding-3-small, k in {1,2}. Question-dependent. Not Table 2 J."
-        ),
-    },
-    "full_context": {
-        "builder": "FullContextMemoryBuilder",
-        "code": "src/locomo_eval/rag/builders.py",
-        "source_fields": [
-            "conversation.session_k_date_time",
-            "turn.speaker/text",
-        ],
-        "text_layout": "{timestamp} | {speaker}: {text}\\n…",
-        "notes": (
-            "Mem0 paper full-context: entire transcript, no retrieval. "
-            "Not a number clone of J=72.90."
-        ),
-    },
-    "openai_memory": {
-        "builder": "OpenAIMemoryBuilder",
-        "code": "src/locomo_eval/openai_memory/builders.py",
-        "source_fields": [
-            "experiments/<index_run_id>/openai_memory_index/by_sample/<id>/memories.json",
-        ],
-        "text_layout": "{timestamp} | {speaker}: {extracted fact}\\n…",
-        "notes": (
-            "Privileged retrieve-all of an extract dump. Architecture clone of "
-            "the paper's ChatGPT Memory protocol, not the product and not J=52.90."
-        ),
-    },
 }
 # Older run packs may still log the numbered ids.
 CONDITION_LAYOUTS["c0_raw"] = CONDITION_LAYOUTS["raw_chunks"]
@@ -149,8 +112,6 @@ def memory_to_record(memory: Memory) -> dict[str, Any]:
         rec["teacher_model"] = memory.teacher_model
     if memory.teacher_provider:
         rec["teacher_provider"] = memory.teacher_provider
-    if memory.search_latency_s is not None:
-        rec["search_latency_s"] = memory.search_latency_s
     return rec
 
 
@@ -166,15 +127,8 @@ def write_memory_run_log(
     prompt_template: str,
     example_question: str | None,
     doc_path: str = "docs/schemas/memory_runtime.md",
-    memories_by_question: dict[str, Memory] | None = None,
-    question_sample_ids: dict[str, str] | None = None,
 ) -> Path:
-    """Write experiments/<run_id>/memory/ audit package.
-
-    Question-independent builders dump one text per sample. Question-dependent
-    builders (rag, mem0, mem0g) also dump ``memory/by_question/<qid>.txt`` so
-    retrieved chunks are auditable per experimental item.
-    """
+    """Write experiments/<run_id>/memory/ audit package."""
     mem_dir = Path(run_dir) / "memory"
     sample_dir = mem_dir / "by_sample"
     sample_dir.mkdir(parents=True, exist_ok=True)
@@ -224,8 +178,6 @@ def write_memory_run_log(
             "gold_answer_in_memory": False,
         },
         "n_unique_samples": len(memories_by_sample),
-        "n_unique_questions": len(memories_by_question or {}),
-        "question_dependent_dump": bool(memories_by_question),
     }
     write_json(mem_dir / "schema.json", schema_doc)
 
@@ -238,7 +190,6 @@ def write_memory_run_log(
             f"- Machine schema: `docs/schemas/memory_io.schema.json`",
             f"- This run’s layout: `memory/schema.json`",
             f"- Full texts: `memory/by_sample/<sample_id>.txt`",
-            f"- Per-question texts (when retrieve is question-dependent): `memory/by_question/<question_id>.txt`",
             f"- Index: `memory/index.jsonl`",
             "",
             "This folder is the audit trail of **exactly** what `{memory}` contained.",
@@ -266,33 +217,8 @@ def write_memory_run_log(
                 "full_text_path": rel,
                 "teacher_model": memory.teacher_model,
                 "teacher_provider": memory.teacher_provider,
-                "search_latency_s": memory.search_latency_s,
-                "key_kind": "sample",
             }
             idx.write(__import__("json").dumps(row, ensure_ascii=False) + "\n")
-        if memories_by_question:
-            q_dir = mem_dir / "by_question"
-            q_dir.mkdir(parents=True, exist_ok=True)
-            q_sample = question_sample_ids or {}
-            for question_id, memory in sorted(memories_by_question.items()):
-                text = memory.text or ""
-                rel = f"memory/by_question/{question_id}.txt"
-                (q_dir / f"{question_id}.txt").write_text(text, encoding="utf-8")
-                row = {
-                    "schema_version": SCHEMA_VERSION,
-                    "sample_id": q_sample.get(question_id),
-                    "question_id": question_id,
-                    "memory_type": memory.memory_type,
-                    "n_source_ids": len(memory.source_ids),
-                    "n_chars": len(text),
-                    "text_sha256": _sha256_text(text),
-                    "text_head": text[:400],
-                    "text_tail": text[-200:] if len(text) > 200 else text,
-                    "full_text_path": rel,
-                    "search_latency_s": memory.search_latency_s,
-                    "key_kind": "question",
-                }
-                idx.write(__import__("json").dumps(row, ensure_ascii=False) + "\n")
 
     # One filled-prompt example (may be large; still useful for review).
     example_sid, example_mem = next(iter(sorted(memories_by_sample.items())))

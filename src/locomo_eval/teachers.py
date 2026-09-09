@@ -86,21 +86,15 @@ class OpenAITeacher(Teacher):
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
         prompt_path: str | Path | None = None,
-        api_key_env: str = "OPENAI_API_KEY",
-        base_url: str | None = None,
-        provider: str = "openai",
     ):
-        self.provider = provider
         self._chat = OpenAIChatCaller(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
-            api_key_env=api_key_env,
             timeout_s=timeout_s,
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,
-            base_url=base_url,
         )
         self.model_name = self._chat.model_name
         path = Path(prompt_path) if prompt_path else DEFAULT_TEACHER_PROMPT
@@ -146,10 +140,7 @@ def get_teacher(
     name = (name or "mock").lower()
     if name == "mock":
         return MockTeacher(model_name=model or "mock")
-    from .readers import OPENAI_COMPAT_PROVIDERS
-
-    if name in OPENAI_COMPAT_PROVIDERS:
-        spec = OPENAI_COMPAT_PROVIDERS[name]
+    if name == "openai":
         return OpenAITeacher(
             model=model,
             temperature=temperature,
@@ -158,8 +149,5 @@ def get_teacher(
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,
             prompt_path=prompt_path,
-            api_key_env=str(spec["api_key_env"]),
-            base_url=spec.get("base_url"),
-            provider=name,
         )
-    raise ValueError(f"Unknown teacher '{name}'. Use openai, deepseek, or mock.")
+    raise ValueError(f"Unknown teacher '{name}'. Use openai or mock.")

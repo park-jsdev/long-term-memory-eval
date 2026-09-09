@@ -63,18 +63,6 @@ If truncated:
 {last memory_max_chars characters of the full string}
 ```
 
-### Condition `full_context` (`FullContextMemoryBuilder`)
-
-Config: `configs/full_context.yaml`. Mem0 paper transcript grammar (`{timestamp} | {speaker}: {text}`). No retrieval.
-
-### Condition `rag` (`RagMemoryBuilder`)
-
-Config: `configs/rag.yaml`. Loads `experiments/<index_run_id>/rag_index/`. Question-dependent cosine top-k token chunks joined with `\n<->\n`. Per-question texts: `memory/by_question/<qid>.txt`.
-
-### Condition `openai_memory` (`OpenAIMemoryBuilder`)
-
-Config: `configs/openai_memory.yaml`. Concatenates every extracted `{timestamp} | {speaker}: {fact}`. No top-k.
-
 ### Condition `session_summaries` (`SessionSummaryMemoryBuilder`)
 
 Config: `configs/session_summaries.yaml` · uses LoCoMo release field `session_summary`.
