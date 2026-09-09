@@ -204,7 +204,7 @@ QA packs: `experiments/locomo_preprocess_raw_chunks_n10/` and `experiments/locom
 
 One `--method` per invocation. Index (if that method needs a dump) → QA → optional autorater. Compare two finished packs with `scripts/compare_full_runs.py` (Wilcoxon + 95% CI on LoCoMo F1 deltas).
 
-**Mock smoke (no API):** `--max-samples` caps conversations for both index and QA. Default `round_robin` then takes `--max-questions` from those samples only (so `1` sample × `5` questions does not walk into unindexed conversations). Subset smokes write `experiments/<run_id>_index/` instead of overwriting the YAML full-dump id (`rag_locomo10`, …).
+**Mock smoke (no API):**
 
 ```bash
 python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context

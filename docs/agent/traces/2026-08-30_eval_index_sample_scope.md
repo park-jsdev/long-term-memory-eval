@@ -124,8 +124,6 @@ python -m scripts.analysis.run_benchmark --run experiments/<run_id>
 python -m scripts.analysis.run_benchmark --run experiments/<run_id> --autorater mock
 
 # Evaluation pipeline (one method). Mock smoke, then live + judge seeds.
-# --max-samples caps index AND QA so round-robin --max-questions stays in those conversations.
-# Subset smokes write experiments/<run_id>_index (they do not overwrite rag_locomo10).
 python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context
 python -m src.locomo_eval.eval_pipeline --method rag --reader mock --embedder mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_rag
 python -m src.locomo_eval.eval_pipeline --method openai_memory --reader mock --extractor mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_openai_memory
