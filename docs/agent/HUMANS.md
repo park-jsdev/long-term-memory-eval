@@ -16,21 +16,11 @@ You compare **how memory is built** for long multi-session chats (LoCoMo). The e
 | Middle | Variable (`raw_chunks`, `session_summaries`, `mem0`, `mem0g`, later teacher/fusion) | How candidate memory is constructed / fused |
 | Bottom | Fixed | Retrieval budget, answer LLM + prompt, metrics |
 
-**v0.1 goal:** evaluation pipeline that can locally run Mem0 paper methods (RAG, full-context, OpenAI-memory protocol clone, Mem0/Mem0g architecture clone) under one frozen answer LLM, with auditable memory dumps, string metrics, and a Mem0 autorater (multi-judge-run CIs). Sandwich comparisons (`raw_chunks` vs `session_summaries` / teacher) stay the same two-run + `compare_full_runs.py` flow.
+**v0.1 goal:** ship the **bottom + I/O skeleton** using LoCoMo’s own **session summaries** as memory, answered by one fixed OpenAI model, scored with LoCoMo-compatible metrics, and with **auditable logs/plots**.
 
-You are not yet running multi-teacher fusion. Point `--method` / `--config` at a later fusion YAML when that builder exists. Full system map: `docs/reports/engineering_notebook.md`.
+You are not yet running multi-teacher fusion. **`raw_chunks`** vs **`session_summaries`** compare how much structure helps under one fixed answer model. Full system map: `docs/reports/engineering_notebook.md`.
 
-**Can we reproduce paper numbers locally?**
-
-| Method | Locally runnable? | Same as paper J? |
-|--------|--------------------|-------------------|
-| RAG | Yes (`rag` module; tiktoken + embeddings) | Directionally comparable only. Paper used their locomo10_rag.json + their prompt. |
-| Full-context | Yes (`full_context`; whole transcript) | Same caveat; paper J=72.90 is a literature pin. |
-| OpenAI | Protocol clone only (`openai_memory`: extract-all, retrieve-all) | **No.** Paper used ChatGPT Memory product (no public selective-retrieve API). |
-| Mem0 / Mem0g | OSS architecture clone (`locomo_eval.mem0`; in-memory graph, no Neo4j) | **No.** Paper J 66.88 / 68.44 is Mem0 Platform. GitHub: OSS will not match Platform numbers. |
-| A-Mem, LangMem, Zep, MemGPT, ReadAgent, MemoryBank | Literature pins in `mem0_baselines.py` | Do not re-run. |
-
-HLD **(i) pre-processing** emits ordered **session blocks** via `DataIngestor` and `PreprocessingPipeline`. Dump them with `python -m src.locomo_eval.preprocess.run_index` (no LLM). A **Mem0 write-index** walks those blocks as message pairs. RAG indexes token chunks. OpenAI-memory extracts timestamped facts then injects all of them.
+HLD **(i) pre-processing** emits ordered **session blocks** (stable `turn_id`s) via `DataIngestor` and `PreprocessingPipeline`. Dump them with `python -m src.locomo_eval.preprocess.run_index` (no LLM). `raw_chunks` / `session_summaries` can load that dump (`--preprocess-index-run-id`) or still read `Conversation` from `dataset.py`. A **Mem0 write-index** walks those blocks as message pairs (extract + update; optional graph) and dumps JSON under `experiments/<run_id>/mem0_index/`. Full LoCoMo QA for Mem0/Mem0g is a **later** command — this slice only indexes and can load the dump into `Memory.text`.
 
 ---
 
@@ -197,55 +187,6 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 ```
 
 QA packs: `experiments/locomo_preprocess_raw_chunks_n10/` and `experiments/locomo_preprocess_session_summaries_n10/`. You can also point a later `run.py` at the dump with `--preprocess-index-run-id locomo_preprocess`.
-
----
-
-## Evaluation pipeline (paper methods + any extra condition)
-
-One `--method` per invocation. Index (if that method needs a dump) → QA → optional autorater. Compare two finished packs with `scripts/compare_full_runs.py` (Wilcoxon + 95% CI on LoCoMo F1 deltas).
-
-**Mock smoke (no API):** `--max-samples` caps conversations for both index and QA. Default `round_robin` then takes `--max-questions` from those samples only (so `1` sample × `5` questions does not walk into unindexed conversations). Subset smokes write `experiments/<run_id>_index/` instead of overwriting the YAML full-dump id (`rag_locomo10`, …).
-
-```bash
-python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context
-python -m src.locomo_eval.eval_pipeline --method rag --reader mock --embedder mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_rag
-python -m src.locomo_eval.eval_pipeline --method openai_memory --reader mock --extractor mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_openai_memory
-python -m src.locomo_eval.eval_pipeline --method mem0 --reader mock --extractor mock --embedder mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_mem0
-```
-
-**Full live runs** (costly; `gpt-4o-mini` answer + judge). Paper J used 10 independent judge runs:
-
-```bash
-# RAG (paper's best RAG cell: k=2, chunk=256)
-python -m src.locomo_eval.eval_pipeline --method rag --chunk-size 256 --k 2 --index-run-id rag_locomo10 --run-id rag_k2_256_qa --autorater openai --n-judge-runs 10 --label "RAG k=2 256"
-
-# Full-context
-python -m src.locomo_eval.eval_pipeline --method full_context --run-id full_context_qa --autorater openai --n-judge-runs 10 --label Full-context
-
-# OpenAI-memory protocol clone (not ChatGPT Memory)
-python -m src.locomo_eval.eval_pipeline --method openai_memory --index-run-id openai_memory_locomo10 --run-id openai_memory_qa --autorater openai --n-judge-runs 10 --label OpenAI
-
-# Mem0 / Mem0g architecture clones (not Platform J)
-python -m src.locomo_eval.eval_pipeline --method mem0 --index-run-id mem0_locomo10 --run-id mem0_qa --autorater openai --n-judge-runs 10 --label Mem0
-python -m src.locomo_eval.eval_pipeline --method mem0g --index-run-id mem0g_locomo10 --run-id mem0g_qa --autorater openai --n-judge-runs 10 --label Mem0g
-
-# Optional extra condition (swap YAML when a fusion builder exists)
-python -m src.locomo_eval.eval_pipeline --method teacher_session_summaries --teacher-model gpt-4o-mini --run-id teacher_qa --autorater openai --n-judge-runs 10
-
-# Reader infra (robustness axis, not a memory claim)
-python -m src.locomo_eval.run --config configs/full_context.yaml --reader deepseek --model deepseek-chat --max-questions 3 --run-id smoke_deepseek
-python -m src.locomo_eval.run --config configs/full_context.yaml --reader anthropic --model claude-3-5-haiku-latest --max-questions 3 --run-id smoke_claude
-```
-
-Compare two methods (offline):
-
-```bash
-python scripts/compare_full_runs.py --runs experiments/rag_k2_256_qa experiments/full_context_qa --out experiments/compare_rag_full_context
-```
-
-`--n-judge-runs 10` writes `experiments/<run_id>/autorater_seeds/seed_00` … then `autorater/seed_aggregate.json` (mean ± std, 95% CI). One live autorater pack is one seed; that matches HUMANS.md's earlier note.
-
-Memory audit: `experiments/<run_id>/memory/` (per-sample always; `memory/by_question/` when retrieve is question-dependent — RAG / mem0 / mem0g).
 
 ---
 
