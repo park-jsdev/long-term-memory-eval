@@ -51,6 +51,8 @@ All multi-teacher graph conditions share:
 
 **Future (not implemented):** `top1_teacher`, `claim_fusion`, learned/validator fusion, distilled `GraphMemory` subclass.
 
+**Future MR (sandwich audit, not this branch):** question → injected triple/`source_id` → `proposed_by`; dump graph ingest MERGE/invalidate ops so fusion logs match the store the reader sees; retrieve cosine ranks; teacher empty-session / parse-fail rollup; copy YAML + `rng_seed` into `experiments/<run_id>/`. Do not mix that work into the multi-teacher write-path MR.
+
 ---
 
 ## 3. LLMs and where they run
@@ -211,8 +213,10 @@ Override fusion without a new YAML: `--fusion resolve_top_voted`.
 | `src/locomo_eval/teacher_orchestrator.py` | Session walk, pool, fuse, graph ingest |
 | `src/locomo_eval/fusion.py` | Pool/fusion/resolve policies |
 | `src/locomo_eval/memory.py` | Condition builders (`teacher_graph`, `pooled_*`, `fused_*`) |
-| `src/locomo_eval/run.py` | Single-condition CLI |
-| `src/locomo_eval/reasoning.py` | Shared reasoning-text helpers (reader + teachers) |
+| `src/locomo_eval/run.py` | Single-condition CLI (dumps a sandwich audit via `audit_writer`) |
+| `src/locomo_eval/experiments/audit_writer.py` | Write `reader/`, `memory/teachers/`, `memory/graph/` during a run |
+| `src/locomo_eval/experiments/audit_loader.py` | Read a finished `experiments/<run_id>/` sandwich audit |
+| `src/locomo_eval/reasoning_extractor.py` | Shared reasoning-text helpers (reader + teachers) |
 
 ---
 
@@ -220,4 +224,5 @@ Override fusion without a new YAML: `--fusion resolve_top_voted`.
 
 - OSS Mem0/Mem0g clones are **not** paper Table 1–2 J numbers.
 - Multi-teacher resolve policies are **baseline heuristics**; claim-level fusion and LLM validators are future work.
+- Teacher attribution in this branch is **fusion/call logs** (`memory/teachers/fusion.jsonl`, `calls.jsonl`), not a per-question “which teacher answered this QA item” join.
 - Do not mix reader/prompt changes into a fusion claim without labeling that axis separately.

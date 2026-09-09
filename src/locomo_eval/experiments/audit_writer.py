@@ -1,4 +1,16 @@
-"""Write experiments/<run_id>/ module folders. Used by run.py, not by eval."""
+"""Dump sandwich-layer folders into ``experiments/<run_id>/`` during a run.
+
+Called from ``run.py`` (reader/QA), ``memory_log.py`` (teachers), and the
+autorater CLI (judge traces). Analysis code should not import this module —
+use ``audit_loader`` on a finished directory instead.
+
+Writes (each optional except reader on a completed QA run):
+
+- ``reader/`` — frozen answer-LLM traces + predictions
+- ``memory/teachers/`` — write-path teacher calls + fusion audit
+- ``memory/graph/`` — fused Mem0g snapshot (no embeddings)
+- ``autorater/traces.jsonl`` — judge reasoning next to verdicts
+"""
 
 from __future__ import annotations
 
@@ -7,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..report import write_json, write_jsonl
-from .layout import AUDIT_LAYOUT_VERSION, PackPaths, teacher_dir_name
+from .audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths, teacher_dir_name
 
 
 def audit_graph_dict(graph: Any, *, sample_id: str) -> dict[str, Any]:
@@ -57,7 +69,7 @@ def write_reader_module(
     summary: dict[str, Any] | None = None,
 ) -> Path:
     """Write experiments/<run_id>/reader/ (answer LLM traces + predictions)."""
-    paths = PackPaths.from_run_dir(run_dir)
+    paths = AuditPaths.from_run_dir(run_dir)
     paths.reader_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(paths.reader_predictions, prediction_rows)
     write_jsonl(paths.reader_traces, traces)
@@ -108,7 +120,7 @@ def write_teacher_module(
     """Write experiments/<run_id>/memory/teachers/ plus compat teacher_calls.jsonl."""
     if not calls and not fusion_rows:
         return None
-    paths = PackPaths.from_run_dir(run_dir)
+    paths = AuditPaths.from_run_dir(run_dir)
     paths.teachers_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(paths.teacher_calls, calls)
     write_jsonl(paths.teacher_calls_compat, calls)
@@ -186,7 +198,7 @@ def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path 
     """Write experiments/<run_id>/memory/graph/by_sample/<id>.json."""
     if not graphs_by_sample:
         return None
-    paths = PackPaths.from_run_dir(run_dir)
+    paths = AuditPaths.from_run_dir(run_dir)
     sample_dir = paths.graph_dir / "by_sample"
     sample_dir.mkdir(parents=True, exist_ok=True)
     index_rows = []

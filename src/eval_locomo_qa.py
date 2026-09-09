@@ -92,7 +92,8 @@ def main() -> None:
             },
         )
 
-    out_json = Path(cfg["train"]["output_dir"]) / args.run_name / "locomo_qa_scores.json"
+    out_dir = Path(cfg["eval"].get("output_dir") or "experiments")
+    out_json = out_dir / args.run_name / "locomo_qa_scores.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
     with out_json.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

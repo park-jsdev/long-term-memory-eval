@@ -58,7 +58,7 @@ from src.locomo_eval.mem0_baselines import (
     TABLE2_OVERALL,
     table2_by_method,
 )
-from src.locomo_eval.experiments.write import write_autorater_traces
+from src.locomo_eval.experiments.audit_writer import write_autorater_traces
 from src.locomo_eval.mem0_metrics import score_mem0_lexical, summarize_latencies
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.models import DEFAULT_AUTORATER_MODEL, resolve_model

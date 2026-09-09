@@ -91,7 +91,7 @@ from scratch.
 | Cost | Tokens ∝ memory string length (`raw_chunks` >> `session_summaries` typically); requests ∝ question count per invocation |
 | Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json`; LLM traces in `reader/`, `memory/teachers/`, `autorater/` |
 | Isolation | Each run id is regenerated from scratch; JSONL is audit-only |
-| Eval API | Read dumps via `src.locomo_eval.experiments.load` (`docs/schemas/experiment_pack.md`); writers stay in `experiments.write` |
+| Eval API | Read dumps via `src.locomo_eval.experiments.audit_loader` (`docs/schemas/experiment_pack.md`); dumps stay in `experiments.audit_writer` |
 | Security | Never commit `.env`; example only in `.env.example` |
 
 **Autorater prompt provenance:** local
@@ -110,6 +110,7 @@ clears artifacts for a run id and starts from question one;
 
 - Strong teacher models (GPT-5.x, Claude Sonnet/Opus, DeepSeek Pro) on the write path.
 - Claim-level fusion + LLM validators (see `docs/reports/multi_teacher_methodologies.md` for current resolve baselines).
+- Sandwich-audit attribution (future MR, not this branch): question → injected memory item → `proposed_by`; dump graph ingest MERGE/invalidate ops; retrieve cosine ranks; teacher empty-parse / cost rollup; copy YAML + `rng_seed` into the run dir. Today’s dump is teacher calls + fusion vote tables, not a QA-item join.
 - Distilled `GraphMemory` subclass (freeze extract).
 - Anthropic/DeepSeek as **frozen** answer readers for a robustness table (infra is in `readers.py` / `models.py`).
 

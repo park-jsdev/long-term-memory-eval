@@ -1,4 +1,4 @@
-# Phase 1 baseline deps. (torch/transformers still optional for later KD.)
+# Phase 1 baseline deps.
 PyYAML>=6.0
 numpy>=1.24.0
 nltk>=3.8.0

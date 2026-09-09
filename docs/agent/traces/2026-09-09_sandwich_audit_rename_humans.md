@@ -396,10 +396,10 @@ Everything for one experiment is under `experiments/<run_id>/`:
 | `plots/*.png` | Quick visual of overall + by-category scores |
 
 `run_meta.json` includes `audit_layout` paths. `run.py` dumps this tree via
-`src.locomo_eval.experiments.audit_writer`. An eval branch should load sandwich
-audits with `src.locomo_eval.experiments.audit_loader` (see
+`src.locomo_eval.experiments.pack_writer`. An eval branch should load packs
+with `src.locomo_eval.experiments.pack_loader` (see
 [`docs/schemas/experiment_pack.md`](../schemas/experiment_pack.md)) and not
-edit `run.py` / teachers. Path names live in `experiments/audit_layout.py`.
+edit `run.py` / teachers. Path names live in `experiments/pack_layout.py`.
 
 `predictions.jsonl` is an audit artifact. Reusing a run id clears generated
 artifacts and rebuilds from question one.

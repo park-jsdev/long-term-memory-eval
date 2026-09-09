@@ -1,7 +1,9 @@
-"""Read experiments/<run_id>/ packs. No LLM, no teachers, no run.py.
+"""Load a finished sandwich audit from ``experiments/<run_id>/``.
 
-Evaluation code should import this module (and ``layout``) rather than
-``audit_pack`` / ``run`` / ``teachers``. Missing optional modules return [].
+No LLM, no teachers, no ``run.py``. Compare scripts and eval branches should
+import this module (and ``audit_layout``) rather than ``audit_writer``,
+``run``, or ``teachers``. Missing optional layers (teachers, autorater)
+return [].
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .layout import PackPaths
+from .audit_layout import AuditPaths
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -36,7 +38,7 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def predictions_jsonl(run_dir: str | Path) -> Path | None:
     """Prefer run-root predictions.jsonl, then reader/predictions.jsonl."""
-    paths = PackPaths.from_run_dir(run_dir)
+    paths = AuditPaths.from_run_dir(run_dir)
     if paths.predictions_root.is_file():
         return paths.predictions_root
     if paths.reader_predictions.is_file():
@@ -89,8 +91,8 @@ def resolve_predictions_jsonl(path: str | Path, *, repo_root: Path | None = None
 
 
 def load_qa_pack(run_dir: str | Path) -> dict[str, Any]:
-    """Reader/QA slice used by compare_full_runs (stable dict keys)."""
-    paths = PackPaths.from_run_dir(run_dir)
+    """QA/reader slice of a sandwich audit (stable keys for compare_full_runs)."""
+    paths = AuditPaths.from_run_dir(run_dir)
     if not paths.metrics.is_file():
         raise FileNotFoundError(f"Missing {paths.metrics}")
     metrics = load_json(paths.metrics)
@@ -109,13 +111,13 @@ def load_qa_pack(run_dir: str | Path) -> dict[str, Any]:
 
 
 @dataclass
-class ExperimentPack:
-    """All modules that exist on disk for one run id.
+class SandwichAudit:
+    """One sandwich run on disk: reader, optional teachers/graph, optional judge.
 
-    Optional writer/judge files are empty lists when that module was not run.
+    Optional writer/judge files are empty lists when that layer was not run.
     """
 
-    paths: PackPaths
+    paths: AuditPaths
     meta: dict[str, Any]
     metrics: dict[str, Any]
     predictions: list[dict[str, Any]]
@@ -152,14 +154,14 @@ class ExperimentPack:
         return out
 
 
-def load_experiment_pack(run_dir: str | Path) -> ExperimentPack:
+def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
     """Load reader + optional teacher/graph/autorater traces for analysis."""
-    paths = PackPaths.from_run_dir(run_dir)
+    paths = AuditPaths.from_run_dir(run_dir)
     pred_path = predictions_jsonl(paths.run_dir)
     calls = load_jsonl(paths.teacher_calls)
     if not calls:
         calls = load_jsonl(paths.teacher_calls_compat)
-    return ExperimentPack(
+    return SandwichAudit(
         paths=paths,
         meta=load_json(paths.run_meta),
         metrics=load_json(paths.metrics),

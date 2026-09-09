@@ -61,7 +61,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
-| `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_writer` / `audit_loader`) |
+| `docs/schemas/experiment_pack.md` | Dump/load contract for `experiments/<run_id>/` (`pack_writer` / `pack_loader`) |
 | `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `docs/schemas/rag_index.md` | RAG chunk dump (`rag_index.v1`) |
 | `docs/schemas/openai_memory_index.md` | Privileged extract-all dump |
@@ -106,8 +106,8 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Sandwich-run I/O: `audit_layout` (paths) + `audit_loader` (analysis) vs `audit_writer` (`run.py` dumps) |
-| `audit_pack.py` | Compat shim re-exporting `audit_writer` / `audit_layout` |
+| `experiments/` | Run-pack I/O: `pack_layout` (paths) + `pack_loader` (analysis) vs `pack_writer` (`run.py` dumps) |
+| `audit_pack.py` | Compat shim re-exporting `pack_writer` / `pack_layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
 ---
@@ -164,7 +164,6 @@ python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval
 python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
-# pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
 python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
 python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py
@@ -253,7 +252,7 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
    response stores, JSONL skip, or per-sample index skip.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
-8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
+8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.pack_loader` (and `pack_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.pack_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
 
 ---
 
@@ -279,6 +278,8 @@ From review. Follow these when adding or renaming code.
 ## Out of scope (v0.1)
 
 Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone, mixing a reader-prompt swap into a graph/store claim, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks. Claim-level fusion and LLM validators are future work; current `resolve_*` policies are baseline heuristics only. A-Mem / LangMem / Zep / MemGPT are literature pins only.
+
+Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
 
 ---
 

@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.write import write_teacher_module
+from src.locomo_eval.experiments.audit_writer import write_teacher_module
 from .prompts import render_qa_prompt
 from .report import write_json
 from .schemas import Memory

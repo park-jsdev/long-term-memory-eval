@@ -1,4 +1,4 @@
-"""Read-only experiment pack loaders (no API, no run.py)."""
+"""Dump and load tests for a sandwich-run audit (no API)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.layout import PackPaths, audit_layout_meta
-from src.locomo_eval.experiments.load import (
-    load_experiment_pack,
+from src.locomo_eval.experiments.audit_layout import AuditPaths, audit_layout_meta
+from src.locomo_eval.experiments.audit_loader import (
     load_qa_pack,
+    load_sandwich_audit,
     predictions_jsonl,
     resolve_predictions_jsonl,
 )
-from src.locomo_eval.experiments.write import write_reader_module, write_teacher_module
+from src.locomo_eval.experiments.audit_writer import write_reader_module, write_teacher_module
 
 
 class TestPredictionsJsonlPrefersRootThenReader(unittest.TestCase):
@@ -50,7 +50,7 @@ class TestPredictionsJsonlPrefersRootThenReader(unittest.TestCase):
             self.assertEqual(resolved, path)
 
 
-class TestLoadQaPackAndExperimentPack(unittest.TestCase):
+class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
     def test_load_qa_pack_returns_compare_full_runs_keys(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
@@ -74,7 +74,7 @@ class TestLoadQaPackAndExperimentPack(unittest.TestCase):
             self.assertEqual(pack["run_id"], "r1")
             self.assertEqual(pack["by_qid"]["q0"]["predicted_answer"], "a")
 
-    def test_load_experiment_pack_indexes_teacher_calls_and_fusion(self):
+    def test_load_sandwich_audit_indexes_teacher_calls_and_fusion(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             run.mkdir()
@@ -118,13 +118,13 @@ class TestLoadQaPackAndExperimentPack(unittest.TestCase):
                     }
                 ],
             )
-            pack = load_experiment_pack(run)
+            pack = load_sandwich_audit(run)
             self.assertEqual(len(pack.teacher_calls_for("openai")), 1)
             self.assertEqual(pack.teacher_calls_for("openai")[0]["reasoning"], "because")
             kept = pack.fusion_kept_for(sample_id="s1")
             self.assertEqual(len(kept), 1)
             self.assertEqual(kept[0]["proposed_by"], ["openai"])
-            self.assertTrue(PackPaths.from_run_dir(run).teacher_calls.is_file())
+            self.assertTrue(AuditPaths.from_run_dir(run).teacher_calls.is_file())
 
 
 if __name__ == "__main__":

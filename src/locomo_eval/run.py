@@ -50,8 +50,8 @@ from src.locomo_eval.memory import (
     is_question_independent,
     resolve_memory_name,
 )
-from src.locomo_eval.experiments.layout import audit_layout_meta
-from src.locomo_eval.experiments.write import (
+from src.locomo_eval.experiments.audit_layout import audit_layout_meta
+from src.locomo_eval.experiments.audit_writer import (
     write_graph_module,
     write_reader_module,
     write_teacher_module,

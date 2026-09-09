@@ -1,8 +1,15 @@
-"""Frozen on-disk paths for experiments/<run_id>/.
+"""Path contract for one sandwich run: ``experiments/<run_id>/``.
 
-Read-only contract for an evaluation branch. Do not import teachers, readers,
-or run.py from here. Writers live in ``experiments.write``; loaders in
-``experiments.load``.
+This module names folders and files. It does not read or write them.
+
+A sandwich run freezes data + reader/eval and varies memory. The on-disk
+tree is the **audit** of those layers (reader, teachers, memory graph, judge)
+so later analysis can map a condition to its results without re-running LLMs.
+
+``AuditPaths`` is the shared map so the dump side (``audit_writer``) and the
+analysis side (``audit_loader``) never invent different filenames.
+
+Do not import teachers, readers, or ``run.py`` from here.
 """
 
 from __future__ import annotations
@@ -40,8 +47,8 @@ def teacher_dir_name(teacher_id: str) -> str:
 
 
 @dataclass(frozen=True)
-class PackPaths:
-    """Absolute paths for one run directory. Missing files are still listed."""
+class AuditPaths:
+    """Absolute paths for one sandwich-run directory. Missing files are still listed."""
 
     run_dir: Path
     run_meta: Path
@@ -64,7 +71,7 @@ class PackPaths:
     autorater_traces: Path
 
     @classmethod
-    def from_run_dir(cls, run_dir: str | Path) -> PackPaths:
+    def from_run_dir(cls, run_dir: str | Path) -> AuditPaths:
         root = Path(run_dir)
         reader = root / READER
         teachers = root / TEACHERS
