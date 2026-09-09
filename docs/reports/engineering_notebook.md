@@ -101,8 +101,8 @@ clears artifacts for a run id and starts from question one;
 
 ### Planned (not implemented)
 
-- Anthropic Claude as alternate fixed answer reader or judge.
-- Multi-teacher providers (GPT / Gemini / DeepSeek) on the **write** path only.
+- Multi-teacher fusion as a MemoryBuilder (eval_pipeline `--config` already accepts it).
+- Anthropic/DeepSeek as **frozen** answer readers for a robustness table (infra is in `readers.py` / `models.py`).
 
 ---
 
@@ -159,6 +159,9 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 | `teacher_session_summaries` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
 | `mem0` | Top-k timestamped facts from a Mem0 write-index dump (both speakers) | Does the paper extract+update path beat session summaries? Architecture clone — not paper J. |
 | `mem0g` | `mem0` plus serialized graph relations | Does the graph add anything if extract is frozen? Later distilled graphs swap `GraphMemory` only. |
+| `rag` | Cosine top-k tiktoken chunks | Mem0 paper RAG baseline |
+| `full_context` | Entire timestamped dialog | Mem0 paper full-context baseline |
+| `openai_memory` | All extracted timestamped facts (no top-k) | Paper OpenAI privileged-memory protocol clone |
 | `top1_teacher` (future) | Top-1 of K teacher memories | Selection enough? |
 | `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
 | `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |

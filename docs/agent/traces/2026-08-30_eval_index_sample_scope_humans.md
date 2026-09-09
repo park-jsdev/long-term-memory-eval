@@ -204,7 +204,7 @@ QA packs: `experiments/locomo_preprocess_raw_chunks_n10/` and `experiments/locom
 
 One `--method` per invocation. Index (if that method needs a dump) → QA → optional autorater. Compare two finished packs with `scripts/compare_full_runs.py` (Wilcoxon + 95% CI on LoCoMo F1 deltas).
 
-**Mock smoke (no API):** `--max-samples` caps conversations for both index and QA. Default `round_robin` then takes `--max-questions` from those samples only (so `1` sample × `5` questions does not walk into unindexed conversations). Subset smokes write `experiments/<run_id>_index/` instead of overwriting the YAML full-dump id (`rag_locomo10`, …).
+**Mock smoke (no API):**
 
 ```bash
 python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context
@@ -242,16 +242,6 @@ Compare two methods (offline):
 ```bash
 python scripts/compare_full_runs.py --runs experiments/rag_k2_256_qa experiments/full_context_qa --out experiments/compare_rag_full_context
 ```
-
-Paper Table 2 J next to your local LLM-as-a-Judge (offline; uses the **best** live seed, not the mean of 10). Needs finished autorater packs — it does not call the judge:
-
-```bash
-python -m scripts.analysis.compare_to_paper \
-  --runs experiments/full_context_qa experiments/rag_k2_256_qa experiments/mem0_qa \
-  --out experiments/compare_paper_vs_local
-```
-
-Open `experiments/compare_paper_vs_local/plots/j_paper_vs_local.png` (blue = paper, orange = local). Mem0g / OpenAI-memory stay paper-only until those QA packs exist. `--include-external` adds A-Mem / LangMem / Zep paper bars. This is **not** a Platform J claim.
 
 `--n-judge-runs 10` writes `experiments/<run_id>/autorater_seeds/seed_00` … then `autorater/seed_aggregate.json` (mean ± std, 95% CI). One live autorater pack is one seed; that matches HUMANS.md's earlier note.
 

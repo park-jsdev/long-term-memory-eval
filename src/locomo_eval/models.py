@@ -25,6 +25,8 @@ GPT56_SOL = "gpt-5.6-sol"
 FAMILY_GPT41 = "gpt-4.1"
 FAMILY_GPT4O = "gpt-4o"
 FAMILY_GPT56 = "gpt-5.6"
+FAMILY_DEEPSEEK = "deepseek"
+FAMILY_CLAUDE = "claude"
 
 # Mem0 paper/released evaluation defaults for both answering and judging.
 DEFAULT_AUTORATER_MODEL = GPT4O_MINI
@@ -99,6 +101,41 @@ _CATALOG: dict[str, ModelSpec] = {
         supports_temperature=False,
         reasoning_effort="none",
     ),
+    "deepseek-chat": ModelSpec(
+        model_id="deepseek-chat",
+        family=FAMILY_DEEPSEEK,
+        display_name="DeepSeek Chat",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "deepseek-reasoner": ModelSpec(
+        model_id="deepseek-reasoner",
+        family=FAMILY_DEEPSEEK,
+        display_name="DeepSeek Reasoner",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "claude-3-5-haiku-latest": ModelSpec(
+        model_id="claude-3-5-haiku-latest",
+        family=FAMILY_CLAUDE,
+        display_name="Claude 3.5 Haiku",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "claude-3-5-sonnet-latest": ModelSpec(
+        model_id="claude-3-5-sonnet-latest",
+        family=FAMILY_CLAUDE,
+        display_name="Claude 3.5 Sonnet",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "claude-sonnet-4-5": ModelSpec(
+        model_id="claude-sonnet-4-5",
+        family=FAMILY_CLAUDE,
+        display_name="Claude Sonnet 4.5",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
 }
 
 # Short names for CLI / tests. Keys are lowercase.
@@ -115,6 +152,11 @@ _ALIASES: dict[str, str] = {
     "4o": GPT4O,
     "gpt-4o-mini": GPT4O_MINI,
     "4o-mini": GPT4O_MINI,
+    "deepseek": "deepseek-chat",
+    "deepseek-chat": "deepseek-chat",
+    "claude": "claude-3-5-haiku-latest",
+    "claude-haiku": "claude-3-5-haiku-latest",
+    "claude-sonnet": "claude-3-5-sonnet-latest",
 }
 
 
@@ -129,6 +171,10 @@ def infer_family(model_id: str) -> str:
         return "gpt-4o"
     if mid.startswith("gpt-5"):
         return "gpt-5"
+    if mid.startswith("deepseek"):
+        return FAMILY_DEEPSEEK
+    if mid.startswith("claude"):
+        return FAMILY_CLAUDE
     return model_id
 
 
