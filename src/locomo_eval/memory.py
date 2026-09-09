@@ -6,6 +6,9 @@ Current conditions (ids are what reviewers see in logs):
   raw_chunks                  — raw dialogue turns (optional char budget)
   session_summaries           — LoCoMo-provided session summaries
   teacher_session_summaries   — live single-teacher session summaries (model-swappable)
+  teacher_graph               — one teacher writes locked Mem0GraphMemory
+  pooled_teacher_graph        — K teachers; equal_weight / random / round_robin pool
+  fused_teacher_graph         — K teachers; majority-vote / resolve_* fusion
   full_context                — entire timestamped dialog (Mem0 paper full-context)
   rag                         — token-chunk cosine retrieve from a RAG write-index
   openai_memory               — extract-all dump, retrieve-all (paper OpenAI protocol clone)
@@ -24,6 +27,7 @@ from .schemas import Conversation, Memory, Question, Session
 
 if TYPE_CHECKING:
     from .teachers import Teacher
+    from .teacher_orchestrator import TeacherOrchestrator
     from .mem0.embeddings import Embedder
 
 
@@ -198,6 +202,7 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
 
     def __init__(self, teacher: Teacher):
         self.teacher = teacher
+        self.teacher_call_log: list[dict] = []
 
     @property
     def teacher_model(self) -> str:
@@ -214,11 +219,22 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
             if not session.turns:
                 continue
             session_text = format_session_turns(session)
-            summary, _meta = self.teacher.summarize_session(
+            summary, meta = self.teacher.summarize_session(
                 session_text=session_text,
                 date_time=session.date_time,
                 speaker_a=conversation.speaker_a,
                 speaker_b=conversation.speaker_b,
+            )
+            from .teachers import teacher_call_record
+
+            self.teacher_call_log.append(
+                teacher_call_record(
+                    teacher=self.teacher,
+                    meta=meta,
+                    sample_id=conversation.sample_id,
+                    session_id=session.session_id,
+                    output_text=summary,
+                )
             )
             summary = (summary or "").strip()
             if not summary:
@@ -240,6 +256,54 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
         )
 
 
+class OrchestratedGraphMemoryBuilder(MemoryBuilder):
+    """Session blocks → TeacherOrchestrator → locked Mem0GraphMemory → Memory.text.
+
+    ``name`` is the condition id (teacher_graph / pooled_teacher_graph /
+    fused_teacher_graph). Graph schema is Mem0g (nodes + labeled edges with
+    valid=false invalidation), not a new store.
+    """
+
+    def __init__(self, orchestrator: TeacherOrchestrator, name: str):
+        self.orchestrator = orchestrator
+        self.name = name
+        self.graphs_by_sample: dict = {}
+
+    @property
+    def teacher_model(self) -> str | None:
+        return self.orchestrator.teacher_model
+
+    @property
+    def teacher_provider(self) -> str | None:
+        return self.orchestrator.teacher_provider
+
+    def build(self, conversation: Conversation, question: Question) -> Memory:
+        from .preprocess.preprocessing_pipeline import PreprocessingPipeline
+        from .teacher_orchestrator import format_graph_memory_text
+
+        processed = PreprocessingPipeline().process(conversation)
+        graph = self.orchestrator.build_graph(processed)
+        self.graphs_by_sample[conversation.sample_id] = graph
+        text = format_graph_memory_text(
+            graph,
+            speaker_a=conversation.speaker_a,
+            speaker_b=conversation.speaker_b,
+        )
+        source_ids = [e.edge_id for e in graph.edges if e.valid]
+        return Memory(
+            memory_type=self.name,
+            text=text,
+            source_ids=source_ids,
+            teacher_model=self.orchestrator.teacher_model,
+            teacher_provider=self.orchestrator.teacher_provider,
+        )
+
+
+TEACHER_GRAPH = "teacher_graph"
+POOLED_TEACHER_GRAPH = "pooled_teacher_graph"
+FUSED_TEACHER_GRAPH = "fused_teacher_graph"
+ORCHESTRATED_GRAPH_NAMES = (TEACHER_GRAPH, POOLED_TEACHER_GRAPH, FUSED_TEACHER_GRAPH)
+
 # Registry name → constructor kwargs factory
 _BUILDERS: dict[str, type[MemoryBuilder]] = {
     RawConversationMemoryBuilder.name: RawConversationMemoryBuilder,
@@ -260,6 +324,9 @@ _ALIASES: dict[str, str] = {
     "teacher": TeacherSessionMemoryBuilder.name,
     "mem0": "mem0",
     "mem0g": "mem0g",
+    TEACHER_GRAPH: TEACHER_GRAPH,
+    POOLED_TEACHER_GRAPH: POOLED_TEACHER_GRAPH,
+    FUSED_TEACHER_GRAPH: FUSED_TEACHER_GRAPH,
     "rag": "rag",
     "full_context": "full_context",
     "full-context": "full_context",
@@ -272,13 +339,13 @@ _INDEX_BUILDERS = ("mem0", "mem0g", "rag", "full_context", "openai_memory")
 
 def resolve_memory_name(name: str) -> str:
     key = name.strip().lower() if name else ""
-    if key in _BUILDERS or key in _INDEX_BUILDERS:
+    if key in _BUILDERS or key in _INDEX_BUILDERS or key in ORCHESTRATED_GRAPH_NAMES:
         return "full_context" if key in ("full_context", "full-context") else key
     if key in _ALIASES:
         return _ALIASES[key]
     raise ValueError(
         f"Unknown memory builder '{name}'. "
-        f"Known: {sorted(list(_BUILDERS) + list(_INDEX_BUILDERS))} aliases={sorted(_ALIASES)}"
+        f"Known: {sorted(list(_BUILDERS) + list(_INDEX_BUILDERS) + list(ORCHESTRATED_GRAPH_NAMES))} aliases={sorted(_ALIASES)}"
     )
 
 
@@ -286,6 +353,7 @@ def get_memory_builder(
     name: str,
     max_chars: int | None = None,
     teacher: Teacher | None = None,
+    orchestrator: TeacherOrchestrator | None = None,
     mem0_index_dir: str | Path | None = None,
     mem0_top_k: int = 30,
     mem0_embedder: Embedder | None = None,
@@ -340,6 +408,13 @@ def get_memory_builder(
             embedder=mem0_embedder,
             top_k=mem0_top_k,
         )
+    if resolved in ORCHESTRATED_GRAPH_NAMES:
+        if orchestrator is None:
+            raise ValueError(
+                f"{resolved} requires a TeacherOrchestrator "
+                "(set teachers: in YAML or --teacher-model for teacher_graph)."
+            )
+        return OrchestratedGraphMemoryBuilder(orchestrator=orchestrator, name=resolved)
     cls = _BUILDERS[resolved]
     if resolved == RawConversationMemoryBuilder.name:
         return cls(
@@ -371,6 +446,9 @@ def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> 
         RawConversationMemoryBuilder.name,
         SessionSummaryMemoryBuilder.name,
         TeacherSessionMemoryBuilder.name,
+        TEACHER_GRAPH,
+        POOLED_TEACHER_GRAPH,
+        FUSED_TEACHER_GRAPH,
         "full_context",
         "openai_memory",
     )

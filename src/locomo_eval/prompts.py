@@ -51,3 +51,8 @@ def render_teacher_session_prompt(
         speaker_a=speaker_a,
         speaker_b=speaker_b,
     )
+
+
+def render_teacher_graph_prompt(template: str, *, user_id: str, text: str) -> str:
+    """Fill prompts/teacher_graph_v1.txt. Gold answers must not appear here."""
+    return template.format(user_id=user_id, text=text)

@@ -9,6 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from src.locomo_eval.experiments.audit_writer import write_teacher_module
 from .prompts import render_qa_prompt
 from .report import write_json
 from .schemas import Memory
@@ -92,6 +93,61 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
         "notes": (
             "Mem0 vector retrieve plus in-memory graph relations. "
             "Swap GraphMemory later; freeze extract for that claim."
+        ),
+    },
+    "teacher_graph": {
+        "builder": "OrchestratedGraphMemoryBuilder",
+        "code": "src/locomo_eval/memory.py",
+        "source_fields": [
+            "conversation sessions via PreprocessingPipeline",
+            "one Teacher.extract_session_graph",
+            "Mem0GraphMemory.ingest_triples",
+        ],
+        "text_layout": (
+            "Conversation between {speaker_a} and {speaker_b}.\n\n"
+            "Graph relations:\n"
+            "{source} -- {relationship} -- {target}"
+        ),
+        "notes": (
+            "Single interchangeable teacher (openai / anthropic / deepseek) "
+            "writes locked Mem0GraphMemory. Swap teacher.model."
+        ),
+    },
+    "pooled_teacher_graph": {
+        "builder": "OrchestratedGraphMemoryBuilder",
+        "code": "src/locomo_eval/memory.py",
+        "source_fields": [
+            "conversation sessions via PreprocessingPipeline",
+            "TeacherOrchestrator (equal_weight | random | round_robin)",
+            "Mem0GraphMemory.ingest_triples",
+        ],
+        "text_layout": (
+            "Conversation between {speaker_a} and {speaker_b}.\n\n"
+            "Graph relations:\n"
+            "{source} -- {relationship} -- {target}"
+        ),
+        "notes": (
+            "Naive multi-teacher pool into locked Mem0g. equal_weight unions "
+            "triples; random/round_robin pick one teacher per session."
+        ),
+    },
+    "fused_teacher_graph": {
+        "builder": "OrchestratedGraphMemoryBuilder",
+        "code": "src/locomo_eval/memory.py",
+        "source_fields": [
+            "conversation sessions via PreprocessingPipeline",
+            "TeacherOrchestrator (K teachers, majority_vote or resolve_*)",
+            "Mem0GraphMemory.ingest_triples",
+        ],
+        "text_layout": (
+            "Conversation between {speaker_a} and {speaker_b}.\n\n"
+            "Graph relations:\n"
+            "{source} -- {relationship} -- {target}"
+        ),
+        "notes": (
+            "Fusion into locked Mem0g: majority_vote, or resolve_* baselines "
+            "(top_voted / first / random / round_robin / confidence) for "
+            "source+relationship disagreements. Not a paper-J claim."
         ),
     },
     "rag": {
@@ -214,8 +270,8 @@ def write_memory_run_log(
             "text": "full string injected as prompt {memory}",
             "source_ids": "provenance list",
             "schema_version": SCHEMA_VERSION,
-            "teacher_model": "write-path model id when memory_type is teacher_session_summaries",
-            "teacher_provider": "openai | mock",
+            "teacher_model": "write-path model id(s); '+' joins multi-teacher runs",
+            "teacher_provider": "openai | anthropic | deepseek | mock | '+' joined",
         },
         "teacher_model": first.teacher_model,
         "teacher_provider": first.teacher_provider,
@@ -240,6 +296,8 @@ def write_memory_run_log(
             f"- Full texts: `memory/by_sample/<sample_id>.txt`",
             f"- Per-question texts (when retrieve is question-dependent): `memory/by_question/<question_id>.txt`",
             f"- Index: `memory/index.jsonl`",
+            f"- Teacher LLM traces (when used): `memory/teachers/`",
+            f"- Fused graph snapshot (when used): `memory/graph/`",
             "",
             "This folder is the audit trail of **exactly** what `{memory}` contained.",
             "",
@@ -313,3 +371,25 @@ def write_memory_run_log(
     (mem_dir / "prompt_fill_example.txt").write_text(header + filled, encoding="utf-8")
 
     return mem_dir
+
+
+def collect_teacher_call_log(builder: Any) -> list[dict[str, Any]]:
+    """Gather teacher call rows from an orchestrator and/or session builder."""
+    rows: list[dict[str, Any]] = []
+    orch = getattr(builder, "orchestrator", None)
+    if orch is not None:
+        rows.extend(list(getattr(orch, "call_log", []) or []))
+    rows.extend(list(getattr(builder, "teacher_call_log", []) or []))
+    return rows
+
+
+def collect_fusion_log(builder: Any) -> list[dict[str, Any]]:
+    orch = getattr(builder, "orchestrator", None)
+    if orch is None:
+        return []
+    return list(getattr(orch, "fusion_log", []) or [])
+
+
+def write_teacher_call_log(run_dir: Path, rows: list[dict[str, Any]]) -> Path | None:
+    """Compat wrapper: write memory/teachers/ (and teacher_calls.jsonl)."""
+    return write_teacher_module(run_dir, calls=rows)

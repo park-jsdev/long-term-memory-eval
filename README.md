@@ -285,7 +285,7 @@ pip install -r requirements.txt
 python scripts/fetch_locomo.py
 ```
 
-For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (gitignored; auto-loaded).
+For live runs, copy `.env.example` → `.env` and set `OPENAI_API_KEY` (and `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` for teachers). Gitignored; auto-loaded.
 
 ## OpenAI rate limits
 

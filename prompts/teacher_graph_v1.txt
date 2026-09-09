@@ -1,0 +1,18 @@
+# Teacher → Mem0-shaped graph fragment for one session.
+# Placeholders: {user_id}, {text}. Gold answers must not appear here.
+# Output contract matches Mem0GraphMemory.ingest_triples.
+
+Extract entities and relations from the session text to build a knowledge graph.
+
+Rules:
+- If the text has self-references (I, me, my), use {user_id} as that entity.
+- Lowercase entity names; replace spaces with underscores.
+- Assign a coarse entity_type (person, place, organization, event, object, activity, occupation, other).
+- Extract only entities and relations that are explicitly present.
+- Use consistent, timeless relationship types (prefer "works_as" over "got_a_job_as").
+
+Text:
+{text}
+
+Return JSON only:
+{{"entities": [{{"entity": "...", "entity_type": "..."}}], "relations": [{{"source": "...", "relationship": "...", "target": "..."}}]}}

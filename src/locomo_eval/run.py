@@ -36,20 +36,47 @@ if str(ROOT) not in sys.path:
 from src.config import load_config
 from src.locomo_eval.dataset import iter_questions, load_conversations, select_question_pairs
 from src.locomo_eval.env import load_env
+from src.locomo_eval.fusion import (
+    FUSION_MAJORITY,
+    FUSION_NONE,
+    FUSION_POLICIES,
+    POOL_EQUAL_WEIGHT,
+    POOL_SINGLE,
+)
 from src.locomo_eval.memory import (
+    ORCHESTRATED_GRAPH_NAMES,
     TeacherSessionMemoryBuilder,
     get_memory_builder,
     is_question_independent,
     resolve_memory_name,
 )
-from src.locomo_eval.memory_log import write_memory_run_log
+from src.locomo_eval.experiments.audit_layout import audit_layout_meta
+from src.locomo_eval.experiments.audit_writer import (
+    write_graph_module,
+    write_reader_module,
+    write_teacher_module,
+)
+from src.locomo_eval.memory_log import (
+    collect_fusion_log,
+    collect_teacher_call_log,
+    write_memory_run_log,
+)
 from src.locomo_eval.metrics import summarize_predictions
 from src.locomo_eval.models import resolve_model
 from src.locomo_eval.prompts import load_prompt_template
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
+from src.locomo_eval.teacher_callers import DEFAULT_TEACHER_THINKING
+from src.locomo_eval.teacher_orchestrator import TeacherOrchestrator
 from src.locomo_eval.teachers import get_teacher
+
+
+_ORCH_DEFAULTS = {
+    "teacher_graph": (POOL_SINGLE, FUSION_NONE),
+    "pooled_teacher_graph": (POOL_EQUAL_WEIGHT, FUSION_NONE),
+    "fused_teacher_graph": (POOL_EQUAL_WEIGHT, FUSION_MAJORITY),
+}
 
 
 def _mem0_builder_kwargs(
@@ -191,6 +218,50 @@ def _file_sha256(path: Path) -> str | None:
     return h.hexdigest()
 
 
+def _as_bool(value: object, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    s = str(value).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off"):
+        return False
+    raise SystemExit(f"Invalid boolean {value!r}; use on/off or true/false")
+
+
+def _teacher_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None) -> dict:
+    tcfg = cfg.get("teacher") or {}
+    thinking = None
+    if overrides is not None:
+        flag = getattr(overrides, "thinking", None)
+        if flag == "on":
+            thinking = True
+        elif flag == "off":
+            thinking = False
+    if thinking is None:
+        thinking = _as_bool(tcfg.get("thinking"), DEFAULT_TEACHER_THINKING)
+    budget = tcfg.get("thinking_budget_tokens", 1024)
+    return {
+        "temperature": float(tcfg.get("temperature", 0.0)),
+        "max_tokens": int(tcfg.get("max_tokens", 512)),
+        "max_retries": int(tcfg.get("max_retries", 8)),
+        "min_request_interval_s": float(tcfg.get("min_request_interval_s", 0.5)),
+        "max_wait_s": float(tcfg.get("max_wait_s", 3600.0)),
+        "prompt_path": tcfg.get("prompt_path"),
+        "graph_prompt_path": tcfg.get("graph_prompt_path"),
+        "thinking": thinking,
+        "thinking_budget_tokens": int(budget),
+    }
+
+
+def _force_mock_teachers(overrides: argparse.Namespace, reader_name: str) -> bool:
+    if str(reader_name).lower() == "mock":
+        return True
+    return str(getattr(overrides, "teacher", None) or "").lower() == "mock"
+
+
 def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
     """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML."""
     if resolve_memory_name(memory_name) != TeacherSessionMemoryBuilder.name:
@@ -204,16 +275,70 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
         raise SystemExit(
             "teacher_session_summaries requires teacher.model in YAML or --teacher-model"
         )
-    prompt_path = tcfg.get("prompt_path")
-    return get_teacher(
-        provider,
-        model=model,
-        temperature=float(tcfg.get("temperature", 0.0)),
-        max_tokens=int(tcfg.get("max_tokens", 512)),
-        max_retries=int(tcfg.get("max_retries", 8)),
-        min_request_interval_s=float(tcfg.get("min_request_interval_s", 0.5)),
-        max_wait_s=float(tcfg.get("max_wait_s", 3600.0)),
-        prompt_path=prompt_path,
+    kwargs = _teacher_call_kwargs(cfg, overrides)
+    return get_teacher(provider, model=model, **kwargs)
+
+
+def _build_orchestrator(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
+) -> TeacherOrchestrator | None:
+    """K teachers + pool/fusion for graph memory conditions. None for other builders."""
+    resolved = resolve_memory_name(memory_name)
+    if resolved not in ORCHESTRATED_GRAPH_NAMES:
+        return None
+    force_mock = _force_mock_teachers(overrides, reader_name)
+    tcfg = cfg.get("teacher") or {}
+    roster = list(cfg.get("teachers") or [])
+    if not roster:
+        provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
+        model = getattr(overrides, "teacher_model", None) or tcfg.get("model")
+        if not provider:
+            provider = "mock" if force_mock else "openai"
+        if not model:
+            raise SystemExit(
+                f"{resolved} requires teacher.model in YAML, teachers:, or --teacher-model"
+            )
+        roster = [{"id": provider, "provider": provider, "model": model}]
+    elif getattr(overrides, "teacher_model", None) and resolved == "teacher_graph":
+        roster = [{**roster[0], "model": overrides.teacher_model}]
+        if getattr(overrides, "teacher", None):
+            roster[0]["provider"] = overrides.teacher
+            roster[0]["id"] = overrides.teacher
+
+    kwargs = _teacher_call_kwargs(cfg, overrides)
+    teachers = []
+    for i, slot in enumerate(roster):
+        provider = "mock" if force_mock else (slot.get("provider") or "openai")
+        model = slot.get("model")
+        if not model:
+            raise SystemExit(f"{resolved} teacher slot {i} is missing model")
+        tid = str(slot.get("id") or model)
+        teachers.append(get_teacher(provider, model=model, teacher_id=tid, **kwargs))
+
+    ocfg = cfg.get("orchestrator") or {}
+    default_pool, default_fusion = _ORCH_DEFAULTS[resolved]
+    pool = getattr(overrides, "pool", None) or ocfg.get("pool") or default_pool
+    fusion = getattr(overrides, "fusion", None) or ocfg.get("fusion") or default_fusion
+    majority_k = ocfg.get("majority_k")
+    if majority_k is not None:
+        majority_k = int(majority_k)
+    embed_cfg = ocfg.get("embed") or {}
+    embed_provider = embed_cfg.get("provider") or "mock"
+    if force_mock:
+        embed_provider = "mock"
+    from src.locomo_eval.mem0.embeddings import get_embedder
+
+    return TeacherOrchestrator(
+        teachers,
+        pool=str(pool),
+        fusion=str(fusion),
+        min_votes=majority_k,
+        rng_seed=int(ocfg.get("rng_seed", 0)),
+        embedder=get_embedder(
+            embed_provider,
+            model=embed_cfg.get("model") or "text-embedding-3-small",
+        ),
+        thinking=kwargs.get("thinking"),
     )
 
 
@@ -272,7 +397,7 @@ def _reset_run_output(run_dir: Path) -> None:
 
     Reusing a run id must not keep old answers, metrics, or autorater reports.
     """
-    for dirname in ("plots", "memory", "autorater"):
+    for dirname in ("plots", "memory", "autorater", "reader"):
         path = run_dir / dirname
         if path.is_dir():
             shutil.rmtree(path)
@@ -322,6 +447,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     if max_chars is not None:
         max_chars = int(max_chars)
     teacher = _build_teacher(cfg, overrides, memory_name, reader_name)
+    orchestrator = _build_orchestrator(cfg, overrides, memory_name, reader_name)
     mem0_kwargs = _mem0_builder_kwargs(cfg, overrides, memory_name, reader_name)
     preprocess_kwargs = _preprocess_builder_kwargs(cfg, overrides, memory_name)
     rag_kwargs = _rag_builder_kwargs(cfg, overrides, memory_name, reader_name)
@@ -330,6 +456,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         memory_name,
         max_chars=max_chars,
         teacher=teacher,
+        orchestrator=orchestrator,
         **mem0_kwargs,
         **preprocess_kwargs,
         **rag_kwargs,
@@ -412,14 +539,21 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
 
     teacher_model = getattr(builder, "teacher_model", None)
     teacher_provider = getattr(builder, "teacher_provider", None)
+    orch = getattr(builder, "orchestrator", None)
     print(
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
         f"reader={reader_name}/{reader.model_name}"
         + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
+        + (
+            f" | pool={orch.pool} fusion={orch.fusion}"
+            if orch is not None
+            else ""
+        )
         + f" | question_sample={question_sample}"
     )
 
     prediction_rows: list[dict] = []
+    reader_traces: list[dict] = []
     n_api = 0
     used_memories: dict[str, Memory] = {}
     used_memories_by_question: dict[str, Memory] = {}
@@ -467,6 +601,24 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             if memory.search_latency_s is not None:
                 row["search_latency_s"] = memory.search_latency_s
             prediction_rows.append(row)
+            reader_traces.append(
+                {
+                    "sample_id": q.sample_id,
+                    "question_id": q.question_id,
+                    "role": "reader",
+                    "provider": reader_name,
+                    "model": reader.model_name,
+                    "predicted_answer": answer,
+                    "reasoning": meta.get("reasoning") or "",
+                    "reasoning_tokens": meta.get("reasoning_tokens"),
+                    "reasoning_effort": meta.get("reasoning_effort"),
+                    "thinking": meta.get("thinking"),
+                    "thinking_supported": meta.get("thinking_supported"),
+                    "latency_s": meta.get("latency_s"),
+                    "usage": meta.get("usage") or {},
+                    "prompt_version": prompt_version,
+                }
+            )
 
             # Flush for audit after a crash. The next invocation clears this
             # partial file and regenerates.
@@ -487,6 +639,17 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 example_question=example_question,
                 memories_by_question=used_memories_by_question or None,
                 question_sample_ids=question_sample_ids or None,
+            )
+            write_teacher_module(
+                run_dir,
+                calls=collect_teacher_call_log(builder),
+                fusion_rows=collect_fusion_log(builder),
+            )
+            write_graph_module(run_dir, getattr(builder, "graphs_by_sample", {}) or {})
+            write_reader_module(
+                run_dir,
+                prediction_rows=prediction_rows,
+                traces=reader_traces,
             )
         print(
             f"\nStopped early ({type(exc).__name__}: {exc})\n"
@@ -509,6 +672,18 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             question_sample_ids=question_sample_ids or None,
         )
         print(f"Memory audit: {mem_log_dir}")
+        teachers_dir = write_teacher_module(
+            run_dir,
+            calls=collect_teacher_call_log(builder),
+            fusion_rows=collect_fusion_log(builder),
+        )
+        if teachers_dir is not None:
+            print(f"Teacher traces: {teachers_dir}")
+        graph_dir = write_graph_module(
+            run_dir, getattr(builder, "graphs_by_sample", {}) or {}
+        )
+        if graph_dir is not None:
+            print(f"Graph snapshot: {graph_dir}")
 
     summary = summarize_predictions(prediction_rows)
     summary["memory_type"] = builder.name
@@ -518,7 +693,20 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     if teacher_model:
         summary["teacher_model"] = teacher_model
         summary["teacher_provider"] = teacher_provider
-        summary["teacher_family"] = resolve_model(teacher_model).family
+        if "+" in str(teacher_model):
+            summary["teacher_family"] = "multi"
+        else:
+            summary["teacher_family"] = resolve_model(teacher_model).family
+    teacher_thinking = None
+    if orch is not None:
+        teacher_thinking = getattr(orch, "thinking", None)
+    elif teacher is not None:
+        teacher_thinking = getattr(teacher, "thinking", None)
+    if orch is not None:
+        summary["teacher_pool"] = orch.pool
+        summary["teacher_fusion"] = orch.fusion
+    if teacher_thinking is not None:
+        summary["teacher_thinking"] = teacher_thinking
 
     # Pins for later audit: data file, code commit, prompt, model, memory type.
     meta_out = {
@@ -544,7 +732,14 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "reader_family": resolve_model(reader.model_name).family,
         "teacher_provider": teacher_provider,
         "teacher_model": teacher_model,
-        "teacher_family": resolve_model(teacher_model).family if teacher_model else None,
+        "teacher_family": (
+            "multi"
+            if teacher_model and "+" in str(teacher_model)
+            else (resolve_model(teacher_model).family if teacher_model else None)
+        ),
+        "teacher_pool": orch.pool if orch is not None else None,
+        "teacher_fusion": orch.fusion if orch is not None else None,
+        "teacher_thinking": teacher_thinking,
         "temperature": reader_temperature,
         "max_tokens": reader_max_tokens,
         "message_layout": reader_message_layout,
@@ -561,9 +756,16 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "package_version": "0.1.4",
         "memory_schema_version": "memory_io.v1",
         "memory_audit_dir": "memory",
+        "audit_layout": audit_layout_meta(),
     }
 
     paths = write_run_report(run_dir, prediction_rows, summary, meta_out)
+    write_reader_module(
+        run_dir,
+        prediction_rows=prediction_rows,
+        traces=reader_traces,
+        summary=summary,
+    )
     print("Wrote audit package:")
     for k, v in paths.items():
         print(f"  {k}: {v}")
@@ -590,7 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, full_context, rag, openai_memory, mem0, mem0g)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, full_context, rag, openai_memory, mem0, mem0g)",
     )
     p.add_argument("--reader", default=None, help="openai | deepseek | anthropic | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
@@ -602,11 +804,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override Chat Completions message layout",
     )
-    p.add_argument("--teacher", default=None, help="Teacher provider: openai | mock (teacher_session_summaries only)")
+    p.add_argument(
+        "--teacher",
+        default=None,
+        help="Teacher provider: openai | anthropic | deepseek | mock",
+    )
     p.add_argument(
         "--teacher-model",
         default=None,
-        help="Teacher model id (teacher_session_summaries), e.g. gpt-4.1-mini or gpt-5.6-luna",
+        help="Teacher model id (single-teacher conditions), e.g. gpt-4o-mini or claude-haiku-4-5",
+    )
+    p.add_argument(
+        "--pool",
+        default=None,
+        choices=("single", "equal_weight", "random", "round_robin"),
+        help="Override orchestrator.pool for teacher graph conditions",
+    )
+    p.add_argument(
+        "--fusion",
+        default=None,
+        choices=FUSION_POLICIES,
+        help="Override orchestrator.fusion for teacher graph conditions",
+    )
+    p.add_argument(
+        "--thinking",
+        default=None,
+        choices=("on", "off"),
+        help="Teacher thinking/reasoning (default: on). Frozen reader is unchanged.",
     )
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)

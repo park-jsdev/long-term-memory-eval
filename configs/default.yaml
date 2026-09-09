@@ -3,30 +3,12 @@ seed: 0
 data:
   raw_path: data/raw/locomo10.json
   processed_dir: data/processed
-  # leave-one-conversation-out style splits are recommended if training on LoCoMo
+  # leave-one-conversation-out style splits if scoring a holdout conversation
   holdout_sample_ids: []
-
-model:
-  teacher: null          # e.g. meta-llama/Meta-Llama-3-8B-Instruct
-  student: null          # e.g. meta-llama/Meta-Llama-3-1B-Instruct
-  max_ctx_tokens: 4096
-
-distill:
-  temperature: 2.0
-  alpha_ce: 0.5          # weight on student CE vs soft KD
-  lr: 2.0e-5
-  epochs: 1
-  batch_size: 1
-  grad_accum: 8
-
-train:
-  run_name: debug
-  output_dir: experiments
-  log_csv: logs/train.csv
-  log_every: 10
 
 eval:
   predictions_path: null  # JSON with sample_id + qa[].prediction
   prediction_key: prediction
   log_csv: logs/eval_qa.csv
+  output_dir: experiments
   # LoCoMo category ids (paper): 1 multi-hop, 2 temporal, 3 open-domain, 4 single-hop, 5 adversarial

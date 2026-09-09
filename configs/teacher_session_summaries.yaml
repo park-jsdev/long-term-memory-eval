@@ -34,6 +34,8 @@ teacher:
   max_retries: 8
   min_request_interval_s: 0.5
   max_wait_s: 3600
+  thinking: true
+  thinking_budget_tokens: 1024
 
 run:
   run_id: null

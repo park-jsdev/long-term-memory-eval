@@ -17,7 +17,13 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from .env import load_env
-from .models import chat_create_kwargs, resolve_model
+from .models import (
+    TEACHER_THINKING_MIN_OUTPUT_TOKENS,
+    apply_openai_thinking,
+    chat_create_kwargs,
+    resolve_model,
+    supports_reasoning_effort,
+)
 from .prompts import render_qa_prompt
 
 READER_MESSAGE_LAYOUT_DEFAULT = "default_system_user"
@@ -65,6 +71,9 @@ class MockReader(Reader):
             "latency_s": 0.0,
             "usage": {},
             "model": self.model_name,
+            "thinking": False,
+            "thinking_supported": False,
+            "reasoning": "",
         }
 
 
@@ -130,6 +139,7 @@ class OpenAIChatCaller:
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
         base_url: str | None = None,
+        thinking: bool | None = None,
     ):
         self.spec = resolve_model(model)
         self.model_name = self.spec.model_id
@@ -141,6 +151,8 @@ class OpenAIChatCaller:
         self.max_wait_s = max_wait_s
         self.base_url = base_url
         self._last_request_t = 0.0
+        # None = catalog pin (frozen reader). Teachers pass True/False.
+        self.thinking = thinking
 
         load_env()
         api_key = os.environ.get(api_key_env)
@@ -153,10 +165,10 @@ class OpenAIChatCaller:
             from openai import OpenAI
         except ImportError as exc:
             raise ImportError("Install openai: pip install openai") from exc
-        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout_s}
+        client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout_s}
         if base_url:
-            kwargs["base_url"] = base_url
-        self._client = OpenAI(**kwargs)
+            client_kwargs["base_url"] = base_url
+        self._client = OpenAI(**client_kwargs)
 
     def _pace(self) -> None:
         if self.min_request_interval_s <= 0:
@@ -165,23 +177,49 @@ class OpenAIChatCaller:
         if self._last_request_t and elapsed < self.min_request_interval_s:
             time.sleep(self.min_request_interval_s - elapsed)
 
+    def _is_deepseek(self) -> bool:
+        return bool(self.base_url) and "deepseek" in self.base_url
+
     def complete(
         self,
         messages: list[dict[str, str]],
         *,
         create_extra: dict[str, Any] | None = None,
+        thinking: bool | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Return (text, call_meta).
 
         ``create_extra`` is merged into Chat Completions kwargs (e.g. JSON
         ``response_format`` for the autorater).
         """
+        from .reasoning_extractor import openai_reasoning_text, openai_reasoning_tokens
+
         create_kwargs = chat_create_kwargs(
             self.spec,
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
+        use_thinking = self.thinking if thinking is None else bool(thinking)
+        if self._is_deepseek():
+            extra_body = dict(create_kwargs.get("extra_body") or {})
+            if use_thinking is True:
+                extra_body.pop("thinking", None)
+                field = self.spec.max_tokens_field
+                n = int(create_kwargs.get(field) or 16)
+                create_kwargs[field] = max(n, TEACHER_THINKING_MIN_OUTPUT_TOKENS)
+            else:
+                # None (non-teacher callers) and False (ping) both disable so
+                # small max_tokens still yield visible JSON/pong.
+                extra_body["thinking"] = {"type": "disabled"}
+            if extra_body:
+                create_kwargs["extra_body"] = extra_body
+            elif "extra_body" in create_kwargs:
+                del create_kwargs["extra_body"]
+        else:
+            create_kwargs = apply_openai_thinking(
+                self.spec, create_kwargs, use_thinking
+            )
         if create_extra:
             create_kwargs.update(create_extra)
         last_exc: BaseException | None = None
@@ -192,21 +230,34 @@ class OpenAIChatCaller:
                 resp = self._client.chat.completions.create(**create_kwargs)
                 self._last_request_t = time.time()
                 latency = time.time() - t0
-                text = (resp.choices[0].message.content or "").strip()
+                message = resp.choices[0].message
+                text = (message.content or "").strip()
+                reasoning = openai_reasoning_text(message)
                 usage = {}
+                reasoning_tokens = openai_reasoning_tokens(resp.usage)
                 if resp.usage is not None:
                     usage = {
                         "prompt_tokens": resp.usage.prompt_tokens,
                         "completion_tokens": resp.usage.completion_tokens,
                         "total_tokens": resp.usage.total_tokens,
                     }
-
+                    if reasoning_tokens is not None:
+                        usage["reasoning_tokens"] = reasoning_tokens
+                thinking_supported = self._is_deepseek() or supports_reasoning_effort(
+                    self.spec
+                )
                 return text, {
                     "latency_s": round(latency, 3),
                     "usage": usage,
                     "attempts": attempt + 1,
                     "model": self.model_name,
                     "family": self.spec.family,
+                    "provider": "deepseek" if self._is_deepseek() else "openai",
+                    "thinking": bool(use_thinking),
+                    "thinking_supported": thinking_supported,
+                    "reasoning": reasoning,
+                    "reasoning_tokens": reasoning_tokens,
+                    "reasoning_effort": create_kwargs.get("reasoning_effort"),
                 }
             except Exception as exc:
                 last_exc = exc

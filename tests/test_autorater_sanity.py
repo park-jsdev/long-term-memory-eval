@@ -190,6 +190,8 @@ class TestAutoraterBenchmark(unittest.TestCase):
             )
             required = (
                 "autorater_verdicts.jsonl",
+                "traces.jsonl",
+                "schema.json",
                 "autorater_metrics.json",
                 "run_meta.json",
                 "SUMMARY.md",

@@ -1,4 +1,4 @@
-# Phase 1 baseline deps. (torch/transformers still optional for later KD.)
+# Phase 1 baseline deps.
 PyYAML>=6.0
 numpy>=1.24.0
 nltk>=3.8.0
@@ -6,8 +6,7 @@ regex>=2023.0.0
 tqdm>=4.66.0
 requests>=2.31.0
 openai>=1.30.0
+anthropic>=0.40.0
 tiktoken>=0.7.0
 matplotlib>=3.8.0
 python-dotenv>=1.0.0
-# Optional: Anthropic reader (`--reader anthropic`)
-# anthropic>=0.40.0

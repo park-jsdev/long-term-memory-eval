@@ -188,8 +188,9 @@ class ProcessedConversation:
 class Memory:
     """Context string the frozen answer model is allowed to see.
 
-    Built by MemoryBuilder (raw_chunks / session_summaries / teacher /
-    full_context / rag / openai_memory / mem0 / mem0g).
+    Built by MemoryBuilder (raw_chunks / session_summaries / teacher_session_summaries /
+    teacher_graph / pooled_teacher_graph / fused_teacher_graph / full_context / rag /
+    openai_memory / mem0 / mem0g).
     Schema: docs/schemas/memory_runtime.md
     """
 

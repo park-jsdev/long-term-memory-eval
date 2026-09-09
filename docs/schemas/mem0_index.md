@@ -44,9 +44,20 @@ Complete sample (required before a later retrieve/format load): both speaker JSO
 
 ---
 
-## Graph (`mem0g`)
+## Graph (`mem0g`) — locked baseline store
 
-`GraphMemory` ABC; `Mem0GraphMemory` is the paper-architecture default (entities → relations → conflict → MERGE). Node reuse if cosine ≥ `t=0.7`. Conflicting edges get `valid=false` (paper invalidation, not Cypher DELETE). A later distilled graph is a new subclass; freeze extract when that is the claim.
+Whenever a condition uses a graph (Mem0 write-index **or** teacher-built
+memory), the store is **`Mem0GraphMemory`** (`src/locomo_eval/mem0/graph_memory.py`):
+
+- `GraphMemory` ABC; `Mem0GraphMemory` is the only production implementation.
+- Nodes: `node_id`, `name`, `entity_type`, `embedding`, `timestamp`.
+- Edges: `source -- relationship -- target`, `valid`, `timestamp`, `edge_id`.
+- Node reuse if cosine ≥ `t=0.7`. Conflicting edges get `valid=false`
+  (paper invalidation, not Cypher DELETE).
+- Teachers write through `ingest_triples` (already-extracted entities/relations)
+  so fusion cannot invent a second schema.
+- A later distilled graph is a new `GraphMemory` subclass; freeze extract when
+  that is the claim.
 
 ---
 

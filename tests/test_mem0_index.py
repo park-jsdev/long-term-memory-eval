@@ -259,6 +259,20 @@ class TestMem0GraphConflictMarksExclusiveEdgeInvalid(unittest.TestCase):
         targets = {e.target for e in eats}
         self.assertEqual(targets, {"pizza", "burger"})
 
+    def test_ingest_triples_merges_without_calling_extractors(self):
+        graph = Mem0GraphMemory(MockEmbedder(), threshold=0.7)
+        graph.entity_extractor = lambda *_a, **_k: self.fail("extractor should not run")
+        graph.relation_extractor = lambda *_a, **_k: self.fail("extractor should not run")
+        ops = graph.ingest_triples(
+            entities=[{"entity": "alice", "entity_type": "person"}],
+            relations=[{"source": "alice", "relationship": "started", "target": "painting"}],
+            user_id="Alice",
+            timestamp="1 Jan 2023",
+        )
+        self.assertTrue(any(op["op"] == "add_edge" for op in ops))
+        self.assertEqual(graph.edges[0].source, "alice")
+        self.assertEqual(graph.edges[0].target, "painting")
+
 
 class TestDumpRoundTripBuilderDoesNotExtract(unittest.TestCase):
     def test_builder_loads_dump_and_does_not_call_extract(self):
@@ -437,6 +451,9 @@ class TestDefaultYamlPinsMem0ReaderAndPrompt(unittest.TestCase):
             "configs/session_summaries.yaml",
             "configs/mem0.yaml",
             "configs/mem0g.yaml",
+            "configs/teacher_graph.yaml",
+            "configs/pooled_teacher_graph.yaml",
+            "configs/fused_teacher_graph.yaml",
         ):
             cfg = load_config(ROOT / rel)
             self.assertEqual(cfg["reader"]["model"], "gpt-4o-mini", rel)

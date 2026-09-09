@@ -2,7 +2,7 @@
 
 HLD components:
   i)   pre-processing — tests/test_preprocessing_pipeline.py (not wired into run.py)
-  ii)  teacher orchestrator — passthrough seam in teacher_orchestrator.py
+  ii)  teacher orchestrator — pooling/fusion in teacher_orchestrator.py (passthrough if no teachers)
   iii) post-processing — not this file
   iv)  evaluation  ← this file (string metrics + LoCoMo F1)
 

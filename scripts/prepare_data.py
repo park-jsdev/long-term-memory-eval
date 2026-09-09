@@ -1,4 +1,4 @@
-"""Flatten LoCoMo into JSONL + CSV for inspection (and optional KD prep)."""
+"""Flatten LoCoMo into JSONL + CSV for inspection."""
 
 from __future__ import annotations
 
