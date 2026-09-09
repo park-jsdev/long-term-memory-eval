@@ -243,16 +243,6 @@ Compare two methods (offline):
 python scripts/compare_full_runs.py --runs experiments/rag_k2_256_qa experiments/full_context_qa --out experiments/compare_rag_full_context
 ```
 
-Paper Table 2 J next to your local LLM-as-a-Judge (offline; uses the **best** live seed, not the mean of 10). Needs finished autorater packs — it does not call the judge:
-
-```bash
-python -m scripts.analysis.compare_to_paper \
-  --runs experiments/full_context_qa experiments/rag_k2_256_qa experiments/mem0_qa \
-  --out experiments/compare_paper_vs_local
-```
-
-Open `experiments/compare_paper_vs_local/plots/j_paper_vs_local.png` (blue = paper, orange = local). Mem0g / OpenAI-memory stay paper-only until those QA packs exist. `--include-external` adds A-Mem / LangMem / Zep paper bars. This is **not** a Platform J claim.
-
 `--n-judge-runs 10` writes `experiments/<run_id>/autorater_seeds/seed_00` … then `autorater/seed_aggregate.json` (mean ± std, 95% CI). One live autorater pack is one seed; that matches HUMANS.md's earlier note.
 
 Memory audit: `experiments/<run_id>/memory/` (per-sample always; `memory/by_question/` when retrieve is question-dependent — RAG / mem0 / mem0g).

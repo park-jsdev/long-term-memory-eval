@@ -13,4 +13,7 @@ in ``src.locomo_eval.preprocess.dataset_stats``; CLI via
 
 Online benchmark: finished predictions → ``run_benchmark`` → Mem0 lexical
 metrics + LLM autorater + literature/latency tables and plots.
+
+Paper vs local J (offline): finished autorater packs → ``compare_to_paper`` →
+grouped Table 2 bars using the best live seed per method.
 """

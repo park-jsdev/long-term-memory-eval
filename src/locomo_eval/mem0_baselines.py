@@ -335,6 +335,27 @@ FIGURE4_METHODS = (
     "RAG k=2 256",
 )
 
+# Methods this repo can clone locally (eval_pipeline --method). External
+# systems in FIGURE4 stay literature pins.
+LOCAL_PAPER_METHODS = (
+    "Full-context",
+    "RAG k=2 256",
+    "OpenAI",
+    "Mem0",
+    "Mem0g",
+)
+
+# memory_type / --label aliases → Table 2 method names. RAG k/chunk is
+# filled in by ``paper_method_from_run`` when the label is just ``rag``.
+MEMORY_TYPE_TO_PAPER_METHOD = {
+    "full_context": "Full-context",
+    "full-context": "Full-context",
+    "openai_memory": "OpenAI",
+    "openai": "OpenAI",
+    "mem0": "Mem0",
+    "mem0g": "Mem0g",
+}
+
 
 def table2_by_method() -> dict[str, dict[str, Any]]:
     return {row["method"]: row for row in TABLE2_OVERALL}
@@ -345,3 +366,25 @@ def literature_overall_j(method: str) -> float | None:
     if not row:
         return None
     return row.get("j")
+
+
+def rag_paper_method(k: int | None, chunk_size: int | None) -> str:
+    """Table 2 RAG row name. Paper's strongest cell is k=2, chunk=256."""
+    kk = 2 if k is None else int(k)
+    size = 256 if chunk_size is None else int(chunk_size)
+    return f"RAG k={kk} {size}"
+
+
+def paper_method_from_label(label: str | None) -> str | None:
+    """Map a run ``memory_type`` / autorater ``--label`` to a Table 2 name."""
+    if not label:
+        return None
+    raw = str(label).strip()
+    if raw in table2_by_method():
+        return raw
+    key = raw.lower().replace(" ", "_")
+    if key in MEMORY_TYPE_TO_PAPER_METHOD:
+        return MEMORY_TYPE_TO_PAPER_METHOD[key]
+    if key == "rag" or key.startswith("rag_"):
+        return None
+    return None

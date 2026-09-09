@@ -63,7 +63,6 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
-| `scripts/analysis/compare_to_paper.py` | Offline paper Table 2 J vs best local autorater J (grouped bars) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -142,9 +141,6 @@ python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id me
 # Multi-seed J aggregate (no API; packs already judged)
 python -m scripts.analysis.aggregate_seeds --packs experiments/<run>/autorater_seeds/seed_00 experiments/<run>/autorater_seeds/seed_01 --out experiments/<run>/autorater
 
-# Paper Table 2 J vs best local live-judge seed (no API; packs already judged)
-python -m scripts.analysis.compare_to_paper --runs experiments/full_context_qa experiments/rag_k2_256_qa experiments/mem0_qa --out experiments/compare_paper_vs_local
-
 
 # Deterministic preprocess write-index (no LLM). Full locomo10, then 10 reader calls per sanity memory:
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
@@ -152,9 +148,9 @@ python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval
 python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -259,7 +255,6 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Tests for parse, memory, preprocess session blocks, session-document join, Mem0 index (mock), normalize  
 - [ ] Model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
 - [ ] `tests/test_autorater_sanity.py` stays green (mock only; no API)
-- [ ] `tests/test_compare_to_paper.py` stays green (offline paper vs local J; no API)
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
 - [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, and `tests/test_run_isolation.py` stay green (mock only; no API)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
