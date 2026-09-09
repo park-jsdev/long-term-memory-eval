@@ -111,6 +111,7 @@ clears artifacts for a run id and starts from question one;
 - Strong teacher models (GPT-5.x, Claude Sonnet/Opus, DeepSeek Pro) on the write path.
 - Claim-level fusion + LLM validators (see `docs/reports/multi_teacher_methodologies.md` for current resolve baselines).
 - Distilled `GraphMemory` subclass (freeze extract).
+- Anthropic/DeepSeek as **frozen** answer readers for a robustness table (infra is in `readers.py` / `models.py`).
 
 ---
 
@@ -169,7 +170,10 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 | `mem0g` | `mem0` plus serialized graph relations | Does the graph add anything if extract is frozen? Later distilled graphs swap `GraphMemory` only. |
 | `teacher_graph` | One teacher writes locked Mem0g triples | Does a live graph teacher beat mem0g / summaries? |
 | `pooled_teacher_graph` | K teachers; equal_weight / random / round_robin | Does naive pooling help? |
-| `fused_teacher_graph` | K teachers; majority-vote fusion skeleton | Does consensus fusion help? |
+| `fused_teacher_graph` | K teachers; majority-vote / resolve_* fusion | Does consensus fusion help? |
+| `rag` | Cosine top-k tiktoken chunks | Mem0 paper RAG baseline |
+| `full_context` | Entire timestamped dialog | Mem0 paper full-context baseline |
+| `openai_memory` | All extracted timestamped facts (no top-k) | Paper OpenAI privileged-memory protocol clone |
 | `top1_teacher` (future) | Top-1 of K teacher memories | Selection enough? |
 | `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
 | `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |

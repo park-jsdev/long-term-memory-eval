@@ -189,7 +189,8 @@ class Memory:
     """Context string the frozen answer model is allowed to see.
 
     Built by MemoryBuilder (raw_chunks / session_summaries / teacher_session_summaries /
-    teacher_graph / pooled_teacher_graph / fused_teacher_graph / mem0 / mem0g).
+    teacher_graph / pooled_teacher_graph / fused_teacher_graph / full_context / rag /
+    openai_memory / mem0 / mem0g).
     Schema: docs/schemas/memory_runtime.md
     """
 
@@ -199,6 +200,7 @@ class Memory:
     schema_version: str = "memory_io.v1"
     teacher_model: str | None = None
     teacher_provider: str | None = None
+    search_latency_s: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

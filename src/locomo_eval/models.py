@@ -33,7 +33,9 @@ FAMILY_GPT41 = "gpt-4.1"
 FAMILY_GPT4O = "gpt-4o"
 FAMILY_GPT56 = "gpt-5.6"
 FAMILY_CLAUDE_HAIKU = "claude-haiku"
+FAMILY_CLAUDE = "claude"
 FAMILY_DEEPSEEK_V4 = "deepseek-v4"
+FAMILY_DEEPSEEK = "deepseek"
 
 # Mem0 paper/released evaluation defaults for both answering and judging.
 DEFAULT_AUTORATER_MODEL = GPT4O_MINI
@@ -122,6 +124,41 @@ _CATALOG: dict[str, ModelSpec] = {
         max_tokens_field="max_tokens",
         supports_temperature=True,
     ),
+    "deepseek-chat": ModelSpec(
+        model_id="deepseek-chat",
+        family=FAMILY_DEEPSEEK,
+        display_name="DeepSeek Chat",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "deepseek-reasoner": ModelSpec(
+        model_id="deepseek-reasoner",
+        family=FAMILY_DEEPSEEK,
+        display_name="DeepSeek Reasoner",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "claude-3-5-haiku-latest": ModelSpec(
+        model_id="claude-3-5-haiku-latest",
+        family=FAMILY_CLAUDE,
+        display_name="Claude 3.5 Haiku",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "claude-3-5-sonnet-latest": ModelSpec(
+        model_id="claude-3-5-sonnet-latest",
+        family=FAMILY_CLAUDE,
+        display_name="Claude 3.5 Sonnet",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "claude-sonnet-4-5": ModelSpec(
+        model_id="claude-sonnet-4-5",
+        family=FAMILY_CLAUDE,
+        display_name="Claude Sonnet 4.5",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
 }
 
 # Short names for CLI / tests. Keys are lowercase.
@@ -142,9 +179,11 @@ _ALIASES: dict[str, str] = {
     "claude-haiku": CLAUDE_HAIKU_45,
     "claude-haiku-4-5": CLAUDE_HAIKU_45,
     "claude-haiku-4-5-20251001": CLAUDE_HAIKU_45,
+    "claude": "claude-3-5-haiku-latest",
+    "claude-sonnet": "claude-3-5-sonnet-latest",
     "deepseek": DEEPSEEK_V4_FLASH,
-    "deepseek-chat": DEEPSEEK_V4_FLASH,  # retired alias; Flash is the cheap V4 id
     "deepseek-v4-flash": DEEPSEEK_V4_FLASH,
+    "deepseek-chat": "deepseek-chat",
 }
 
 
@@ -160,15 +199,17 @@ def infer_family(model_id: str) -> str:
     if mid.startswith("gpt-5"):
         return "gpt-5"
     if mid.startswith("claude"):
-        if "haiku" in mid:
+        if "haiku-4-5" in mid or mid == "claude-haiku-4-5":
             return FAMILY_CLAUDE_HAIKU
+        if "haiku" in mid:
+            return FAMILY_CLAUDE
         if "sonnet" in mid:
             return "claude-sonnet"
         if "opus" in mid:
             return "claude-opus"
-        return "claude"
+        return FAMILY_CLAUDE
     if mid.startswith("deepseek"):
-        return FAMILY_DEEPSEEK_V4 if "v4" in mid or mid == "deepseek-chat" else "deepseek"
+        return FAMILY_DEEPSEEK_V4 if "v4" in mid else FAMILY_DEEPSEEK
     return model_id
 
 

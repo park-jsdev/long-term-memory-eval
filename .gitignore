@@ -27,13 +27,17 @@ data/processed/*
 !data/processed/.gitkeep
 
 # --- Run artifacts, local logs ---
-# Per-run preds, metrics, plots, memory dumps
+# Per-run preds, metrics, plots, memory dumps (never commit these)
 experiments/*
 !experiments/.gitkeep
+# Legacy output root; current packs live under experiments/
+results/
 logs/*
 !logs/.gitkeep
 outputs/
 *.log
+# LLM response-hash cache was removed; keep the name ignored if a leftover appears
+experiments/cache/
 
 # Optional local notebooks outputs (keep .ipynb source if intentionally tracked)
 .ipynb_checkpoints/

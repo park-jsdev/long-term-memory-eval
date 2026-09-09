@@ -406,3 +406,4 @@ def get_teacher(
     raise ValueError(
         f"Unknown teacher '{name}'. Use openai, anthropic, deepseek, or mock."
     )
+

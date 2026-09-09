@@ -27,6 +27,7 @@ from scripts.analysis.compare_predictions import write_compare_prediction_plots
 from src.locomo_eval.experiments.load import load_qa_pack
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.prompts import load_prompt_template
+from src.locomo_eval.stats import mean_ci95, wilcoxon_signed_rank
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -202,6 +203,8 @@ def pair_analysis(packs: list[dict], prompt_path: Path | None) -> dict[str, Any]
         "mean_memory_chars_a": round(sum(mem_chars_a) / n, 1) if common else None,
         "mean_memory_chars_b": round(sum(mem_chars_b) / n, 1) if common else None,
         "mean_delta_locomo_f1_b_minus_a": round(sum(deltas) / n, 4) if common else None,
+        "delta_locomo_f1_ci95": mean_ci95(deltas) if common else None,
+        "wilcoxon_locomo_f1": wilcoxon_signed_rank(deltas) if common else None,
         "sanity": {
             "conditions_look_distinct": (same_memory / n < 0.05) if common else None,
             "note": (

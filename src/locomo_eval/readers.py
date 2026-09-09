@@ -111,8 +111,22 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     return None
 
 
+# OpenAI-compatible Chat Completions providers (answer / teacher / extract).
+OPENAI_COMPAT_PROVIDERS: dict[str, dict[str, str | None]] = {
+    "openai": {"api_key_env": "OPENAI_API_KEY", "base_url": None},
+    "deepseek": {
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com",
+    },
+}
+
+
 class OpenAIChatCaller:
-    """Shared Chat Completions helper for reader, teacher, and autorater."""
+    """Shared Chat Completions helper for reader, teacher, and autorater.
+
+    ``base_url`` lets DeepSeek (and other OpenAI-compatible APIs) reuse this
+    client. Anthropic is a separate caller.
+    """
 
     def __init__(
         self,
@@ -135,8 +149,8 @@ class OpenAIChatCaller:
         self.max_retries = max_retries
         self.min_request_interval_s = min_request_interval_s
         self.max_wait_s = max_wait_s
-        self._last_request_t = 0.0
         self.base_url = base_url
+        self._last_request_t = 0.0
         # None = catalog pin (frozen reader). Teachers pass True/False.
         self.thinking = thinking
 
@@ -145,7 +159,7 @@ class OpenAIChatCaller:
         if not api_key:
             raise RuntimeError(
                 f"Set {api_key_env} in a repo-root .env file "
-                f"(see .env.example) or export it in the shell before using OpenAI."
+                f"(see .env.example) or export it in the shell before using {api_key_env}."
             )
         try:
             from openai import OpenAI
@@ -278,6 +292,8 @@ class OpenAIReader(Reader):
         min_request_interval_s: float = 0.0,
         max_wait_s: float = 3600.0,
         message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
+        base_url: str | None = None,
+        provider: str = "openai",
     ):
         build_reader_messages("", message_layout)
         self._chat = OpenAIChatCaller(
@@ -289,16 +305,121 @@ class OpenAIReader(Reader):
             max_retries=max_retries,
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,
+            base_url=base_url,
         )
         self.model_name = self._chat.model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.message_layout = message_layout
+        self.provider = provider
 
     def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
         prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
         messages = build_reader_messages(prompt, self.message_layout)
         return self._chat.complete(messages)
+
+
+class AnthropicReader(Reader):
+    """Anthropic Messages API reader. Infra only until a robustness-axis run."""
+
+    provider = "anthropic"
+
+    def __init__(
+        self,
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: int | None = 64,
+        api_key_env: str = "ANTHROPIC_API_KEY",
+        timeout_s: float = 60.0,
+        max_retries: int = 8,
+        min_request_interval_s: float = 0.0,
+        max_wait_s: float = 3600.0,
+        message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
+    ):
+        build_reader_messages("", message_layout)
+        self.spec = resolve_model(model)
+        self.model_name = self.spec.model_id
+        self.temperature = temperature
+        self.max_tokens = max_tokens if max_tokens is not None else 64
+        self.message_layout = message_layout
+        self.max_retries = max_retries
+        self.min_request_interval_s = min_request_interval_s
+        self.max_wait_s = max_wait_s
+        self._last_request_t = 0.0
+        load_env()
+        api_key = os.environ.get(api_key_env)
+        if not api_key:
+            raise RuntimeError(
+                f"Set {api_key_env} in a repo-root .env file "
+                f"(see .env.example) or export it before using Anthropic."
+            )
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError("Install anthropic: pip install anthropic") from exc
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s)
+
+    def answer(self, memory: str, question: str, prompt_template: str) -> tuple[str, dict[str, Any]]:
+        prompt = render_qa_prompt(prompt_template, memory=memory, question=question)
+        layout = build_reader_messages(prompt, self.message_layout)
+        system = ""
+        messages: list[dict[str, str]] = []
+        for msg in layout:
+            if msg["role"] == "system":
+                system = ((system + "\n") if system else "") + msg["content"]
+            else:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        if not messages:
+            messages = [{"role": "user", "content": prompt}]
+        last_exc: BaseException | None = None
+        for attempt in range(self.max_retries + 1):
+            if self.min_request_interval_s > 0 and self._last_request_t:
+                elapsed = time.time() - self._last_request_t
+                if elapsed < self.min_request_interval_s:
+                    time.sleep(self.min_request_interval_s - elapsed)
+            t0 = time.time()
+            try:
+                kwargs: dict[str, Any] = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "max_tokens": int(self.max_tokens or 64),
+                }
+                if system:
+                    kwargs["system"] = system
+                if self.spec.supports_temperature:
+                    kwargs["temperature"] = float(self.temperature)
+                resp = self._client.messages.create(**kwargs)
+                self._last_request_t = time.time()
+                latency = time.time() - t0
+                text_parts = []
+                for block in getattr(resp, "content", []) or []:
+                    if getattr(block, "type", None) == "text":
+                        text_parts.append(getattr(block, "text", "") or "")
+                text = "".join(text_parts).strip()
+                usage = {}
+                if getattr(resp, "usage", None) is not None:
+                    usage = {
+                        "prompt_tokens": getattr(resp.usage, "input_tokens", None),
+                        "completion_tokens": getattr(resp.usage, "output_tokens", None),
+                    }
+                return text, {
+                    "latency_s": round(latency, 3),
+                    "usage": usage,
+                    "attempts": attempt + 1,
+                    "model": self.model_name,
+                    "family": self.spec.family,
+                }
+            except Exception as exc:
+                last_exc = exc
+                if not _is_rate_limit_error(exc) or attempt >= self.max_retries:
+                    raise
+                wait = _retry_after_seconds(exc)
+                if wait is None:
+                    wait = min(2 ** attempt + random.uniform(0, 1), 300.0)
+                wait = min(wait, self.max_wait_s)
+                time.sleep(wait)
+        assert last_exc is not None
+        raise last_exc
 
 
 def get_reader(
@@ -311,14 +432,28 @@ def get_reader(
     max_wait_s: float = 3600.0,
     message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
 ) -> Reader:
-    """Build a mock or OpenAI reader."""
+    """Build a mock, OpenAI-compatible, or Anthropic reader."""
     name = name.lower()
     if name == "mock":
         # Resolve aliases (luna → gpt-5.6-luna) so mock logs match live ids.
         model_name = resolve_model(model).model_id if model else "mock"
         return MockReader(model_name=model_name)
-    if name == "openai":
+    if name in OPENAI_COMPAT_PROVIDERS:
+        spec = OPENAI_COMPAT_PROVIDERS[name]
         return OpenAIReader(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_key_env=str(spec["api_key_env"]),
+            max_retries=max_retries,
+            min_request_interval_s=min_request_interval_s,
+            max_wait_s=max_wait_s,
+            message_layout=message_layout,
+            base_url=spec.get("base_url"),
+            provider=name,
+        )
+    if name in ("anthropic", "claude"):
+        return AnthropicReader(
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -327,4 +462,6 @@ def get_reader(
             max_wait_s=max_wait_s,
             message_layout=message_layout,
         )
-    raise ValueError(f"Unknown reader '{name}'. Use openai or mock.")
+    raise ValueError(
+        f"Unknown reader '{name}'. Use openai, deepseek, anthropic, or mock."
+    )

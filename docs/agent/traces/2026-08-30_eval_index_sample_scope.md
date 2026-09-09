@@ -10,11 +10,11 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase:** evaluation pipeline that locally reproduces Mem0 paper *methods* (RAG, full-context, OpenAI-memory protocol clone, Mem0/Mem0g architecture clone) plus HLD (ii) **TeacherOrchestrator** (single teacher, naive pool, majority-vote + slot-resolve fusion) writing the **locked Mem0 graph**. Read path includes `raw_chunks` / `session_summaries` / `teacher_session_summaries` / `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` / `rag` / `full_context` / `openai_memory` / `mem0` / `mem0g`, plus a Mem0-style **LLM autorater**. Do **not** claim paper Table 1–2 J from the OSS clones.
+**Current phase:** evaluation pipeline that locally reproduces Mem0 paper *methods* (RAG, full-context, OpenAI-memory protocol clone, Mem0/Mem0g architecture clone) plus the existing sandwich read path. Offline index → QA → string metrics → Mem0 autorater, with multi-judge-run mean ± std and 95% CIs. Do **not** claim paper Table 1–2 J from the OSS clones. A-Mem / LangMem / Zep / MemGPT remain literature pins.
 
-See `docs/reports/engineering_notebook.md` for freeze/extend rules; `docs/reports/multi_teacher_methodologies.md` for teacher/fusion methodology.
+See `docs/reports/engineering_notebook.md` for freeze/extend rules.
 
-Teacher fusion is a `MemoryBuilder` + orchestrator claim. Distilled memory later is a new `GraphMemory` subclass (freeze extract when attributing the graph). `Mem0GraphMemory` is the locked graph schema whenever a condition uses a graph.
+Do **not** implement multi-teacher fusion unless the human expands scope. The eval pipeline `--method` / `--config` slot is how a later fusion builder is compared. Later distilled memory is a new `GraphMemory` subclass (freeze extract when attributing the graph). `teacher_orchestrator.py` stays a passthrough seam.
 
 ---
 
@@ -25,9 +25,9 @@ Write: conversation → teachers → fusion/validate → memory store
 Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 ```
 
-Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, `teacher_graph`, `pooled_teacher_graph`, `fused_teacher_graph`, `mem0`, `mem0g`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
+Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, `mem0`, `mem0g`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
 
-**Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/qa_mem0_v1.txt`) for paper-method and sandwich memory conditions. Orchestrate paper methods with `python -m src.locomo_eval.eval_pipeline --method …` (`rag`, `full_context`, `openai_memory`, `mem0` / `mem0g`). Cheap **teacher plumbing** models: `gpt-4o-mini`, `claude-haiku-4-5`, `deepseek-v4-flash`. `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` write locked Mem0g via the orchestrator. Reader-model or `qa_v1` swaps remain a **separate** robustness axis.
+**Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/qa_mem0_v1.txt`) for paper-method and sandwich memory conditions. Orchestrate with `python -m src.locomo_eval.eval_pipeline --method …`. Paper-reproducible locally: `rag`, `full_context`, `openai_memory` (privileged extract-all clone, **not** ChatGPT Memory product), `mem0` / `mem0g` (OSS architecture clone, in-memory graph, **not** Platform/Neo4j). Reader infra also accepts `--reader deepseek` (OpenAI-compatible) and `--reader anthropic`. A-Mem / LangMem / Zep stay literature pins in `mem0_baselines.py`. `teacher_session_summaries` remains a live single-teacher seam. Reader-model or `qa_v1` swaps remain a **separate** robustness axis.
 
 ---
 
@@ -39,11 +39,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `configs/raw_chunks.yaml` | Raw dialog memory (`raw_chunks`) |
 | `configs/session_summaries.yaml` | LoCoMo session-summary memory with original QA controls |
 | `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
-| `configs/teacher_session_summaries.yaml` | Live single-teacher session summaries (`teacher_session_summaries`) |
-| `configs/teacher_graph.yaml` | Single interchangeable teacher → locked Mem0 graph |
-| `configs/pooled_teacher_graph.yaml` | K cheap teachers, naive pool (`equal_weight` / `random` / `round_robin`) |
-| `configs/fused_teacher_graph.yaml` | K teachers, majority-vote fusion skeleton |
-| `configs/fused_teacher_graph_resolve_*.yaml` | K teachers, slot-disagreement baselines (`resolve_top_voted`, `resolve_first`, …) |
+| `configs/teacher_session_summaries.yaml` | Live single-teacher memory (`teacher_session_summaries`) |
 | `configs/preprocess.yaml` | Deterministic HLD (i) write-index (no LLM) |
 | `configs/rag.yaml` | Mem0-paper RAG (chunk+embed dump + top-k) |
 | `configs/full_context.yaml` | Entire timestamped dialog, no retrieve |
@@ -53,15 +49,12 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `prompts/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
 | `prompts/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
 | `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
-| `prompts/teacher_graph_v1.txt` | Teacher → entity/relation JSON (Mem0g-shaped) |
 | `prompts/autorater_mem0_v1.txt` | Mem0 LLM-as-a-Judge prompt |
 | `prompts/mem0_extract_v1.txt` / `mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
 | `prompts/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
-| `docs/reports/multi_teacher_methodologies.md` | Researcher guide: teacher methods, LLMs, fusion, reproduce |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
-| `docs/schemas/experiment_pack.md` | Read-only `experiments/<run_id>/` contract for eval branches |
 | `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `docs/schemas/rag_index.md` | RAG chunk dump (`rag_index.v1`) |
 | `docs/schemas/openai_memory_index.md` | Privileged extract-all dump |
@@ -70,7 +63,6 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
-| `scripts/analysis/compare_to_paper.py` | Offline paper Table 2 J vs best local autorater J (grouped bars) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -85,29 +77,23 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `schemas.py` | Conversation, Session, Turn, SessionBlock, Question, Memory, Prediction |
 | `dataset.py` | Load LoCoMo JSON → Conversation (read path; preprocess is separate) |
 | `preprocess/` | HLD (i): `DataIngestor` + `PreprocessingPipeline` + session-document join + deterministic `run_index` dump |
-| `teacher_orchestrator.py` | HLD (ii): session blocks → pool/fuse → `Mem0GraphMemory` (passthrough if no teachers) |
-| `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher_* / full_context / rag / openai_memory / mem0 / mem0g |
+| `teacher_orchestrator.py` | HLD (ii) stub: one SessionBlock at a time, passthrough, no LLM |
+| `memory.py` | MemoryBuilder interface + raw_chunks / session_summaries / teacher / full_context / rag / openai_memory / mem0 / mem0g |
 | `rag/` | Paper RAG: tiktoken chunk, embed dump, cosine top-k, `full_context` builder |
 | `openai_memory/` | Privileged extract-all dump + retrieve-all (not ChatGPT Memory product) |
-| `mem0/` | Write-index: ingest pairs, extract, update, vector store, locked `GraphMemory`, dump, `run_index` CLI |
-| `fusion.py` | Pool policies + majority-vote + slot resolve fusion (software) |
-| `teacher_callers.py` | Write-path LLM clients for teachers (via `teachers.py` → orchestrator; not reader) |
-| `reasoning_extractor.py` | Shared reasoning-text helpers (reader + teacher callers) |
+| `mem0/` | Write-index: ingest pairs, extract, update, vector store, `GraphMemory` ABC, dump, `run_index` CLI |
 | `eval_pipeline.py` | Index → QA → optional autorater seeds for one `--method` |
 | `stats.py` | Mean ± std, 95% CI, Wilcoxon, McNemar (no API) |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
 | `models.py` | Model ids / families / Chat Completions kwargs |
-| `teachers.py` | Session-summary + graph teachers (openai / anthropic / deepseek / mock) |
-| `ping_teachers.py` | Cheap-model plumbing ping (not QA) |
+| `teachers.py` | Single teacher (session summaries) |
 | `autorater.py` | Mem0-style CORRECT/WRONG LLM judge; GPT-4o + mock |
 | `mem0_metrics.py` | Mem0 lexical F1/BLEU-1 and latency summaries |
 | `mem0_baselines.py` | Published Mem0 Tables 1–2 values (literature pins, not re-runs) |
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Pack I/O: `layout` + `load` (eval) vs `write` (run.py only) |
-| `audit_pack.py` | Compat shim re-exporting `experiments.write` / `layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
 ---
@@ -138,8 +124,6 @@ python -m scripts.analysis.run_benchmark --run experiments/<run_id>
 python -m scripts.analysis.run_benchmark --run experiments/<run_id> --autorater mock
 
 # Evaluation pipeline (one method). Mock smoke, then live + judge seeds.
-# --max-samples caps index AND QA so round-robin --max-questions stays in those conversations.
-# Subset smokes write experiments/<run_id>_index (they do not overwrite rag_locomo10).
 python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context
 python -m src.locomo_eval.eval_pipeline --method rag --reader mock --embedder mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_rag
 python -m src.locomo_eval.eval_pipeline --method openai_memory --reader mock --extractor mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_openai_memory
@@ -155,8 +139,6 @@ python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id me
 # Multi-seed J aggregate (no API; packs already judged)
 python -m scripts.analysis.aggregate_seeds --packs experiments/<run>/autorater_seeds/seed_00 experiments/<run>/autorater_seeds/seed_01 --out experiments/<run>/autorater
 
-# Paper Table 2 J vs best local live-judge seed (no API; packs already judged)
-python -m scripts.analysis.compare_to_paper --runs experiments/full_context_qa experiments/rag_k2_256_qa experiments/mem0_qa --out experiments/compare_paper_vs_local
 
 # Deterministic preprocess write-index (no LLM). Full locomo10, then 10 reader calls per sanity memory:
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
@@ -164,9 +146,9 @@ python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval
 python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_integration_sanity.py tests/test_run_isolation.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -178,28 +160,8 @@ python scripts/compare_cross_model.py --runs experiments/session_summaries_mini 
 python scripts/export_session_documents.py --data data/raw/locomo10.json --out data/processed
 ```
 
-Set API keys via repo-root `.env` (`copy .env.example .env`) or shell:
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`.
-Never commit keys or `.env`. `src/locomo_eval/env.py` loads `.env` at run start / teacher-caller init.
-
-# Teacher plumbing ping (cheap models; needs keys unless --mock)
-python -m src.locomo_eval.ping_teachers --mock
-python -m src.locomo_eval.ping_teachers --providers openai,anthropic,deepseek
-
-# Mock teacher-graph / pool / fusion (no API)
-python -m src.locomo_eval.run --config configs/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_pooled_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_voted.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
-# Override fusion without a new YAML: --fusion resolve_first
-# Teacher thinking on by default (write path only). Frozen reader stays reasoning_effort=none.
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --thinking off --reader mock --teacher mock --max-questions 3 --run-id smoke_thinking_off
-
-# Live teachers (needs OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY). Do not pass --teacher mock.
-python -m src.locomo_eval.run --config configs/teacher_graph.yaml --max-questions 3 --run-id live_teacher_graph
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --max-questions 3 --run-id live_pooled_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml --max-questions 3 --run-id live_fused_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_voted.yaml --max-questions 3 --run-id live_fused_resolve_top_voted
+Set API key via repo-root `.env` (`copy .env.example .env`) or shell `OPENAI_API_KEY`.  
+Never commit keys or `.env`. `src/locomo_eval/env.py` loads `.env` at run start / OpenAI reader init.
 
 ---
 
@@ -207,20 +169,17 @@ python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_v
 
 Each run under `experiments/<run_id>/` must include:
 
-- `predictions.jsonl` — one row per question (incl. memory text); also copied to `reader/`
+- `predictions.jsonl` — one row per question (incl. memory text)
 - `predictions.csv` — spreadsheet-friendly + scores + memory preview
 - `metrics.json` — overall + by-category
 - `metrics_by_category.csv`
-- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp, `audit_layout`
+- `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp
 - `plots/` — overall + category bars
-- `reader/` — answer-LLM traces (`traces.jsonl`) + LoCoMo predictions
-- `memory/` — `{memory}` payload; `memory/teachers/` when a teacher wrote (calls, reasoning, fusion votes); `memory/graph/` when graph memory was built
 
 Agents must not silently skip CSV/plots when code paths change.
 
 An autorater pack under `experiments/<run_id>/autorater/` must include
-`autorater_verdicts.jsonl`, `traces.jsonl` (judge reasoning), `schema.json`,
-`autorater_metrics.json`, `run_meta.json`,
+`autorater_verdicts.jsonl`, `autorater_metrics.json`, `run_meta.json`,
 `SUMMARY.md`, `tables/`, and `plots/`. It is a snapshot: every invocation
 clears these generated artifacts and regenerates from one prediction file.
 Never append autorater analyses.
@@ -238,8 +197,8 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 ## Design rules for agents
 
-1. **Sandwich:** only change one middle variable per experimental claim. Default reader (`gpt-4o-mini` + `qa_mem0_v1`) and mem0 writer (`gpt-4o-mini` extract/update) stay frozen for graph/store RQs. GPT-5.6 readers stay `reasoning_effort=none`. Teacher thinking (`teacher.thinking` / `--thinking`) is a **write-path** knob, not a reader swap. Reader-model or `qa_v1` swaps are a **different** axis (`compare_cross_model.py` / prompt override).
-2. **Orchestrator is software**, not one giant LLM call (`TeacherOrchestrator` + `fusion.py`).
+1. **Sandwich:** only change one middle variable per experimental claim. Default reader (`gpt-4o-mini` + `qa_mem0_v1`) and mem0 writer (`gpt-4o-mini` extract/update) stay frozen for graph/store RQs. Reader-model or `qa_v1` swaps are a **different** axis (`compare_cross_model.py` / prompt override).
+2. **Orchestrator is software**, not one giant LLM call (future TeacherOrchestrator modules).
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
    Autorater reports additionally use Mem0 F1/BLEU-1/J and must label these
@@ -252,7 +211,6 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
    response stores, JSONL skip, or per-sample index skip.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
-8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.load` (and `layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.write` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
 
 ---
 
@@ -277,7 +235,7 @@ From review. Follow these when adding or renaming code.
 
 ## Out of scope (v0.1)
 
-Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone, mixing a reader-prompt swap into a graph/store claim, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks. Claim-level fusion and LLM validators are future work; current `resolve_*` policies are baseline heuristics only. A-Mem / LangMem / Zep / MemGPT are literature pins only.
+Multi-teacher fusion, Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone, mixing a reader-prompt swap into a graph/store claim, validator loop, retrieval budgets as experiments, training/distillation loop, web UI, event-summarization / multimodal tasks. A-Mem / LangMem / Zep / MemGPT are literature pins only.
 
 Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unless requested.
 
@@ -295,9 +253,8 @@ Stub remnants (`src/train.py`, `src/distill/`) are deferred KD; do not wire unle
 - [ ] Tests for parse, memory, preprocess session blocks, session-document join, Mem0 index (mock), normalize  
 - [ ] Model-integration sanity (`test_integration_sanity`: reader swap, teacher family swap, LoCoMo vs SPEC scorer)  
 - [ ] `tests/test_autorater_sanity.py` stays green (mock only; no API)
-- [ ] `tests/test_compare_to_paper.py` stays green (offline paper vs local J; no API)
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
-- [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, and `tests/test_teacher_orchestrator.py` stay green (mock only; no API)
+- [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, and `tests/test_run_isolation.py` stay green (mock only; no API)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---

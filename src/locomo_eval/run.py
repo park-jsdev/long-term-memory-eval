@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -105,6 +106,60 @@ def _mem0_builder_kwargs(
             provider,
             model=embed_cfg.get("model") or "text-embedding-3-small",
         ),
+    }
+
+
+def _rag_builder_kwargs(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
+) -> dict:
+    """Index-dir + query embedder for rag. Other builders ignore these kwargs."""
+    if resolve_memory_name(memory_name) != "rag":
+        return {}
+    rcfg = cfg.get("rag") or {}
+    index_run = getattr(overrides, "rag_index_run_id", None) or rcfg.get("index_run_id")
+    if not index_run:
+        raise SystemExit(
+            "rag requires rag.index_run_id in YAML or --rag-index-run-id "
+            "(after python -m src.locomo_eval.rag.run_index)."
+        )
+    out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
+    embed_cfg = rcfg.get("embed") or {}
+    provider = embed_cfg.get("provider") or "openai"
+    if str(reader_name).lower() == "mock":
+        provider = "mock"
+    from src.locomo_eval.mem0.embeddings import get_embedder
+
+    k = getattr(overrides, "rag_k", None)
+    if k is None:
+        k = rcfg.get("k", 2)
+    return {
+        "rag_index_dir": out_root / str(index_run) / "rag_index",
+        "rag_top_k": int(k),
+        "rag_embedder": get_embedder(
+            provider,
+            model=embed_cfg.get("model") or "text-embedding-3-small",
+        ),
+    }
+
+
+def _openai_memory_builder_kwargs(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str
+) -> dict:
+    if resolve_memory_name(memory_name) != "openai_memory":
+        return {}
+    ocfg = cfg.get("openai_memory") or {}
+    index_run = getattr(overrides, "openai_memory_index_run_id", None) or ocfg.get(
+        "index_run_id"
+    )
+    if not index_run:
+        raise SystemExit(
+            "openai_memory requires openai_memory.index_run_id in YAML or "
+            "--openai-memory-index-run-id (after python -m "
+            "src.locomo_eval.openai_memory.run_index)."
+        )
+    out_root = Path(overrides.output_dir or cfg["run"]["output_dir"])
+    return {
+        "openai_memory_index_dir": out_root / str(index_run) / "openai_memory_index",
     }
 
 
@@ -287,6 +342,56 @@ def _build_orchestrator(
     )
 
 
+def _listed_index_sample_ids(index_dir: Path | None) -> list[str]:
+    """Sample ids recorded in an index dump's ``index.jsonl`` (empty if none)."""
+    if index_dir is None:
+        return []
+    path = Path(index_dir) / "index.jsonl"
+    if not path.is_file():
+        return []
+    ids: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        sid = row.get("sample_id")
+        if sid:
+            ids.append(str(sid))
+    return ids
+
+
+def _filter_conversations_to_index(
+    conversations: list,
+    index_dir: Path | None,
+    *,
+    subset_requested: bool,
+) -> list:
+    """Keep QA inside the dump. A partial smoke index must not round-robin into missing samples."""
+    dumped = _listed_index_sample_ids(index_dir)
+    if not dumped:
+        return conversations
+    dumped_set = set(dumped)
+    missing = [c.sample_id for c in conversations if c.sample_id not in dumped_set]
+    kept = [c for c in conversations if c.sample_id in dumped_set]
+    if missing and not subset_requested:
+        raise SystemExit(
+            f"Index dump at {index_dir} has {len(dumped)} sample(s) but QA needs "
+            f"{len(conversations)} (missing e.g. {missing[0]}). Re-index without "
+            "--max-samples, or pass --max-samples / --sample-id to evaluate only "
+            "indexed conversations."
+        )
+    if not kept:
+        raise SystemExit(
+            f"No overlap between QA conversations and index dump at {index_dir}."
+        )
+    if missing:
+        print(
+            f"QA restricted to {len(kept)} indexed sample(s) "
+            f"(dump missing {len(missing)}, e.g. {missing[0]})"
+        )
+    return kept
+
+
 def _reset_run_output(run_dir: Path) -> None:
     """Clear generated artifacts so one run id always means one fresh run.
 
@@ -345,6 +450,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     orchestrator = _build_orchestrator(cfg, overrides, memory_name, reader_name)
     mem0_kwargs = _mem0_builder_kwargs(cfg, overrides, memory_name, reader_name)
     preprocess_kwargs = _preprocess_builder_kwargs(cfg, overrides, memory_name)
+    rag_kwargs = _rag_builder_kwargs(cfg, overrides, memory_name, reader_name)
+    openai_kwargs = _openai_memory_builder_kwargs(cfg, overrides, memory_name)
     builder = get_memory_builder(
         memory_name,
         max_chars=max_chars,
@@ -352,6 +459,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         orchestrator=orchestrator,
         **mem0_kwargs,
         **preprocess_kwargs,
+        **rag_kwargs,
+        **openai_kwargs,
     )
 
     rate_cfg = cfg.get("reader") or {}
@@ -393,6 +502,19 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         conversations = [c for c in conversations if c.sample_id == overrides.sample_id]
         if not conversations:
             raise SystemExit(f"No sample_id match: {overrides.sample_id}")
+    max_samples = getattr(overrides, "max_samples", None)
+    if max_samples is not None:
+        conversations = conversations[: int(max_samples)]
+    index_dir = (
+        rag_kwargs.get("rag_index_dir")
+        or mem0_kwargs.get("mem0_index_dir")
+        or openai_kwargs.get("openai_memory_index_dir")
+    )
+    conversations = _filter_conversations_to_index(
+        conversations,
+        index_dir,
+        subset_requested=bool(overrides.sample_id or max_samples is not None),
+    )
 
     # These builders do not depend on the question; build once per conversation.
     memory_by_sample = {}
@@ -434,7 +556,12 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     reader_traces: list[dict] = []
     n_api = 0
     used_memories: dict[str, Memory] = {}
+    used_memories_by_question: dict[str, Memory] = {}
+    question_sample_ids: dict[str, str] = {}
     example_question: str | None = None
+    question_independent = is_question_independent(
+        memory_name, retrieve_top_k=retrieve_top_k
+    )
     try:
         for i, (conv, q) in enumerate(pairs, start=1):
             if conv.sample_id in memory_by_sample:
@@ -442,6 +569,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             else:
                 memory = builder.build(conv, q)
             used_memories[conv.sample_id] = memory
+            if not question_independent:
+                used_memories_by_question[q.question_id] = memory
+                question_sample_ids[q.question_id] = conv.sample_id
             if example_question is None:
                 example_question = q.question
 
@@ -468,6 +598,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             row["latency_s"] = meta.get("latency_s")
             row["usage"] = meta.get("usage")
             row["memory_schema_version"] = memory.schema_version
+            if memory.search_latency_s is not None:
+                row["search_latency_s"] = memory.search_latency_s
             prediction_rows.append(row)
             reader_traces.append(
                 {
@@ -505,6 +637,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 max_chars_cfg=max_chars,
                 prompt_template=prompt_template,
                 example_question=example_question,
+                memories_by_question=used_memories_by_question or None,
+                question_sample_ids=question_sample_ids or None,
             )
             write_teacher_module(
                 run_dir,
@@ -534,6 +668,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             max_chars_cfg=max_chars,
             prompt_template=prompt_template,
             example_question=example_question,
+            memories_by_question=used_memories_by_question or None,
+            question_sample_ids=question_sample_ids or None,
         )
         print(f"Memory audit: {mem_log_dir}")
         teachers_dir = write_teacher_module(
@@ -584,6 +720,13 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "preprocess_index_run_id": getattr(overrides, "preprocess_index_run_id", None)
         or (cfg.get("preprocess") or {}).get("index_run_id"),
         "retrieve_top_k": retrieve_top_k,
+        "rag_index_run_id": getattr(overrides, "rag_index_run_id", None)
+        or (cfg.get("rag") or {}).get("index_run_id"),
+        "rag_k": rag_kwargs.get("rag_top_k"),
+        "openai_memory_index_run_id": getattr(
+            overrides, "openai_memory_index_run_id", None
+        )
+        or (cfg.get("openai_memory") or {}).get("index_run_id"),
         "reader_provider": reader_name,
         "reader_model": reader.model_name,
         "reader_family": resolve_model(reader.model_name).family,
@@ -605,6 +748,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "prompt_path": str(prompt_path),
         "prompt_version": prompt_version,
         "max_questions": max_questions,
+        "max_samples": max_samples,
         "question_sample": question_sample,
         "n_predictions": len(prediction_rows),
         "n_new_api_calls": n_api,
@@ -648,9 +792,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, mem0, mem0g)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, full_context, rag, openai_memory, mem0, mem0g)",
     )
-    p.add_argument("--reader", default=None, help="openai | mock")
+    p.add_argument("--reader", default=None, help="openai | deepseek | anthropic | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
     p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
     p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
@@ -700,6 +844,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--sample-id", default=None, help="Restrict to one conversation")
     p.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Cap conversations (file order) before --max-questions. "
+        "Keeps round-robin inside an indexed subset.",
+    )
+    p.add_argument(
         "--mem0-index-run-id",
         default=None,
         help="experiments/<id>/mem0_index dump for mem0/mem0g builders",
@@ -714,6 +865,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Optional session-unit cap after naive rank (default: all units)",
+    )
+    p.add_argument(
+        "--rag-index-run-id",
+        default=None,
+        help="experiments/<id>/rag_index dump for the rag builder",
+    )
+    p.add_argument(
+        "--rag-k",
+        type=int,
+        default=None,
+        help="RAG top-k chunks (paper: 1 or 2)",
+    )
+    p.add_argument(
+        "--openai-memory-index-run-id",
+        default=None,
+        help="experiments/<id>/openai_memory_index dump for openai_memory",
     )
     return p
 

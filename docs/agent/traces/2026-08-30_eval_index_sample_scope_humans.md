@@ -13,12 +13,12 @@ You compare **how memory is built** for long multi-session chats (LoCoMo). The e
 | Layer | Fixed or variable? | Notes |
 |-------|--------------------|--------|
 | Top | Fixed | LoCoMo conversations + questions |
-| Middle | Variable (`raw_chunks`, `session_summaries`, `mem0`, `mem0g`, `teacher_*`, fusion) | How candidate memory is constructed / fused |
+| Middle | Variable (`raw_chunks`, `session_summaries`, `mem0`, `mem0g`, later teacher/fusion) | How candidate memory is constructed / fused |
 | Bottom | Fixed | Retrieval budget, answer LLM + prompt, metrics |
 
 **v0.1 goal:** evaluation pipeline that can locally run Mem0 paper methods (RAG, full-context, OpenAI-memory protocol clone, Mem0/Mem0g architecture clone) under one frozen answer LLM, with auditable memory dumps, string metrics, and a Mem0 autorater (multi-judge-run CIs). Sandwich comparisons (`raw_chunks` vs `session_summaries` / teacher) stay the same two-run + `compare_full_runs.py` flow.
 
-You are not yet claiming paper J from the OSS Mem0 clone. **`raw_chunks`** vs **`session_summaries`** still compare how much structure helps under one fixed answer model. Teacher graph conditions (`teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph`) write the **same locked Mem0 graph** via `TeacherOrchestrator`. Point `--method` / `--config` at paper methods (`rag`, `full_context`, `openai_memory`) through `eval_pipeline`. Full system map: `docs/reports/engineering_notebook.md`.
+You are not yet running multi-teacher fusion. Point `--method` / `--config` at a later fusion YAML when that builder exists. Full system map: `docs/reports/engineering_notebook.md`.
 
 **Can we reproduce paper numbers locally?**
 
@@ -111,9 +111,6 @@ gold answer ──────────────────────�
 - **`raw_chunks`:** dump raw dialog as the memory string (little structure).  
 - **`session_summaries`:** dump released session summaries (structured-ish, still not a multi-teacher schema).  
 - **`teacher_session_summaries`:** one LLM summarizes each session; swap `teacher.model` within a family.  
-- **`teacher_graph`:** one interchangeable teacher (OpenAI / Claude / DeepSeek) extracts triples into locked `Mem0GraphMemory`.  
-- **`pooled_teacher_graph`:** all three cheap teachers; fuse by `equal_weight` (union), `random`, or `round_robin`. Sanity pool, not learned fusion.  
-- **`fused_teacher_graph`:** all teachers, then majority-vote triples into the same graph (baseline fusion skeleton).  
 - **`mem0` / `mem0g`:** load a Mem0 write-index dump and retrieve top-k facts (graph relations for `mem0g`). Does not re-extract.  
 - **Later:** `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`, distilled `GraphMemory` — still the same idea: **produce a better memory payload for the same fixed Q + fixed answer LLM.**
 
@@ -132,27 +129,14 @@ python scripts/fetch_locomo.py
 
 Data lands at `data/raw/locomo10.json` (not committed; CC BY-NC 4.0).
 
-For live API runs, put keys in a **repo-root `.env`** (gitignored):
+For live API runs, put the key in a **repo-root `.env`** (gitignored):
 
 ```bash
 copy .env.example .env
-# edit .env:
-#   OPENAI_API_KEY=sk-...          # reader, Mem0 writer, OpenAI teacher, autorater
-#   ANTHROPIC_API_KEY=sk-ant-...   # Claude teacher (claude-haiku-4-5)
-#   ANTHROPIC_WORKSPACE_ID=wrkspc_...  # required for identity-linked Anthropic keys
-#   DEEPSEEK_API_KEY=sk-...        # DeepSeek teacher (deepseek-v4-flash)
+# edit .env → OPENAI_API_KEY=sk-...
 ```
 
 The pipeline loads `.env` automatically on start. Shell export still works and wins if already set.
-
-Plumbing check (cheap teacher models, not QA):
-
-```bash
-python -m src.locomo_eval.ping_teachers --mock
-python -m src.locomo_eval.ping_teachers --providers openai,anthropic,deepseek
-```
-
-Ping keeps **thinking off** so a 64-token pong is not eaten by chain-of-thought. Live teacher runs default **thinking on** (`teacher.thinking: true` / `--thinking on`). That is the write path only: the frozen answer reader still uses catalog `reasoning_effort=none` (GPT-5.6) or no reasoning field (gpt-4o-mini). Cheap OpenAI teacher `gpt-4o-mini` has no extended-thinking API — the flag is logged as `thinking_supported: false`. Swap the OpenAI teacher to `gpt-5.6-luna` (or terra/sol) to actually send `reasoning_effort=high`. Teacher reasoning and triples land in `memory/teachers/` (index by `teacher_id`). Claude and DeepSeek return reasoning text; GPT-5.x often only reports `reasoning_tokens`.
 
 ---
 
@@ -220,7 +204,7 @@ QA packs: `experiments/locomo_preprocess_raw_chunks_n10/` and `experiments/locom
 
 One `--method` per invocation. Index (if that method needs a dump) → QA → optional autorater. Compare two finished packs with `scripts/compare_full_runs.py` (Wilcoxon + 95% CI on LoCoMo F1 deltas).
 
-**Mock smoke (no API):** `--max-samples` caps conversations for both index and QA. Default `round_robin` then takes `--max-questions` from those samples only (so `1` sample × `5` questions does not walk into unindexed conversations). Subset smokes write `experiments/<run_id>_index/` instead of overwriting the YAML full-dump id (`rag_locomo10`, …).
+**Mock smoke (no API):**
 
 ```bash
 python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context
@@ -258,16 +242,6 @@ Compare two methods (offline):
 ```bash
 python scripts/compare_full_runs.py --runs experiments/rag_k2_256_qa experiments/full_context_qa --out experiments/compare_rag_full_context
 ```
-
-Paper Table 2 J next to your local LLM-as-a-Judge (offline; uses the **best** live seed, not the mean of 10). Needs finished autorater packs — it does not call the judge:
-
-```bash
-python -m scripts.analysis.compare_to_paper \
-  --runs experiments/full_context_qa experiments/rag_k2_256_qa experiments/mem0_qa \
-  --out experiments/compare_paper_vs_local
-```
-
-Open `experiments/compare_paper_vs_local/plots/j_paper_vs_local.png` (blue = paper, orange = local). Mem0g / OpenAI-memory stay paper-only until those QA packs exist. `--include-external` adds A-Mem / LangMem / Zep paper bars. This is **not** a Platform J claim.
 
 `--n-judge-runs 10` writes `experiments/<run_id>/autorater_seeds/seed_00` … then `autorater/seed_aggregate.json` (mean ± std, 95% CI). One live autorater pack is one seed; that matches HUMANS.md's earlier note.
 
@@ -320,9 +294,6 @@ Offline teacher smoke (no API):
 
 ```bash
 python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --reader mock --teacher mock --teacher-model gpt-5.6-luna --max-questions 3 --run-id smoke_teacher_luna
-python -m src.locomo_eval.run --config configs/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_pooled_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_teachers
 ```
 
 `compare_cross_model.py` writes `overall.csv`, `paired_questions.csv`, `SUMMARY.md`, `compare.json`. Check `run_meta.json` for `reader_model` / `teacher_model` / `*_family`. Distinctness is `fraction_same_memory_text` and `fraction_same_answer` (inspect traces if you need to confirm the filled prompt changed).
@@ -383,19 +354,13 @@ Everything for one experiment is under `experiments/<run_id>/`:
 
 | File | Why open it |
 |------|-------------|
-| `reader/traces.jsonl` | Answer LLM output + reasoning (usually empty on frozen gpt-4o-mini) |
-| `reader/predictions.jsonl` | LoCoMo QA rows (same as run-root `predictions.jsonl`) |
 | `predictions.csv` | Spreadsheet audit: Q, gold, pred, scores, memory clip |
-| `predictions.jsonl` | Full rows including full memory text (compat copy at run root) |
+| `predictions.jsonl` | Full rows including full memory text |
 | `metrics.json` | Overall exact match / token F1 / **LoCoMo F1** |
 | `metrics_by_category.csv` | Category breakdown (single-hop, temporal, …) |
-| `run_meta.json` | Model, prompt version, data SHA, git hash, time, `audit_layout` |
-| `memory/` | `{memory}` payload (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
-| `memory/teachers/` | Per-teacher reasoning, triples, `fusion.jsonl` (`proposed_by` / `kept`) |
-| `memory/graph/` | Fused Mem0g snapshot per sample |
+| `run_meta.json` | Model, prompt version, data SHA, git hash, time |
+| `memory/` | Runtime memory audit (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
 | `plots/*.png` | Quick visual of overall + by-category scores |
-
-`run_meta.json` includes `audit_layout` paths. An eval branch should load packs with `src.locomo_eval.experiments.load` (see [`docs/schemas/experiment_pack.md`](../schemas/experiment_pack.md)) and not edit `run.py` / teachers.
 
 `predictions.jsonl` is an audit artifact. Reusing a run id clears generated
 artifacts and rebuilds from question one.
@@ -459,7 +424,6 @@ Outputs under `experiments/<run_id>/autorater/`:
 | Artifact | Contents |
 |----------|----------|
 | `autorater_verdicts.jsonl` | Fresh per-question F1, BLEU-1, J label, usage, reader/judge latency; overwritten each invocation |
-| `traces.jsonl` | Judge LLM subset: label, reasoning, raw_text, usage |
 | `autorater_metrics.json` | Overall and category metrics; category 5 excluded from J |
 | `tables/overall.csv` | This run's F1/BLEU-1/J, token usage, p50/p95 latency |
 | `tables/vs_literature.csv` | This run next to published Mem0 Table 2 J/latency values |
@@ -494,8 +458,8 @@ locomo10.json                 # official: dialog + summaries + gold QA
     → data_ingestor.py        # HLD (i): wrap dataset.py, do not rewrite source JSON
     → preprocessing_pipeline.py  # HLD (i): SessionBlock[]
     → mem0/run_index.py       # write-index dumps (mem0 / mem0g); not QA
-    → teacher_orchestrator.py # HLD (ii): pool/fuse teachers → locked Mem0GraphMemory
-    → memory.py               # experimental: Memory.text (raw_chunks / session_summaries / teacher_* / mem0 / mem0g)
+    → teacher_orchestrator.py # HLD (ii): one session block, passthrough, no LLM
+    → memory.py               # experimental: Memory.text (raw_chunks / session_summaries / teacher_session_summaries / mem0 / mem0g)
     → prompts/qa_mem0_v1.txt  # pinned Mem0-parity answer prompt (override qa_v1 as a separate axis)
     → readers.py              # answer LLM (swap only for robustness, not a memory claim)
     → metrics + report        # scorer uses gold; reports for humans
@@ -505,16 +469,13 @@ Later swaps should only replace **memory builders** (and eventually teacher/fusi
 
 ---
 
-## Roadmap sketch
+## Roadmap sketch (not in v0.1)
 
 | Condition | Middle layer | Question |
 |-----------|--------------|----------|
 | `raw_chunks` | Raw / chunked dialog | Does structure help? |
 | `session_summaries` | LoCoMo-provided session summaries | How strong is a structured session-memory bank? |
 | `teacher_session_summaries` | Live single-teacher session summaries | Does a live teacher beat released summaries? |
-| `teacher_graph` | One teacher → locked Mem0 graph | Does a live graph teacher beat mem0g? |
-| `pooled_teacher_graph` | K teachers, equal_weight / random / round_robin | Does naive pooling help? |
-| `fused_teacher_graph` | K teachers, majority-vote fusion | Does consensus fusion help? |
 | `mem0` | Mem0 vector extract+update dump + top-k retrieve | Does the paper write path help vs session summaries? |
 | `mem0g` | mem0 + in-memory graph relations | Does graph structure add anything (same extract)? |
 | `top1_teacher` | Top-1 of K teachers (later) | Selection enough? |
@@ -529,7 +490,7 @@ Teacher K∈{1,2,3} and utility U_K = Δscore / Δcost come **after** this basel
 
 **Do:** extend memory builders or `GraphMemory`, swap reader/teacher models for robustness checks, improve reports, run Mem0 indexes, keep docs current.
 
-**Don’t (yet):** claim paper Table 1–2 J from this OSS clone, call Mem0 Platform / Neo4j, training loops, silent metric changes, deleting experiment data, committing secrets.
+**Don’t (yet):** claim paper Table 1–2 J from this OSS clone, call Mem0 Platform / Neo4j, multi-LLM fusion, training loops, silent metric changes, deleting experiment data, committing secrets.
 
 ---
 
