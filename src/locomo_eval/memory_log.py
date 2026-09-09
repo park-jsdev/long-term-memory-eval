@@ -145,8 +145,9 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "{source} -- {relationship} -- {target}"
         ),
         "notes": (
-            "Baseline fusion skeleton: all teachers extract, keep triples with "
-            "majority votes, MERGE into locked Mem0g graph. Not a paper-J claim."
+            "Fusion into locked Mem0g: majority_vote, or resolve_* baselines "
+            "(top_voted / first / random / round_robin / confidence) for "
+            "source+relationship disagreements. Not a paper-J claim."
         ),
     },
 }

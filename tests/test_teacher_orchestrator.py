@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -468,6 +469,79 @@ class TestGetTeacherProvidersAndPing(unittest.TestCase):
         )
         self.assertTrue(_is_missing_anthropic_workspace(exc))
         self.assertFalse(_is_missing_anthropic_workspace(RuntimeError("rate limit")))
+
+
+class TestLiveTeacherRosterWiring(unittest.TestCase):
+    def _fake_teacher(self, provider, model=None, **kwargs):
+        return MockTeacher(
+            model_name=model or "mock",
+            teacher_id=kwargs.get("teacher_id") or provider,
+        )
+
+    def test_pooled_yaml_passes_openai_anthropic_deepseek_when_reader_is_live(self):
+        from src.config import load_config
+        from src.locomo_eval.run import _build_orchestrator, build_parser
+
+        cfg = load_config(ROOT / "configs" / "pooled_teacher_graph.yaml")
+        args = build_parser().parse_args(
+            ["--config", str(ROOT / "configs" / "pooled_teacher_graph.yaml")]
+        )
+        seen = []
+
+        def fake_get_teacher(provider, model=None, **kwargs):
+            seen.append(provider)
+            return self._fake_teacher(provider, model=model, **kwargs)
+
+        with patch("src.locomo_eval.run.get_teacher", side_effect=fake_get_teacher):
+            orch = _build_orchestrator(cfg, args, "pooled_teacher_graph", "openai")
+        self.assertEqual(seen, ["openai", "anthropic", "deepseek"])
+        self.assertEqual(orch.pool, "equal_weight")
+        self.assertEqual(orch.fusion, "none")
+
+    def test_fused_resolve_yaml_keeps_live_roster_and_resolve_policy(self):
+        from src.config import load_config
+        from src.locomo_eval.run import _build_orchestrator, build_parser
+
+        cfg = load_config(ROOT / "configs" / "fused_teacher_graph_resolve_top_voted.yaml")
+        args = build_parser().parse_args(
+            [
+                "--config",
+                str(ROOT / "configs" / "fused_teacher_graph_resolve_top_voted.yaml"),
+            ]
+        )
+        seen = []
+
+        def fake_get_teacher(provider, model=None, **kwargs):
+            seen.append(provider)
+            return self._fake_teacher(provider, model=model, **kwargs)
+
+        with patch("src.locomo_eval.run.get_teacher", side_effect=fake_get_teacher):
+            orch = _build_orchestrator(cfg, args, "fused_teacher_graph", "openai")
+        self.assertEqual(seen, ["openai", "anthropic", "deepseek"])
+        self.assertEqual(orch.fusion, "resolve_top_voted")
+
+    def test_mock_reader_forces_mock_teachers_on_pooled_roster(self):
+        from src.config import load_config
+        from src.locomo_eval.run import _build_orchestrator, build_parser
+
+        cfg = load_config(ROOT / "configs" / "pooled_teacher_graph.yaml")
+        args = build_parser().parse_args(
+            [
+                "--config",
+                str(ROOT / "configs" / "pooled_teacher_graph.yaml"),
+                "--reader",
+                "mock",
+            ]
+        )
+        seen = []
+
+        def fake_get_teacher(provider, model=None, **kwargs):
+            seen.append(provider)
+            return self._fake_teacher(provider, model=model, **kwargs)
+
+        with patch("src.locomo_eval.run.get_teacher", side_effect=fake_get_teacher):
+            _build_orchestrator(cfg, args, "pooled_teacher_graph", "mock")
+        self.assertEqual(seen, ["mock", "mock", "mock"])
 
 
 class TestTeacherThinkingMeta(unittest.TestCase):

@@ -304,3 +304,71 @@ def write_latency_p50_p95_bars(
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
+
+
+def write_paper_vs_local_bars(
+    labels: list[str],
+    paper: list[float | None],
+    local: list[float | None],
+    *,
+    path: Path,
+    ylabel: str = "J (%)",
+    title: str = "LLM-as-a-Judge vs Mem0 paper (Table 2)",
+    paper_label: str = "Mem0 paper",
+    local_label: str = "Local (best seed)",
+) -> Path | None:
+    """Grouped paper vs local bars. Missing local scores omit the second bar."""
+    plt = _pyplot()
+    if plt is None or not labels:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    n = len(labels)
+    fig, ax = plt.subplots(figsize=(max(8.0, 0.9 * n + 2.5), 4.8))
+    x = list(range(n))
+    width = 0.36
+    paper_x, paper_y, local_x, local_y = [], [], [], []
+    for i, (p_val, l_val) in enumerate(zip(paper, local)):
+        if p_val is not None:
+            paper_x.append(i - width / 2)
+            paper_y.append(p_val)
+        if l_val is not None:
+            local_x.append(i + width / 2)
+            local_y.append(l_val)
+    if paper_x:
+        paper_bars = ax.bar(
+            paper_x, paper_y, width, label=paper_label, color=CONDITION_COLOR_A
+        )
+        for bar, value in zip(paper_bars, paper_y):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value,
+                f"{value:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+    if local_x:
+        local_bars = ax.bar(
+            local_x, local_y, width, label=local_label, color=CONDITION_COLOR_B
+        )
+        for bar, value in zip(local_bars, local_y):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value,
+                f"{value:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=25, ha="right")
+    ymax = max([v for v in paper + local if v is not None] + [0.0])
+    ax.set_ylim(0, max(105.0, ymax * 1.12))
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
