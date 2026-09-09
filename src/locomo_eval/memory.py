@@ -6,6 +6,9 @@ Current conditions (ids are what reviewers see in logs):
   raw_chunks                  — raw dialogue turns (optional char budget)
   session_summaries           — LoCoMo-provided session summaries
   teacher_session_summaries   — live single-teacher session summaries (model-swappable)
+  full_context                — entire timestamped dialog (Mem0 paper full-context)
+  rag                         — token-chunk cosine retrieve from a RAG write-index
+  openai_memory               — extract-all dump, retrieve-all (paper OpenAI protocol clone)
   mem0 / mem0g                — load a Mem0 write-index dump + cosine retrieve (no re-extract)
 
 See docs/reports/engineering_notebook.md.
@@ -257,18 +260,25 @@ _ALIASES: dict[str, str] = {
     "teacher": TeacherSessionMemoryBuilder.name,
     "mem0": "mem0",
     "mem0g": "mem0g",
+    "rag": "rag",
+    "full_context": "full_context",
+    "full-context": "full_context",
+    "openai_memory": "openai_memory",
+    "openai": "openai_memory",
 }
+
+_INDEX_BUILDERS = ("mem0", "mem0g", "rag", "full_context", "openai_memory")
 
 
 def resolve_memory_name(name: str) -> str:
     key = name.strip().lower() if name else ""
-    if key in _BUILDERS or key in ("mem0", "mem0g"):
-        return key
+    if key in _BUILDERS or key in _INDEX_BUILDERS:
+        return "full_context" if key in ("full_context", "full-context") else key
     if key in _ALIASES:
         return _ALIASES[key]
     raise ValueError(
         f"Unknown memory builder '{name}'. "
-        f"Known: {sorted(list(_BUILDERS) + ['mem0', 'mem0g'])} aliases={sorted(_ALIASES)}"
+        f"Known: {sorted(list(_BUILDERS) + list(_INDEX_BUILDERS))} aliases={sorted(_ALIASES)}"
     )
 
 
@@ -281,8 +291,40 @@ def get_memory_builder(
     mem0_embedder: Embedder | None = None,
     preprocess_index_dir: str | Path | None = None,
     retrieve_top_k: int | None = None,
+    rag_index_dir: str | Path | None = None,
+    rag_top_k: int = 2,
+    rag_embedder: Embedder | None = None,
+    openai_memory_index_dir: str | Path | None = None,
 ) -> MemoryBuilder:
     resolved = resolve_memory_name(name)
+    if resolved == "full_context":
+        from .rag.builders import FullContextMemoryBuilder
+
+        return FullContextMemoryBuilder()
+    if resolved == "rag":
+        from .rag.builders import RagMemoryBuilder
+
+        if rag_index_dir is None:
+            raise ValueError(
+                "rag requires a write-index directory. "
+                "Set rag.index_run_id in YAML (experiments/<id>/rag_index) "
+                "after python -m src.locomo_eval.rag.run_index."
+            )
+        return RagMemoryBuilder(
+            index_dir=rag_index_dir,
+            embedder=rag_embedder,
+            top_k=rag_top_k,
+        )
+    if resolved == "openai_memory":
+        from .openai_memory.builders import OpenAIMemoryBuilder
+
+        if openai_memory_index_dir is None:
+            raise ValueError(
+                "openai_memory requires a write-index directory. "
+                "Set openai_memory.index_run_id in YAML after "
+                "python -m src.locomo_eval.openai_memory.run_index."
+            )
+        return OpenAIMemoryBuilder(index_dir=openai_memory_index_dir)
     if resolved in ("mem0", "mem0g"):
         from .mem0.builders import Mem0IndexMemoryBuilder, Mem0gIndexMemoryBuilder
 
@@ -329,4 +371,6 @@ def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> 
         RawConversationMemoryBuilder.name,
         SessionSummaryMemoryBuilder.name,
         TeacherSessionMemoryBuilder.name,
+        "full_context",
+        "openai_memory",
     )
