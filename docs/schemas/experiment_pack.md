@@ -52,6 +52,15 @@ path small.
 
 ```text
 experiments/<run_id>/
+  TRACE.md                     config → prompt → jsonl map (start here)
+  config.resolved.yaml         merged YAML actually used
+  config.source.yaml           copy of the CLI `--config` file
+  prompts/                     snapshot copies (same tree as repo `prompts/`)
+    index.json
+    readers/
+    writers/
+    teachers/
+    autoraters/
   run_meta.json                 pins + audit_layout paths
   metrics.json                 overall string metrics
   predictions.jsonl           QA rows (compat copy at run root)

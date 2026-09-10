@@ -1,0 +1,7 @@
+# Mem0 paper eval controls (null max_tokens + system-only message).
+includes:
+  - configs/data/locomo10.yaml
+  - configs/layouts/qa_mem0_v1.yaml
+  - configs/layouts/mem0_system_only.yaml
+  - configs/readers/gpt-4o-mini_mem0_parity.yaml
+  - configs/run/local_experiments.yaml

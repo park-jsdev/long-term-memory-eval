@@ -1,0 +1,38 @@
+# Sandwich design: freeze reader + prompt + judge; vary only memory.
+# One Cloud Run task = one full LoCoMo QA run (omit subset: for the full set).
+
+experiment:
+  name: locomo-sandwich-memory
+  type: sandwich
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    reader:
+      catalog: gpt-4o-mini
+    judge:
+      provider: openai
+      api_model_id: gpt-4o-mini
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  memory_method:
+    - raw_chunks
+    - session_summaries
+    - full_context
+  seed:
+    - 1
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  max_concurrency: 3
+
+storage:
+  backend: local
+  path: experiments

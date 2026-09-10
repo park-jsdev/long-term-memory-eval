@@ -64,7 +64,7 @@ class TestHashModulesAreAbsent(unittest.TestCase):
 
 class TestConfigsDoNotDeclareCaches(unittest.TestCase):
     def test_pipeline_yaml_files_do_not_declare_cache_or_hash_dirs(self):
-        yaml_files = sorted((ROOT / "configs").glob("*.yaml"))
+        yaml_files = sorted((ROOT / "configs").rglob("*.yaml"))
         self.assertTrue(yaml_files)
         for path in yaml_files:
             text = path.read_text(encoding="utf-8")

@@ -1,0 +1,12 @@
+# One teacher writes locked Mem0GraphMemory. Swap teacher.model; freeze the reader.
+includes:
+  - configs/stacks/qa_default.yaml
+  - configs/teachers/openai_single.yaml
+
+pipeline:
+  memory: teacher_graph
+
+orchestrator:
+  pool: single
+  fusion: none
+  rng_seed: 0

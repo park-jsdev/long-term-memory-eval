@@ -45,7 +45,7 @@ Claims → what to swap (one middle variable)
 
 Not this package
 ----------------
-- ``mem0_baseline.yaml`` / ``prompts/qa_mem0_v1.txt`` — *evaluation* parity
+- ``mem0_baseline.yaml`` / ``prompts/readers/qa_mem0_v1.txt`` — *evaluation* parity
   (GPT-4o-mini answer prompt over ``session_summaries``). No extract/update.
 - ``autorater.py`` / ``mem0_metrics.py`` / ``mem0_baselines.py`` — judge and
   literature tables over *finished predictions*, not the write-index.

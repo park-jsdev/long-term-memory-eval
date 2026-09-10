@@ -1,0 +1,37 @@
+# Three frontier ceiling runs. Do not mix these into the 27-cell core matrix.
+
+experiment:
+  name: locomo-ceiling-frontier
+  type: sweep
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  reader:
+    - catalog: claude-opus-5
+  memory_method:
+    - full_context
+    - rag
+    - mem0
+  seed:
+    - 1
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+storage:
+  backend: local
+  path: experiments
+
+shared_indexes:
+  rag:
+    index_run_id: rag_locomo10
+  mem0:
+    index_run_id: mem0_locomo10

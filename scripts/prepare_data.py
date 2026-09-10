@@ -20,7 +20,7 @@ CONTEXT_PREVIEW_CHARS = 300
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/data/processed_export.yaml")
     parser.add_argument("--split", default="all", choices=["all", "train", "eval"])
     parser.add_argument("--out", default=None, help="Output JSONL path")
     parser.add_argument(

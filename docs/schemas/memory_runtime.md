@@ -18,7 +18,7 @@ Passed from builder → runner → prompt fill. Never includes the gold answer.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `memory_type` | string | Condition id, e.g. `raw_chunks`, `session_summaries`, `teacher_session_summaries` |
-| `text` | string | **Full payload** inserted into `prompts/qa_v1.txt` as `{memory}` |
+| `text` | string | **Full payload** inserted into `prompts/readers/qa_v1.txt` as `{memory}` |
 | `source_ids` | list[string] | Provenance ids (turn `dia_id`s or `session_k_summary`) |
 | `schema_version` | string | Always `memory_io.v1` for this layout family |
 | `teacher_model` | string or null | Write-path model id when using `teacher_session_summaries` |
@@ -41,7 +41,7 @@ JSON shape (also in `memory_io.schema.json`):
 
 ### Condition `raw_chunks` (`RawConversationMemoryBuilder`)
 
-Config: `configs/raw_chunks.yaml` · optional `pipeline.memory_max_chars` (tail keep if over budget).
+Config: `configs/writers/raw_chunks.yaml` · optional `pipeline.memory_max_chars` (tail keep if over budget).
 
 ```text
 Conversation between {speaker_a} and {speaker_b}.
@@ -65,19 +65,19 @@ If truncated:
 
 ### Condition `full_context` (`FullContextMemoryBuilder`)
 
-Config: `configs/full_context.yaml`. Mem0 paper transcript grammar (`{timestamp} | {speaker}: {text}`). No retrieval.
+Config: `configs/writers/full_context.yaml`. Mem0 paper transcript grammar (`{timestamp} | {speaker}: {text}`). No retrieval.
 
 ### Condition `rag` (`RagMemoryBuilder`)
 
-Config: `configs/rag.yaml`. Loads `experiments/<index_run_id>/rag_index/`. Question-dependent cosine top-k token chunks joined with `\n<->\n`. Per-question texts: `memory/by_question/<qid>.txt`.
+Config: `configs/writers/rag.yaml`. Loads `experiments/<index_run_id>/rag_index/`. Question-dependent cosine top-k token chunks joined with `\n<->\n`. Per-question texts: `memory/by_question/<qid>.txt`.
 
 ### Condition `openai_memory` (`OpenAIMemoryBuilder`)
 
-Config: `configs/openai_memory.yaml`. Concatenates every extracted `{timestamp} | {speaker}: {fact}`. No top-k.
+Config: `configs/writers/openai_memory.yaml`. Concatenates every extracted `{timestamp} | {speaker}: {fact}`. No top-k.
 
 ### Condition `session_summaries` (`SessionSummaryMemoryBuilder`)
 
-Config: `configs/session_summaries.yaml` · uses LoCoMo release field `session_summary`.
+Config: `configs/writers/session_summaries.yaml` · uses LoCoMo release field `session_summary`.
 
 ```text
 [Session 1]
@@ -93,13 +93,13 @@ Sessions omitted if empty. Order = chronological session number.
 
 ### Condition `teacher_session_summaries` (`TeacherSessionMemoryBuilder`)
 
-Config: `configs/teacher_session_summaries.yaml` · `teacher.model` / `--teacher-model`.
+Config: `configs/writers/teacher_session_summaries.yaml` · `teacher.model` / `--teacher-model`.
 
-Same `[Session k]` concatenation as `session_summaries`, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
+Same `[Session k]` concatenation as `session_summaries`, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teachers/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
 
 ### Condition `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph`
 
-Configs: `configs/teacher_graph.yaml`, `pooled_teacher_graph.yaml`, `fused_teacher_graph.yaml`.
+Configs: `configs/writers/teacher_graph.yaml`, `pooled_teacher_graph.yaml`, `fused_teacher_graph.yaml`.
 
 Teachers extract Mem0-shaped triples; `TeacherOrchestrator` writes **locked** `Mem0GraphMemory` (`ingest_triples`). `{memory}` is:
 
@@ -116,7 +116,7 @@ Graph relations:
 ### Injection into the fixed prompt
 
 ```text
-# prompts/qa_v1.txt
+# prompts/readers/qa_v1.txt
 Memory:
 {memory}      ← Memory.text  (entire string above)
 Question:

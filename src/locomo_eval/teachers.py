@@ -16,14 +16,16 @@ from .mem0.graph_memory import mock_extract_entities, mock_extract_relations, no
 from .mem0.json_util import parse_json_object
 from .models import resolve_model
 from .prompts import (
+    ROOT,
+    TEACHER_GRAPH_V1,
+    TEACHER_SESSION_V1,
     load_prompt_template,
     render_teacher_graph_prompt,
     render_teacher_session_prompt,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TEACHER_PROMPT = ROOT / "prompts" / "teacher_session_v1.txt"
-DEFAULT_GRAPH_PROMPT = ROOT / "prompts" / "teacher_graph_v1.txt"
+DEFAULT_TEACHER_PROMPT = ROOT / TEACHER_SESSION_V1
+DEFAULT_GRAPH_PROMPT = ROOT / TEACHER_GRAPH_V1
 
 KNOWN_TEACHER_PROVIDERS = ("openai", "anthropic", "deepseek", "mock")
 

@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from ..models import resolve_model
-from ..prompts import load_prompt_template
+from ..prompts import MEM0_EXTRACT_V1, ROOT, load_prompt_template
 from ..readers import OpenAIChatCaller
 from .ingest import user_messages_text
 from .json_util import parse_json_object
 from .schemas import MessagePair
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_EXTRACT_PROMPT = ROOT / "prompts" / "mem0_extract_v1.txt"
+DEFAULT_EXTRACT_PROMPT = ROOT / MEM0_EXTRACT_V1
 
 
 class FactExtractor(ABC):

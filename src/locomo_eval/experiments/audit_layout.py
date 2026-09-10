@@ -24,6 +24,10 @@ MEMORY = "memory"
 TEACHERS = "memory/teachers"
 GRAPH = "memory/graph"
 AUTORATER = "autorater"
+PROMPTS = "prompts"
+TRACE = "TRACE.md"
+CONFIG_RESOLVED = "config.resolved.yaml"
+CONFIG_SOURCE = "config.source.yaml"
 COMPAT_PREDICTIONS = "predictions.jsonl"
 COMPAT_TEACHER_CALLS = "memory/teacher_calls.jsonl"
 
@@ -37,6 +41,8 @@ def audit_layout_meta() -> dict[str, str]:
         "teachers": f"{TEACHERS}/",
         "graph": f"{GRAPH}/",
         "autorater": f"{AUTORATER}/",
+        "prompts": f"{PROMPTS}/",
+        "trace": TRACE,
         "compat_predictions": COMPAT_PREDICTIONS,
     }
 
@@ -69,6 +75,11 @@ class AuditPaths:
     autorater_dir: Path
     autorater_verdicts: Path
     autorater_traces: Path
+    prompts_dir: Path
+    prompt_index: Path
+    trace: Path
+    config_resolved: Path
+    config_source: Path
 
     @classmethod
     def from_run_dir(cls, run_dir: str | Path) -> AuditPaths:
@@ -77,6 +88,7 @@ class AuditPaths:
         teachers = root / TEACHERS
         graph = root / GRAPH
         autorater = root / AUTORATER
+        prompts = root / PROMPTS
         return cls(
             run_dir=root,
             run_meta=root / "run_meta.json",
@@ -97,6 +109,11 @@ class AuditPaths:
             autorater_dir=autorater,
             autorater_verdicts=autorater / "autorater_verdicts.jsonl",
             autorater_traces=autorater / "traces.jsonl",
+            prompts_dir=prompts,
+            prompt_index=prompts / "index.json",
+            trace=root / TRACE,
+            config_resolved=root / CONFIG_RESOLVED,
+            config_source=root / CONFIG_SOURCE,
         )
 
     def teacher_calls_path(self, teacher_id: str) -> Path:

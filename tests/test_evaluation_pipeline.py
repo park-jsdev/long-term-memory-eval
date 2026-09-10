@@ -199,7 +199,7 @@ class TestRawChunksAndSessionSummariesFillDifferentReaderPrompts(unittest.TestCa
         self.question = conv.questions[0]
         self.mem_raw = RawConversationMemoryBuilder().build(conv, self.question)
         self.mem_summaries = SessionSummaryMemoryBuilder().build(conv, self.question)
-        _, self.template = load_prompt_template(ROOT / "prompts" / "qa_v1.txt")
+        _, self.template = load_prompt_template(ROOT / "prompts" / "readers" / "qa_v1.txt")
 
     def test_raw_chunks_and_session_summaries_produce_different_memory_text_for_the_same_question(self):
         self.assertNotEqual(self.mem_raw.text, self.mem_summaries.text)

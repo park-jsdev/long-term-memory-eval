@@ -28,13 +28,13 @@ Keep this list current when providers/models change.
 
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
-| OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader, Mem0 writer, judge, and cheap OpenAI teacher; **`gpt-4.1-mini`** / **`gpt-5.6-luna`** (reader robustness); **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model`, `configs/autorater.yaml` | `OpenAIChatCaller` / readers / teachers / autorater / extract |
+| OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader, Mem0 writer, judge, and cheap OpenAI teacher; **`gpt-4.1-mini`** / **`gpt-5.6-luna`** (reader robustness); **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model`, `configs/autoraters/mem0_gpt-4o-mini.yaml` | `OpenAIChatCaller` / readers / teachers / autorater / extract |
 | Anthropic | Messages API | `anthropic` Python package | `.env` → `ANTHROPIC_API_KEY` | **`claude-haiku-4-5`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: anthropic` | `AnthropicTeacherCaller` (`teacher_callers.py`) |
 | DeepSeek | OpenAI-compatible Chat Completions | `openai` package + `base_url=https://api.deepseek.com` | `.env` → `DEEPSEEK_API_KEY` | **`deepseek-v4-flash`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: deepseek` | `OpenAIChatCaller` with DeepSeek base URL (`teacher_callers.py`) |
 
 **Default baseline request shape (answer LLM):**
 
-- One system message: `prompts/qa_mem0_v1.txt` filled with memory + question
+- One system message: `prompts/readers/qa_mem0_v1.txt` filled with memory + question
 - GPT-4o-mini, `temperature=0.0`, no explicit completion-token limit
 - Mirrors Mem0's released `evaluation/src/openai/predict.py` answer controls
 - CLI ablations may override model/prompt/temperature/max-tokens/message-layout;
@@ -46,16 +46,16 @@ Keep this list current when providers/models change.
 
 ```bash
 # Live answer generation (bills every Q on every invocation)
-python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
-python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
-python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --run-id ...
-python -m src.locomo_eval.run --config configs/session_summaries_reader_gpt56_luna.yaml --max-questions 5 --run-id ...
-python -m src.locomo_eval.run --config configs/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --max-questions 3 --run-id live_pooled_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml --max-questions 3 --run-id live_fused_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_voted.yaml --max-questions 3 --run-id live_fused_resolve_top_voted
-python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --run-id mem0_locomo10
-python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
+python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
+python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
+python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --run-id ...
+python -m src.locomo_eval.run --config configs/presets/session_summaries_gpt-5.6-luna.yaml --max-questions 5 --run-id ...
+python -m src.locomo_eval.run --config configs/writers/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
+python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --max-questions 3 --run-id live_pooled_teachers
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --max-questions 3 --run-id live_fused_teachers
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml --max-questions 3 --run-id live_fused_resolve_top_voted
+python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml --run-id mem0_locomo10
+python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0g.yaml --run-id mem0g_locomo10
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
 python -m scripts.analysis.run_benchmark --run experiments/<run_id>  # released GPT-4o-mini judge
 ```
@@ -95,7 +95,7 @@ from scratch.
 | Security | Never commit `.env`; example only in `.env.example` |
 
 **Autorater prompt provenance:** local
-`prompts/autorater_mem0_v1.txt` is adapted from Mem0's pinned
+`prompts/autoraters/autorater_mem0_v1.txt` is adapted from Mem0's pinned
 [`ACCURACY_PROMPT`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py)
 and the paper's
 [Appendix A](https://arxiv.org/abs/2504.19413) “Prompt Template for LLM as a
@@ -197,7 +197,7 @@ Aliases for convenience (legacy numbered ids still resolve):
 
 | Item | Location |
 |------|----------|
-| Template text | Default parity: `prompts/qa_mem0_v1.txt`; memory experiments: `prompts/qa_v1.txt` |
+| Template text | Default parity: `prompts/readers/qa_mem0_v1.txt`; memory experiments: `prompts/readers/qa_v1.txt` |
 | Loader | `src/locomo_eval/prompts.py` |
 | Select in config | `pipeline.prompt_path` in YAML |
 | CLI | `--prompt path/to/qa_v2.txt` |
@@ -226,13 +226,13 @@ Do **not** fork prompts per condition for the main table. If you ablate prompts,
 
 **True multi-teacher write path (middle):** `TeacherOrchestrator` walks HLD (i) session blocks, calls K teachers (`gpt-4o-mini` / `claude-haiku-4-5` / `deepseek-v4-flash` for plumbing), pools or majority-fuses triples, and MERGE/invalidates into locked `Mem0GraphMemory`. Orchestrator is software (`fusion.py`), not one teacher-orchestrator LLM.
 
-**Reader-model robustness:** YAML `reader.model` / `--model` / `configs/session_summaries_reader_gpt56_luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a memory-condition claim.
+**Reader-model robustness:** YAML `reader.model` / `--model` / `configs/presets/session_summaries_gpt-5.6-luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a memory-condition claim.
 
 **Mem0 write-index (`mem0` / `mem0g`):** `python -m src.locomo_eval.mem0.run_index` walks HLD (i) session blocks as eval-style message pairs (`batch_size=2`, dual speaker indexes, role-flip, user-only extract). Vector update is ADD/UPDATE/DELETE/NONE vs top `s=10`. `mem0g` also fills an in-memory `GraphMemory` (no Neo4j). Dumps: `experiments/<run_id>/mem0_index/`. Builders **load** that dump and cosine-retrieve (`top_k=30` NL facts per speaker); they must not re-extract. Freeze extract+update **and** this retriever when the claim is “new graph only” (swap `GraphMemory`).
 
 **Deterministic preprocess dump:** `python -m src.locomo_eval.preprocess.run_index` parses locomo10.json with no LLM (`llm_calls=0`). Dump: `experiments/<run_id>/preprocess/` (SessionBlocks + SessionDocuments). `raw_chunks` / `session_summaries` can format from that dump (`--preprocess-index-run-id`); default retrieve is concatenate-all. `--eval-questions 10` then runs the frozen reader on those two sanity memories (10 questions each). Later write/retrieve paths (top-k, LLM compress) should consume the same dump rather than re-parse JSON.
 
-Default **reader** is `gpt-4o-mini` + `prompts/qa_mem0_v1.txt` (Mem0 ANSWER_PROMPT with `{memory}`/`{question}`) for `raw_chunks`, `session_summaries`, `mem0`, and `mem0g`. Override YAML/`--model`/`--prompt` for a separate bottom-layer axis. This is an **architecture clone**, not a number clone of Tables 1–2.
+Default **reader** is `gpt-4o-mini` + `prompts/readers/qa_mem0_v1.txt` (Mem0 ANSWER_PROMPT with `{memory}`/`{question}`) for `raw_chunks`, `session_summaries`, `mem0`, and `mem0g`. Override YAML/`--model`/`--prompt` for a separate bottom-layer axis. This is an **architecture clone**, not a number clone of Tables 1–2.
 
 ### 4.3 Multi-teacher write path (middle)
 
@@ -266,8 +266,8 @@ Freeze bottom, vary middle only:
 
 ```bash
 # Same max_questions, model, prompt; different memory + run_id
-python -m src.locomo_eval.run --config configs/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
-python -m src.locomo_eval.run --config configs/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
+python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --max-questions 20 --run-id cmp_raw_chunks_n20
+python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
 
 # Side-by-side metrics table
 python scripts/compare_full_runs.py \
@@ -335,16 +335,16 @@ python scripts/prepare_data.py --split all --no-jsonl   # data/processed/qa_all.
 ## 8. File index (engineering)
 
 ```text
-configs/mem0_baseline.yaml         # Mem0-parity controls + session_summaries memory
-configs/raw_chunks.yaml
-configs/session_summaries.yaml
-configs/session_summaries_reader_gpt56_luna.yaml  # session_summaries + GPT-5.6 Luna reader
-configs/teacher_session_summaries.yaml            # live single teacher
-configs/mem0.yaml / mem0g.yaml     # Mem0 write-index + load/retrieve seam
-prompts/qa_v1.txt                 # alternate reader prompt
-prompts/qa_mem0_v1.txt             # pinned released Mem0 answer prompt
-prompts/teacher_session_v1.txt
-prompts/mem0_extract_v1.txt        # + mem0_update_v1 / mem0g_*.txt
+configs/presets/mem0_baseline.yaml         # Mem0-parity controls + session_summaries memory
+configs/writers/raw_chunks.yaml
+configs/writers/session_summaries.yaml
+configs/presets/session_summaries_gpt-5.6-luna.yaml  # session_summaries + GPT-5.6 Luna reader
+configs/writers/teacher_session_summaries.yaml            # live single teacher
+configs/writers/mem0.yaml / mem0g.yaml     # Mem0 write-index + load/retrieve seam
+prompts/readers/qa_v1.txt                 # alternate reader prompt
+prompts/readers/qa_mem0_v1.txt             # pinned released Mem0 answer prompt
+prompts/teachers/teacher_session_v1.txt
+prompts/writers/mem0_extract_v1.txt        # + mem0_update_v1 / mem0g_*.txt
 src/locomo_eval/models.py          # model catalog / API kwargs
 src/locomo_eval/teachers.py        # Mock + OpenAI teacher
 src/locomo_eval/memory.py          # builders including mem0 / mem0g

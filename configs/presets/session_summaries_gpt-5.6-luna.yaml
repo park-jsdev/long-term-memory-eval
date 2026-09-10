@@ -1,0 +1,4 @@
+# Same writer as session_summaries; only the answer model changes (robustness axis).
+includes:
+  - configs/writers/session_summaries.yaml
+  - configs/readers/gpt-5.6-luna.yaml

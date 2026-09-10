@@ -1,0 +1,30 @@
+# Mem0 vector write-index + retrieve (no graph).
+#   python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml --run-id mem0_locomo10
+#   python -m src.locomo_eval.run --config configs/writers/mem0.yaml --run-id locomo_mem0_qa
+includes:
+  - configs/stacks/qa_default.yaml
+
+pipeline:
+  memory: mem0
+
+mem0:
+  enable_graph: false
+  index_run_id: mem0_locomo10
+  batch_size: 2
+  similar_s: 10
+  top_k: 30
+  graph_threshold: 0.7
+  extract:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.0
+    max_tokens: 512
+    max_retries: 8
+    min_request_interval_s: 0.5
+    max_wait_s: 3600
+    prompt_path: prompts/writers/mem0_extract_v1.txt
+  update:
+    prompt_path: prompts/writers/mem0_update_v1.txt
+  embed:
+    provider: openai
+    model: text-embedding-3-small

@@ -1,0 +1,141 @@
+# Pinned model identities for the longitudinal matrix.
+# Fill model_snapshot before claiming a live cell is reproducible.
+# API aliases (gpt-5.6, deepseek-chat, claude-*-latest) must not be the only pin.
+
+models:
+  gpt-4o:
+    display_name: GPT-4o
+    provider: openai
+    family: openai
+    generation: 2024
+    api_model_id: gpt-4o
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  gpt-5:
+    display_name: GPT-5
+    provider: openai
+    family: openai
+    generation: 2025
+    api_model_id: gpt-5
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  gpt-5.6-sol:
+    display_name: GPT-5.6 Sol
+    provider: openai
+    family: openai
+    generation: 2026
+    api_model_id: gpt-5.6-sol
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  gpt-4o-mini:
+    display_name: GPT-4o mini
+    provider: openai
+    family: openai
+    generation: 2024
+    api_model_id: gpt-4o-mini
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  claude-3-5-sonnet:
+    display_name: Claude 3.5 Sonnet
+    provider: anthropic
+    family: anthropic
+    generation: 2024
+    api_model_id: claude-3-5-sonnet-latest
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  claude-sonnet-4:
+    display_name: Claude Sonnet 4
+    provider: anthropic
+    family: anthropic
+    generation: 2025
+    api_model_id: claude-sonnet-4-5
+    model_snapshot: TO_CONFIRM
+    notes: "Using Sonnet 4.5 as the 2025 pin until a dated Sonnet 4 snapshot is chosen."
+    status: to_confirm
+
+  claude-sonnet-4-5:
+    display_name: Claude Sonnet 4.5
+    provider: anthropic
+    family: anthropic
+    generation: 2025
+    api_model_id: claude-sonnet-4-5
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  claude-sonnet-5:
+    display_name: Claude Sonnet 5
+    provider: anthropic
+    family: anthropic
+    generation: 2026
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  deepseek-v2.5:
+    display_name: DeepSeek-V2.5
+    provider: deepseek
+    family: deepseek
+    generation: 2024
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  deepseek-v3:
+    display_name: DeepSeek-V3
+    provider: deepseek
+    family: deepseek
+    generation: 2025
+    api_model_id: deepseek-chat
+    model_snapshot: TO_CONFIRM
+    notes: "deepseek-chat is a moving alias. Replace with a dated V3 id."
+    status: to_confirm
+
+  deepseek-v4-pro:
+    display_name: DeepSeek-V4 Pro
+    provider: deepseek
+    family: deepseek
+    generation: 2026
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  deepseek-v4-flash:
+    display_name: DeepSeek V4 Flash
+    provider: deepseek
+    family: deepseek
+    generation: 2026
+    api_model_id: deepseek-v4-flash
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  gpt-6-astra:
+    display_name: GPT-6 Astra
+    provider: openai
+    family: openai
+    generation: 2026-frontier
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  claude-fable:
+    display_name: Claude Fable
+    provider: anthropic
+    family: anthropic
+    generation: 2026-frontier
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  claude-opus-5:
+    display_name: Claude Opus 5
+    provider: anthropic
+    family: anthropic
+    generation: 2026-frontier
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm

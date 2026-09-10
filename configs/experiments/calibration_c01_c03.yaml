@@ -1,0 +1,47 @@
+# C01–C03 on 1 conversation. RAG/Mem0 reuse shared indexes (do not re-extract).
+# Build indexes once (mock or live), then:
+#   python -m src.memorybench execute-qa configs/experiments/calibration_c01_c03.yaml --run-index 0
+
+experiment:
+  name: locomo-calibration
+  type: calibration
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    reader:
+      catalog: gpt-4o-mini
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  memory_method:
+    - full_context   # C01
+    - rag            # C02
+    - mem0           # C03
+  seed:
+    - 1
+
+subset:
+  max_samples: 1
+  max_questions: 10
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  reader_provider: mock
+  judge_provider: mock
+
+storage:
+  backend: local
+  path: experiments
+
+shared_indexes:
+  rag:
+    index_run_id: rag_locomo10
+  mem0:
+    index_run_id: mem0_locomo10

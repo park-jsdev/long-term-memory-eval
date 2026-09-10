@@ -1,0 +1,15 @@
+# Mem0 vector + in-memory graph. Freeze extract; swap GraphMemory for graph RQs.
+#   python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0g.yaml --run-id mem0g_locomo10
+includes:
+  - configs/writers/mem0.yaml
+
+pipeline:
+  memory: mem0g
+
+mem0:
+  enable_graph: true
+  index_run_id: mem0g_locomo10
+  graph:
+    entities_prompt_path: prompts/writers/mem0g_entities_v1.txt
+    relations_prompt_path: prompts/writers/mem0g_relations_v1.txt
+    conflict_prompt_path: prompts/writers/mem0g_conflict_v1.txt

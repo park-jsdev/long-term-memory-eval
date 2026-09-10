@@ -1,0 +1,5 @@
+# CLI default: Mem0-parity reader/layout over session_summaries memory.
+#   python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml
+includes:
+  - configs/writers/session_summaries.yaml
+  - configs/stacks/qa_mem0_parity.yaml

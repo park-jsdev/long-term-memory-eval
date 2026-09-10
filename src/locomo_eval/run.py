@@ -3,8 +3,8 @@
 This module does not compare conditions and is not a multi-run orchestrator.
 Typical sandwich experiment:
 
-1. Call this once with config A (e.g. ``configs/raw_chunks.yaml``) → ``experiments/<run_id_A>/``
-2. Call this once with config B (e.g. ``configs/session_summaries.yaml``) → ``experiments/<run_id_B>/``
+1. Call this once with config A (e.g. ``configs/writers/raw_chunks.yaml``) → ``experiments/<run_id_A>/``
+2. Call this once with config B (e.g. ``configs/writers/session_summaries.yaml``) → ``experiments/<run_id_B>/``
 3. Compare the two audit packs offline:
    ``python scripts/compare_full_runs.py --runs experiments/<run_id_A> experiments/<run_id_B> ...``
    (memory axis) or ``scripts/compare_cross_model.py`` (reader/teacher model axis)
@@ -12,8 +12,8 @@ Typical sandwich experiment:
 Each ``--config`` YAML is standalone. ``pipeline.memory`` is a builder id in
 memory.py (``raw_chunks`` / ``session_summaries``), not a path to another YAML.
 
-    python -m src.locomo_eval.run --config configs/raw_chunks.yaml --run-id cmp_raw_chunks
-    python -m src.locomo_eval.run --config configs/session_summaries.yaml --run-id cmp_session_summaries
+    python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --run-id cmp_raw_chunks
+    python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --run-id cmp_session_summaries
     python scripts/compare_full_runs.py --runs experiments/cmp_raw_chunks experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
 """
 
@@ -56,6 +56,7 @@ from src.locomo_eval.experiments.audit_writer import (
     write_reader_module,
     write_teacher_module,
 )
+from src.locomo_eval.experiments.prompt_bundle import repo_rel, write_prompt_bundle
 from src.locomo_eval.memory_log import (
     collect_fusion_log,
     collect_teacher_call_log,
@@ -63,7 +64,7 @@ from src.locomo_eval.memory_log import (
 )
 from src.locomo_eval.metrics import summarize_predictions
 from src.locomo_eval.models import resolve_model
-from src.locomo_eval.prompts import load_prompt_template
+from src.locomo_eval.prompts import load_prompt_template, locate_prompt_file
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
@@ -397,7 +398,7 @@ def _reset_run_output(run_dir: Path) -> None:
 
     Reusing a run id must not keep old answers, metrics, or autorater reports.
     """
-    for dirname in ("plots", "memory", "autorater", "reader"):
+    for dirname in ("plots", "memory", "autorater", "reader", "prompts"):
         path = run_dir / dirname
         if path.is_dir():
             shutil.rmtree(path)
@@ -407,6 +408,14 @@ def _reset_run_output(run_dir: Path) -> None:
         "metrics.json",
         "metrics_by_category.csv",
         "run_meta.json",
+        "TRACE.md",
+        "config.resolved.yaml",
+        "config.source.yaml",
+        "examples.parquet",
+        "summary.parquet",
+        "run.json",
+        "_SUCCESS",
+        "errors.jsonl",
     ):
         path = run_dir / filename
         if path.is_file():
@@ -421,14 +430,14 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     plus ``scripts/compare_full_runs.py`` (or ``compare_cross_model.py``).
 
     Which memory builder runs is ``cfg["pipeline"]["memory"]``, unless
-    ``--memory`` overrides it. Not tied to ``configs/mem0_baseline.yaml``.
+    ``--memory`` overrides it. Not tied to ``configs/presets/mem0_baseline.yaml``.
     """
     data_path = Path(overrides.data or cfg["data"]["raw_path"])
     # Builder id (raw_chunks / session_summaries), not a path to another YAML.
     memory_name = overrides.memory or cfg["pipeline"]["memory"]
     reader_name = overrides.reader or cfg["reader"]["provider"]
     model = overrides.model or cfg["reader"]["model"]
-    prompt_path = Path(overrides.prompt or cfg["pipeline"]["prompt_path"])
+    prompt_path = locate_prompt_file(overrides.prompt or cfg["pipeline"]["prompt_path"])
     max_questions = overrides.max_questions
     if max_questions is None:
         max_questions = cfg["pipeline"].get("max_questions")
@@ -443,6 +452,18 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     pred_path = run_dir / "predictions.jsonl"
 
     prompt_version, prompt_template = load_prompt_template(prompt_path)
+    cfg_snapshot = {
+        **cfg,
+        "pipeline": {
+            **(cfg.get("pipeline") or {}),
+            "prompt_path": repo_rel(prompt_path),
+        },
+    }
+    write_prompt_bundle(
+        run_dir,
+        cfg_snapshot,
+        config_entry=getattr(overrides, "config", None),
+    )
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
@@ -745,7 +766,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "message_layout": reader_message_layout,
         "max_retries": rate_cfg.get("max_retries", 8),
         "min_request_interval_s": rate_cfg.get("min_request_interval_s", 0.0),
-        "prompt_path": str(prompt_path),
+        "prompt_path": repo_rel(prompt_path),
+        "prompt_sha256": _file_sha256(prompt_path),
         "prompt_version": prompt_version,
         "max_questions": max_questions,
         "max_samples": max_samples,
@@ -785,7 +807,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--config",
-        default="configs/mem0_baseline.yaml",
+        default="configs/presets/mem0_baseline.yaml",
         help="YAML path (default: Mem0-parity controls over session_summaries)",
     )
     p.add_argument("--data", default=None, help="Override path to locomo10.json")

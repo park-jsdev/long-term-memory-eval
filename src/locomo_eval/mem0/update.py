@@ -7,15 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from ..models import resolve_model
-from ..prompts import load_prompt_template
+from ..prompts import MEM0_UPDATE_V1, ROOT, load_prompt_template
 from ..readers import OpenAIChatCaller
 from .embeddings import Embedder
 from .json_util import parse_json_object
 from .schemas import ADD, DELETE, NONE, UPDATE, UPDATE_EVENTS, Fact, UpdateEvent
 from .vector_store import VectorMemoryStore
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_UPDATE_PROMPT = ROOT / "prompts" / "mem0_update_v1.txt"
+DEFAULT_UPDATE_PROMPT = ROOT / MEM0_UPDATE_V1
 
 
 def parse_update_events(text: str) -> list[UpdateEvent]:

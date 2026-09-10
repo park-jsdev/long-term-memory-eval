@@ -1,0 +1,6 @@
+# Default sandwich bottom for memory-method claims: frozen gpt-4o-mini + qa_mem0_v1.
+includes:
+  - configs/data/locomo10.yaml
+  - configs/layouts/qa_mem0_v1.yaml
+  - configs/readers/gpt-4o-mini.yaml
+  - configs/run/local_experiments.yaml

@@ -1,0 +1,8 @@
+# Raw dialog turns (session chunks).
+#   python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --run-id ...
+includes:
+  - configs/stacks/qa_default.yaml
+
+pipeline:
+  memory: raw_chunks
+  memory_max_chars: 120000

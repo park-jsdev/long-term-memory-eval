@@ -15,8 +15,8 @@ How major packages relate. Solid arrows = call / data; dashed = configuration.
 ```mermaid
 flowchart TB
   subgraph Config["Config & assets"]
-    YAML["configs/*.yaml"]
-    PROMPT["prompts/qa_*.txt"]
+    YAML["configs/{writers,readers,layouts}/"]
+    PROMPT["prompts/{readers,writers,teachers,autoraters}/"]
     ENV[".env OPENAI_API_KEY"]
     DATA["data/raw/locomo10.json"]
   end
@@ -130,7 +130,7 @@ flowchart TB
   end
 
   subgraph FrozenBottom["FIXED BOTTOM — do not change mid-suite"]
-    P["prompts/qa_v1.txt"]
+    P["prompts/readers/qa_v1.txt"]
     R["OpenAIReader temp=0"]
     S["metrics EM / token-F1 / LoCoMo F1"]
   end
@@ -191,7 +191,7 @@ sequenceDiagram
 | Stage | Freeze for memory-condition tables? | Knob |
 |-------|---------------------------|------|
 | Builder → `Memory.text` | No | condition |
-| Prompt template file | Yes (after lock) | `prompts/qa_*.txt` |
+| Prompt template file | Yes (after lock) | `prompts/readers/*.txt` |
 | Reader model / decode | Yes | `reader.*` in YAML |
 | Metrics | Always | `metrics.py` / LoCoMo F1 |
 
@@ -212,7 +212,7 @@ Update this section when you add Claude, Gemini, local HF, etc.
 |-----------------------------------------------------------------|-------|
 | temperature | `0.0` |
 | max_tokens (completion) | omitted, matching released Mem0 scripts |
-| Baseline messages | rendered `prompts/qa_mem0_v1.txt` as the sole system message |
+| Baseline messages | rendered `prompts/readers/qa_mem0_v1.txt` as the sole system message |
 | min_request_interval_s | `0.5` |
 | max_retries on 429 | `8` (Retry-After / exponential backoff) |
 
@@ -250,7 +250,7 @@ CLI overrides:
 
 ```bash
 python -m src.locomo_eval.run --config configs/session_summaries.yaml \
-  --model gpt-4.1 --prompt prompts/qa_v1.txt \
+  --model gpt-4.1 --prompt prompts/readers/qa_v1.txt \
   --temperature 0 --max-tokens 64 --message-layout default_system_user \
   --max-questions 20 --run-id cmp_session_summaries_gpt41_n20
 ```
@@ -348,11 +348,11 @@ See `experiments/<run_id>/autorater/SUMMARY.md`, `tables/`, and `plots/`.
 Prompt source: Mem0's pinned
 [`ACCURACY_PROMPT`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py),
 also printed in [paper Appendix A](https://arxiv.org/abs/2504.19413). The
-local adaptation is `prompts/autorater_mem0_v1.txt`.
+local adaptation is `prompts/autoraters/autorater_mem0_v1.txt`.
 
 Baseline answer-prompt source: Mem0's pinned
 [`evaluation/src/openai/predict.py`](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/src/openai/predict.py).
-The local placeholder adaptation is `prompts/qa_mem0_v1.txt`.
+The local placeholder adaptation is `prompts/readers/qa_mem0_v1.txt`.
 
 Each pipeline run is self-contained. Answer runs clear prior generated
 artifacts for the run id and regenerate from question one. Autorater packs

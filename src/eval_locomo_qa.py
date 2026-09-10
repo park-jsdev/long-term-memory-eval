@@ -53,7 +53,7 @@ def flatten_qa(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/data/processed_export.yaml")
     parser.add_argument("--predictions", default=None, help="Override eval.predictions_path")
     parser.add_argument("--prediction-key", default=None)
     parser.add_argument("--run-name", default="eval")

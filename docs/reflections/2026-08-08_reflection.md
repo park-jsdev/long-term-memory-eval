@@ -74,7 +74,7 @@ python scripts/compare_runs.py --runs experiments/cmp_c0_n20 experiments/cmp_c1_
 ```text
 FIXED TOP:     LoCoMo JSON → dataset.py
 VARIABLE MID:  MemoryBuilder (c0_raw | c1_session_summary | …) → Memory.text
-FIXED BOTTOM:  prompts/qa_v1.txt → OpenAIReader → metrics → report
+FIXED BOTTOM:  prompts/readers/qa_v1.txt → OpenAIReader → metrics → report
 ```
 
 **Fair C comparison:** same prompt, model, decode, question subset; differ only `pipeline.memory` / condition config.  

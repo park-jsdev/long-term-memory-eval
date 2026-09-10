@@ -1,0 +1,21 @@
+teachers:
+  - id: openai
+    provider: openai
+    model: gpt-4o-mini
+  - id: anthropic
+    provider: anthropic
+    model: claude-haiku-4-5
+  - id: deepseek
+    provider: deepseek
+    model: deepseek-v4-flash
+
+teacher:
+  prompt_path: prompts/teachers/teacher_session_v1.txt
+  graph_prompt_path: prompts/teachers/teacher_graph_v1.txt
+  temperature: 0.0
+  max_tokens: 512
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+  thinking: true
+  thinking_budget_tokens: 1024

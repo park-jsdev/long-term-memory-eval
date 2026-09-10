@@ -122,7 +122,7 @@ def _session_summaries_memory_text() -> str:
 
 
 def _qa_template() -> str:
-    _, text = load_prompt_template(ROOT / "prompts" / "qa_v1.txt")
+    _, text = load_prompt_template(ROOT / "prompts" / "readers" / "qa_v1.txt")
     return text
 
 

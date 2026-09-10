@@ -1,0 +1,212 @@
+"""Execute one matrix cell: wrap ``locomo_eval.run``, then write Parquet + ``_SUCCESS``.
+
+Does not run the autorater. Judge is a later ``execute_autorater_run`` job.
+"""
+
+from __future__ import annotations
+
+import json
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from src.config import load_config
+from src.locomo_eval.run import build_parser, run_locomo_pipeline_with_memory_config
+from src.memorybench.completed_run_skip import (
+    qa_success_path,
+    should_skip_completed,
+    write_success_marker,
+)
+from src.memorybench.expand_run_matrix import expand_run_matrix
+from src.memorybench.experiment_run_spec import ExperimentRunSpec
+from src.memorybench.load_experiment_yaml import load_experiment_yaml
+from src.memorybench.open_configured_store import local_experiments_root
+from src.memorybench.resolve_task_index import resolve_task_index
+from src.memorybench.write_analysis_parquet import (
+    load_prediction_rows,
+    qa_summary_row,
+    write_examples_parquet,
+    write_summary_parquet,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def select_run_spec(
+    specs: list[ExperimentRunSpec],
+    *,
+    run_index: int | None = None,
+    run_id: str | None = None,
+) -> ExperimentRunSpec:
+    if run_id:
+        for spec in specs:
+            if spec.run_id == run_id:
+                return spec
+        raise SystemExit(f"run_id {run_id!r} is not in the expanded matrix")
+    index = resolve_task_index(run_index)
+    if index < 0 or index >= len(specs):
+        raise SystemExit(f"run-index {index} out of range 0..{len(specs) - 1}")
+    return specs[index]
+
+
+def execute_qa_run(
+    config_path: str | Path,
+    *,
+    run_index: int | None = None,
+    run_id: str | None = None,
+    force: bool = False,
+    allow_unconfirmed: bool = False,
+) -> Path:
+    cfg = load_experiment_yaml(config_path)
+    specs = expand_run_matrix(cfg)
+    spec = select_run_spec(specs, run_index=run_index, run_id=run_id)
+    if spec.status != "runnable" and not allow_unconfirmed:
+        raise SystemExit(
+            f"{spec.run_id} status={spec.status}. Pin model_snapshot or pass --allow-unconfirmed"
+        )
+    out_root = local_experiments_root(cfg)
+    run_dir = out_root / spec.run_id
+    marker = qa_success_path(run_dir)
+    if should_skip_completed(marker, force=force):
+        print(f"skip qa {spec.run_id}: {marker} exists (pass --force to regenerate)")
+        return run_dir
+
+    execution = cfg.get("execution") or {}
+    reader_override = execution.get("reader_provider")
+    try:
+        _require_shared_indexes(spec, out_root)
+        argv = _qa_argv(spec, cfg, out_root, reader_override)
+        args = build_parser().parse_args(argv)
+        locomo_cfg = load_config(args.config)
+        run_locomo_pipeline_with_memory_config(locomo_cfg, args)
+        _write_qa_artifacts(spec, run_dir, status="completed")
+        write_success_marker(marker)
+        print(f"qa complete {spec.run_id} -> {run_dir}")
+        return run_dir
+    except Exception as exc:
+        _write_error(run_dir, spec, stage="qa", exc=exc)
+        raise
+
+
+def _qa_argv(
+    spec: ExperimentRunSpec,
+    cfg: dict[str, Any],
+    out_root: Path,
+    reader_override: str | None,
+) -> list[str]:
+    reader = str(reader_override or spec.reader.provider)
+    argv = [
+        "--config",
+        str(ROOT / spec.method_yaml),
+        "--run-id",
+        spec.run_id,
+        "--output-dir",
+        str(out_root),
+        "--memory",
+        spec.memory_method,
+        "--reader",
+        reader,
+        "--model",
+        spec.reader.api_model_id,
+        "--prompt",
+        spec.prompt_path,
+    ]
+    data = (cfg.get("benchmark") or {}).get("dataset_path")
+    if data:
+        argv.extend(["--data", str(data)])
+    if spec.max_questions is not None:
+        argv.extend(["--max-questions", str(spec.max_questions)])
+    if spec.max_samples is not None:
+        argv.extend(["--max-samples", str(spec.max_samples)])
+    if spec.sample_id:
+        argv.extend(["--sample-id", spec.sample_id])
+    if spec.mem0_index_run_id:
+        argv.extend(["--mem0-index-run-id", spec.mem0_index_run_id])
+    if spec.rag_index_run_id:
+        argv.extend(["--rag-index-run-id", spec.rag_index_run_id])
+    return argv
+
+
+def _require_shared_indexes(spec: ExperimentRunSpec, out_root: Path) -> None:
+    if spec.mem0_index_run_id:
+        path = out_root / spec.mem0_index_run_id / "mem0_index"
+        if not path.is_dir():
+            raise SystemExit(
+                f"Missing shared Mem0 index at {path}. Build once with "
+                "python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml "
+                f"--run-id {spec.mem0_index_run_id}"
+            )
+    if spec.rag_index_run_id:
+        path = out_root / spec.rag_index_run_id / "rag_index"
+        if not path.is_dir():
+            raise SystemExit(
+                f"Missing shared RAG index at {path}. Build once with "
+                "python -m src.locomo_eval.rag.run_index --config configs/writers/rag.yaml "
+                f"--run-id {spec.rag_index_run_id}"
+            )
+
+
+def _write_qa_artifacts(spec: ExperimentRunSpec, run_dir: Path, status: str) -> None:
+    rows = load_prediction_rows(run_dir)
+    meta = _read_json(run_dir / "run_meta.json")
+    metrics = _read_json(run_dir / "metrics.json")
+    write_examples_parquet(
+        run_dir / "examples.parquet", spec=spec, prediction_rows=rows
+    )
+    summary = qa_summary_row(
+        spec,
+        run_dir=run_dir,
+        n_examples=len(rows),
+        metrics=metrics,
+        meta=meta,
+        status=status,
+    )
+    write_summary_parquet(run_dir / "summary.parquet", summary)
+    run_json = {
+        **spec.to_manifest_row(),
+        "status": status,
+        "git_commit": meta.get("code_git_hash"),
+        "data_sha256": meta.get("data_sha256"),
+        "prompt_path": spec.prompt_path,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "audit_predictions": "predictions.jsonl",
+        "examples_parquet": "examples.parquet",
+        "summary_parquet": "summary.parquet",
+    }
+    (run_dir / "run.json").write_text(
+        json.dumps(run_json, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _write_error(run_dir: Path, spec: ExperimentRunSpec, *, stage: str, exc: BaseException) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "run_id": spec.run_id,
+        "example_id": None,
+        "stage": stage,
+        "exception_type": type(exc).__name__,
+        "message": str(exc),
+        "attempt": 1,
+        "traceback": traceback.format_exc(),
+    }
+    path = run_dir / "errors.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    meta = {
+        **spec.to_manifest_row(),
+        "status": "failed",
+        "stage": stage,
+        "exception_type": type(exc).__name__,
+        "message": str(exc),
+    }
+    (run_dir / "run.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))

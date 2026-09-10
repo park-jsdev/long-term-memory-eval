@@ -1,0 +1,13 @@
+# K teachers, majority-vote fusion into locked Mem0GraphMemory.
+includes:
+  - configs/stacks/qa_default.yaml
+  - configs/teachers/cheap_k3.yaml
+
+pipeline:
+  memory: fused_teacher_graph
+
+orchestrator:
+  pool: equal_weight
+  fusion: majority_vote
+  majority_k: null
+  rng_seed: 0
