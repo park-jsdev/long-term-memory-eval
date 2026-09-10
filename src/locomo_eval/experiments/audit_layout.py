@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-AUDIT_LAYOUT_VERSION = "audit_pack.v1"
+AUDIT_LAYOUT_VERSION = "audit_pack.v2"
 
 READER = "reader"
 MEMORY = "memory"
@@ -26,6 +26,15 @@ GRAPH = "memory/graph"
 AUTORATER = "autorater"
 COMPAT_PREDICTIONS = "predictions.jsonl"
 COMPAT_TEACHER_CALLS = "memory/teacher_calls.jsonl"
+LINEAGE = "memory/lineage.jsonl"
+RETRIEVE_RANKS = "memory/retrieve_ranks.jsonl"
+GRAPH_INGEST = "memory/graph/ingest.jsonl"
+TEACHER_QUALITY = "memory/teachers/quality.json"
+TEACHER_SESSIONS = "memory/teachers/sessions.jsonl"
+COST = "cost.json"
+SUMMARY = "SUMMARY.md"
+CONFIG_SOURCE = "config.source.yaml"
+CONFIG_RESOLVED = "config.resolved.yaml"
 
 
 def audit_layout_meta() -> dict[str, str]:
@@ -38,6 +47,15 @@ def audit_layout_meta() -> dict[str, str]:
         "graph": f"{GRAPH}/",
         "autorater": f"{AUTORATER}/",
         "compat_predictions": COMPAT_PREDICTIONS,
+        "lineage": LINEAGE,
+        "retrieve_ranks": RETRIEVE_RANKS,
+        "graph_ingest": GRAPH_INGEST,
+        "teacher_quality": TEACHER_QUALITY,
+        "teacher_sessions": TEACHER_SESSIONS,
+        "cost": COST,
+        "summary": SUMMARY,
+        "config_source": CONFIG_SOURCE,
+        "config_resolved": CONFIG_RESOLVED,
     }
 
 
@@ -64,11 +82,20 @@ class AuditPaths:
     teacher_calls: Path
     teacher_fusion: Path
     teacher_calls_compat: Path
+    teacher_quality: Path
+    teacher_sessions_index: Path
     graph_dir: Path
     graph_index: Path
+    graph_ingest: Path
+    lineage: Path
+    retrieve_ranks: Path
     autorater_dir: Path
     autorater_verdicts: Path
     autorater_traces: Path
+    cost: Path
+    summary: Path
+    config_source: Path
+    config_resolved: Path
 
     @classmethod
     def from_run_dir(cls, run_dir: str | Path) -> AuditPaths:
@@ -92,11 +119,20 @@ class AuditPaths:
             teacher_calls=teachers / "calls.jsonl",
             teacher_fusion=teachers / "fusion.jsonl",
             teacher_calls_compat=root / COMPAT_TEACHER_CALLS,
+            teacher_quality=root / TEACHER_QUALITY,
+            teacher_sessions_index=root / TEACHER_SESSIONS,
             graph_dir=graph,
             graph_index=graph / "index.jsonl",
+            graph_ingest=root / GRAPH_INGEST,
+            lineage=root / LINEAGE,
+            retrieve_ranks=root / RETRIEVE_RANKS,
             autorater_dir=autorater,
             autorater_verdicts=autorater / "autorater_verdicts.jsonl",
             autorater_traces=autorater / "traces.jsonl",
+            cost=root / COST,
+            summary=root / SUMMARY,
+            config_source=root / CONFIG_SOURCE,
+            config_resolved=root / CONFIG_RESOLVED,
         )
 
     def teacher_calls_path(self, teacher_id: str) -> Path:
@@ -104,3 +140,12 @@ class AuditPaths:
 
     def graph_sample_path(self, sample_id: str) -> Path:
         return self.graph_dir / "by_sample" / f"{sample_id}.json"
+
+    def teacher_session_text_path(self, sample_id: str, session_id: str | int) -> Path:
+        return (
+            self.teachers_dir
+            / "sessions"
+            / "by_sample"
+            / str(sample_id)
+            / f"session_{session_id}.txt"
+        )

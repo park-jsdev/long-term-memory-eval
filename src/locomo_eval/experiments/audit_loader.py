@@ -125,6 +125,11 @@ class SandwichAudit:
     teacher_index: list[dict[str, Any]] = field(default_factory=list)
     teacher_calls: list[dict[str, Any]] = field(default_factory=list)
     fusion: list[dict[str, Any]] = field(default_factory=list)
+    lineage: list[dict[str, Any]] = field(default_factory=list)
+    retrieve_ranks: list[dict[str, Any]] = field(default_factory=list)
+    graph_ingest: list[dict[str, Any]] = field(default_factory=list)
+    teacher_quality: dict[str, Any] = field(default_factory=dict)
+    cost: dict[str, Any] = field(default_factory=dict)
     autorater_verdicts: list[dict[str, Any]] = field(default_factory=list)
     autorater_traces: list[dict[str, Any]] = field(default_factory=list)
 
@@ -153,6 +158,19 @@ class SandwichAudit:
                 )
         return out
 
+    def lineage_for(self, *, question_id: str | None = None) -> list[dict[str, Any]]:
+        if question_id is None:
+            return list(self.lineage)
+        wanted = str(question_id)
+        return [row for row in self.lineage if str(row.get("question_id")) == wanted]
+
+    def retrieve_ranks_for(self, *, question_id: str) -> dict[str, Any] | None:
+        wanted = str(question_id)
+        for row in self.retrieve_ranks:
+            if str(row.get("question_id")) == wanted:
+                return row
+        return None
+
 
 def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
     """Load reader + optional teacher/graph/autorater traces for analysis."""
@@ -170,6 +188,11 @@ def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
         teacher_index=load_jsonl(paths.teacher_index),
         teacher_calls=calls,
         fusion=load_jsonl(paths.teacher_fusion),
+        lineage=load_jsonl(paths.lineage),
+        retrieve_ranks=load_jsonl(paths.retrieve_ranks),
+        graph_ingest=load_jsonl(paths.graph_ingest),
+        teacher_quality=load_json(paths.teacher_quality),
+        cost=load_json(paths.cost),
         autorater_verdicts=load_jsonl(paths.autorater_verdicts),
         autorater_traces=load_jsonl(paths.autorater_traces),
     )

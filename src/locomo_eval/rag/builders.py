@@ -8,7 +8,7 @@ from ..mem0.embeddings import Embedder, MockEmbedder
 from ..memory import MemoryBuilder
 from ..schemas import Conversation, Memory, Question
 from .chunk import format_conversation_transcript
-from .retrieve import retrieve_rag_text
+from .retrieve import retrieve_rag_with_ranks
 
 
 class RagMemoryBuilder(MemoryBuilder):
@@ -28,14 +28,27 @@ class RagMemoryBuilder(MemoryBuilder):
         self.index_dir = Path(index_dir)
         self.embedder = embedder or MockEmbedder()
         self.top_k = int(top_k)
+        self.retrieve_log: list[dict] = []
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
-        text, source_ids, search_s = retrieve_rag_text(
+        text, source_ids, search_s, ranks = retrieve_rag_with_ranks(
             self.index_dir,
             conversation.sample_id,
             question.question,
             self.embedder,
             self.top_k,
+        )
+        from ..experiments.claim_audit import retrieve_rank_row
+
+        self.retrieve_log.append(
+            retrieve_rank_row(
+                sample_id=conversation.sample_id,
+                question_id=question.question_id,
+                retriever="rag",
+                top_k=self.top_k,
+                candidates=ranks,
+                search_latency_s=round(float(search_s), 6),
+            )
         )
         return Memory(
             memory_type=self.name,

@@ -46,15 +46,19 @@ class VectorMemoryStore:
                 return fact
         return None
 
-    def search(self, query_embedding: list[float], top_k: int) -> list[tuple[Fact, float]]:
+    def rank_all(self, query_embedding: list[float]) -> list[tuple[Fact, float]]:
+        """Score every embedded fact (no top-k cut)."""
         scored = [
             (fact, cosine_similarity(query_embedding, fact.embedding))
             for fact in self.facts
             if fact.embedding
         ]
         scored.sort(key=lambda item: item[1], reverse=True)
+        return scored
+
+    def search(self, query_embedding: list[float], top_k: int) -> list[tuple[Fact, float]]:
         k = max(0, int(top_k))
-        return scored[:k]
+        return self.rank_all(query_embedding)[:k]
 
     def to_dict(self) -> dict:
         return {

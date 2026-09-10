@@ -7,6 +7,7 @@ and feed Mem0GraphMemory. Swap provider+model; gold answers never enter.
 
 from __future__ import annotations
 
+import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -38,12 +39,13 @@ def teacher_call_record(
     output_text: str | None = None,
     entities: list[dict[str, str]] | None = None,
     relations: list[dict[str, str]] | None = None,
+    session_text: str | None = None,
 ) -> dict[str, Any]:
     """One write-path LLM call for memory/teachers/ indexing."""
     ents = list(entities) if entities is not None else list(meta.get("entities") or [])
     rels = list(relations) if relations is not None else list(meta.get("relations") or [])
     out = output_text if output_text is not None else str(meta.get("output_text") or "")
-    return {
+    rec: dict[str, Any] = {
         "sample_id": sample_id,
         "session_id": session_id,
         "session_index": session_index,
@@ -66,6 +68,10 @@ def teacher_call_record(
         "usage": meta.get("usage") or {},
         "parse": meta.get("parse"),
     }
+    if session_text is not None:
+        rec["session_text_sha256"] = hashlib.sha256(session_text.encode("utf-8")).hexdigest()
+        rec["n_session_chars"] = len(session_text)
+    return rec
 
 
 class Teacher(ABC):
@@ -182,6 +188,7 @@ class MockTeacher(Teacher):
             "output_text": "",
             "entities": entities,
             "relations": relations,
+            "parse": "mock",
         }
         return entities, relations, meta
 
@@ -318,7 +325,7 @@ class ChatTeacher(Teacher):
                         "target": str(row["target"]),
                     }
                 )
-        return entities, relations, meta
+        return entities, relations, {**meta, "parse": "ok"}
 
     def ping(self) -> tuple[str, dict[str, Any]]:
         messages = [

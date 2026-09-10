@@ -1,8 +1,9 @@
 """On-disk sandwich audit: path contract, dump during a run, load for analysis.
 
 A LoCoMo *run* is one YAML / ``--method`` producing ``experiments/<run_id>/``.
-That directory is the sandwich audit (schema ``audit_pack.v1``): reader,
-teachers, memory graph, and optional autorater mapped to one condition's results.
+That directory is the sandwich audit (schema ``audit_pack.v2``): reader,
+teachers, memory graph, claim lineage, and optional autorater mapped to
+one condition's results.
 
 ```
 conversation + question

@@ -383,9 +383,6 @@ Everything for one experiment is under `experiments/<run_id>/`:
 
 | File | Why open it |
 |------|-------------|
-| `SUMMARY.md` | **Start here.** Claim audit: sandwich pins, cost, teacher quality, how to follow one question |
-| `config.source.yaml` / `config.resolved.yaml` | Frozen YAML and the CLI overrides that actually ran |
-| `cost.json` | Reader vs teacher tokens; USD only for pinned OpenAI list prices |
 | `reader/traces.jsonl` | Answer LLM output + reasoning (usually empty on frozen gpt-4o-mini) |
 | `reader/predictions.jsonl` | LoCoMo QA rows (same as run-root `predictions.jsonl`) |
 | `predictions.csv` | Spreadsheet audit: Q, gold, pred, scores, memory clip |
@@ -394,16 +391,12 @@ Everything for one experiment is under `experiments/<run_id>/`:
 | `metrics_by_category.csv` | Category breakdown (single-hop, temporal, …) |
 | `run_meta.json` | Model, prompt version, data SHA, git hash, time, `audit_layout` |
 | `memory/` | `{memory}` payload (`schema.json`, full texts) — see [`docs/schemas/memory_runtime.md`](../schemas/memory_runtime.md) |
-| `memory/lineage.jsonl` | Question → injected memory item → teacher (`proposed_by`) |
-| `memory/retrieve_ranks.jsonl` | Retrieve candidates **including losers** (rank + score + selected) |
-| `memory/teachers/` | Per-teacher reasoning, triples, `fusion.jsonl`, session input text, `quality.json` |
-| `memory/graph/` | Fused Mem0g snapshot per sample + `ingest.jsonl` (MERGE / invalidate after fusion) |
+| `memory/teachers/` | Per-teacher reasoning, triples, `fusion.jsonl` (`proposed_by` / `kept`) |
+| `memory/graph/` | Fused Mem0g snapshot per sample |
 | `plots/*.png` | Quick visual of overall + by-category scores |
 
-`run_meta.json` includes `audit_layout` paths (`audit_pack.v2`). `run.py` dumps this tree via
-`src.locomo_eval.experiments.audit_writer`. Start with `SUMMARY.md` — that is the
-**audit of claims** (what entered `{memory}` and which teacher proposed it), not
-only an audit of API calls. An eval branch should load sandwich
+`run_meta.json` includes `audit_layout` paths. `run.py` dumps this tree via
+`src.locomo_eval.experiments.audit_writer`. An eval branch should load sandwich
 audits with `src.locomo_eval.experiments.audit_loader` (see
 [`docs/schemas/experiment_pack.md`](../schemas/experiment_pack.md)) and not
 edit `run.py` / teachers. Path names live in `experiments/audit_layout.py`.

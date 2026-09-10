@@ -89,7 +89,7 @@ from scratch.
 |---------|----------|
 | Rate limits / RPD | Low tiers (~50/day): use small `max_questions`; each invocation starts from question one |
 | Cost | Tokens ∝ memory string length (`raw_chunks` >> `session_summaries` typically); requests ∝ question count per invocation |
-| Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json`; LLM traces in `reader/`, `memory/teachers/`, `autorater/` |
+| Reproducibility | Log `reader_model`, temp, prompt version, data SHA in `run_meta.json`; freeze YAML in `config.resolved.yaml`; LLM traces in `reader/`, `memory/teachers/`, `autorater/`; claim audit in `SUMMARY.md` / `memory/lineage.jsonl` |
 | Isolation | Each run id is regenerated from scratch; JSONL is audit-only |
 | Eval API | Read dumps via `src.locomo_eval.experiments.audit_loader` (`docs/schemas/experiment_pack.md`); dumps stay in `experiments.audit_writer` |
 | Security | Never commit `.env`; example only in `.env.example` |
@@ -256,7 +256,7 @@ Conditions: `teacher_graph` (K=1, interchangeable model), `pooled_teacher_graph`
 | Online autorater | `python -m scripts.analysis.run_benchmark --run ...` | Mem0 prompt, GPT-4o default, category 5 skipped; fresh non-appending report every invocation |
 | Autorater literature pins | `mem0_baselines.py` | Mem0 paper Tables 1–2; comparison only, not local Mem0 re-runs |
 | Two-run compare | `scripts/analysis/compare_predictions.py` | paired LoCoMo F1 boxplot + histograms |
-| Audit pack | `report.py` → `experiments/<run_id>/` | CSV/JSON/plots |
+| Audit pack | `report.py` + `experiments/audit_writer.py` → `experiments/<run_id>/` | CSV/JSON/plots + claim audit (`SUMMARY.md`, lineage, ranks, ingest, cost) |
 
 ---
 

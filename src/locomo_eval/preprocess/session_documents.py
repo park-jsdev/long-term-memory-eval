@@ -308,13 +308,39 @@ def naive_rank_session_ids(
     field: MemoryField,
 ) -> list[int]:
     """Lexical overlap of the *question* with session text. Does not use gold answers."""
+    return [row["session_id"] for row in naive_rank_session_candidates(query, documents, field)]
+
+
+def naive_rank_session_candidates(
+    query: str,
+    documents: list[SessionDocument],
+    field: MemoryField,
+    top_k: int | None = None,
+) -> list[dict]:
+    """All sessions with overlap score, rank, and selected flag."""
+    from src.locomo_eval.experiments.claim_audit import preview
+
     q = _tokens(query)
-    scored: list[tuple[int, int, int]] = []
+    scored: list[tuple[int, int, SessionDocument]] = []
     for doc in documents:
         overlap = len(q & _tokens(doc.retrieval_text(field)))
-        scored.append((overlap, -doc.session_index, doc.session_id))
+        scored.append((overlap, -doc.session_index, doc))
     scored.sort(reverse=True)
-    return [sid for _, _, sid in scored]
+    k = len(scored) if top_k is None else max(0, int(top_k))
+    rows: list[dict] = []
+    for i, (overlap, _neg_idx, doc) in enumerate(scored, start=1):
+        rows.append(
+            {
+                "item_id": f"session_{doc.session_id}",
+                "item_kind": "session_unit",
+                "session_id": doc.session_id,
+                "score": overlap,
+                "rank": i,
+                "selected": i <= k,
+                "text_preview": preview(doc.retrieval_text(field)),
+            }
+        )
+    return rows
 
 
 def recall_evidence_sessions(

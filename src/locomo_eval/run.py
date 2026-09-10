@@ -27,6 +27,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 # Repo root on sys.path so `src.*` imports work when run as a module or script.
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,12 +53,17 @@ from src.locomo_eval.memory import (
 )
 from src.locomo_eval.experiments.audit_layout import audit_layout_meta
 from src.locomo_eval.experiments.audit_writer import (
+    write_claim_audit,
+    write_frozen_config,
     write_graph_module,
     write_reader_module,
     write_teacher_module,
 )
 from src.locomo_eval.memory_log import (
     collect_fusion_log,
+    collect_ingest_log,
+    collect_retrieve_log,
+    collect_session_texts,
     collect_teacher_call_log,
     write_memory_run_log,
 )
@@ -392,6 +398,52 @@ def _filter_conversations_to_index(
     return kept
 
 
+def _dump_memory_and_claim_audit(
+    run_dir: Path,
+    builder: Any,
+    *,
+    used_memories: dict,
+    used_memories_by_question: dict,
+    question_sample_ids: dict,
+    max_chars: int | None,
+    prompt_template: str,
+    example_question: str | None,
+    prediction_rows: list[dict],
+    reader_traces: list[dict],
+    metrics: dict | None = None,
+    meta: dict | None = None,
+) -> None:
+    write_memory_run_log(
+        run_dir,
+        used_memories,
+        max_chars_cfg=max_chars,
+        prompt_template=prompt_template,
+        example_question=example_question,
+        memories_by_question=used_memories_by_question or None,
+        question_sample_ids=question_sample_ids or None,
+    )
+    write_teacher_module(
+        run_dir,
+        calls=collect_teacher_call_log(builder),
+        fusion_rows=collect_fusion_log(builder),
+        session_texts=collect_session_texts(builder),
+    )
+    write_graph_module(run_dir, getattr(builder, "graphs_by_sample", {}) or {})
+    write_claim_audit(
+        run_dir,
+        prediction_rows=prediction_rows,
+        reader_traces=reader_traces,
+        teacher_calls=collect_teacher_call_log(builder),
+        fusion_rows=collect_fusion_log(builder),
+        ingest_rows=collect_ingest_log(builder),
+        retrieve_ranks=collect_retrieve_log(builder),
+        memories_by_sample=used_memories,
+        memories_by_question=used_memories_by_question or None,
+        metrics=metrics,
+        meta=meta,
+    )
+
+
 def _reset_run_output(run_dir: Path) -> None:
     """Clear generated artifacts so one run id always means one fresh run.
 
@@ -407,6 +459,10 @@ def _reset_run_output(run_dir: Path) -> None:
         "metrics.json",
         "metrics_by_category.csv",
         "run_meta.json",
+        "cost.json",
+        "SUMMARY.md",
+        "config.source.yaml",
+        "config.resolved.yaml",
     ):
         path = run_dir / filename
         if path.is_file():
@@ -440,6 +496,13 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     run_dir = out_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     _reset_run_output(run_dir)
+    write_frozen_config(
+        run_dir,
+        cfg=cfg,
+        overrides=overrides,
+        source_config=getattr(overrides, "config", None),
+        repo_root=ROOT,
+    )
     pred_path = run_dir / "predictions.jsonl"
 
     prompt_version, prompt_template = load_prompt_template(prompt_path)
@@ -631,21 +694,18 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     except Exception as exc:
         write_jsonl(pred_path, prediction_rows)
         if used_memories:
-            write_memory_run_log(
+            _dump_memory_and_claim_audit(
                 run_dir,
-                used_memories,
-                max_chars_cfg=max_chars,
+                builder,
+                used_memories=used_memories,
+                used_memories_by_question=used_memories_by_question,
+                question_sample_ids=question_sample_ids,
+                max_chars=max_chars,
                 prompt_template=prompt_template,
                 example_question=example_question,
-                memories_by_question=used_memories_by_question or None,
-                question_sample_ids=question_sample_ids or None,
+                prediction_rows=prediction_rows,
+                reader_traces=reader_traces,
             )
-            write_teacher_module(
-                run_dir,
-                calls=collect_teacher_call_log(builder),
-                fusion_rows=collect_fusion_log(builder),
-            )
-            write_graph_module(run_dir, getattr(builder, "graphs_by_sample", {}) or {})
             write_reader_module(
                 run_dir,
                 prediction_rows=prediction_rows,
@@ -676,6 +736,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             run_dir,
             calls=collect_teacher_call_log(builder),
             fusion_rows=collect_fusion_log(builder),
+            session_texts=collect_session_texts(builder),
         )
         if teachers_dir is not None:
             print(f"Teacher traces: {teachers_dir}")
@@ -753,7 +814,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "n_predictions": len(prediction_rows),
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
-        "package_version": "0.1.4",
+        "package_version": "0.1.5",
         "memory_schema_version": "memory_io.v1",
         "memory_audit_dir": "memory",
         "audit_layout": audit_layout_meta(),
@@ -766,9 +827,26 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         traces=reader_traces,
         summary=summary,
     )
+    claim_paths = write_claim_audit(
+        run_dir,
+        prediction_rows=prediction_rows,
+        reader_traces=reader_traces,
+        teacher_calls=collect_teacher_call_log(builder),
+        fusion_rows=collect_fusion_log(builder),
+        ingest_rows=collect_ingest_log(builder),
+        retrieve_ranks=collect_retrieve_log(builder),
+        memories_by_sample=used_memories,
+        memories_by_question=used_memories_by_question or None,
+        metrics=summary,
+        meta=meta_out,
+    )
     print("Wrote audit package:")
     for k, v in paths.items():
         print(f"  {k}: {v}")
+    if claim_paths:
+        print("Claim audit:")
+        for k, v in claim_paths.items():
+            print(f"  {k}: {v}")
     print(
         f"API stats: new_api={n_api}"
     )
