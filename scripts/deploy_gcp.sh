@@ -25,19 +25,20 @@ COMMON=(
   --cpu=1
   --memory=2Gi
   --set-secrets="OPENAI_API_KEY=openai-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,DEEPSEEK_API_KEY=deepseek-api-key:latest"
+  --set-env-vars="PYTHONUNBUFFERED=1,MEMORYBENCH_BUCKET=${BUCKET:-${PROJECT_ID}-memorybench}"
 )
 
 gcloud run jobs describe memorybench-qa --region="${REGION}" >/dev/null 2>&1 \
   && gcloud run jobs update memorybench-qa "${COMMON[@]}" \
-      --args="execute-qa,configs/experiments/poc.yaml" \
+      --args="execute-qa,configs/experiments/poc_gcs.yaml" \
   || gcloud run jobs create memorybench-qa "${COMMON[@]}" \
-      --args="execute-qa,configs/experiments/poc.yaml"
+      --args="execute-qa,configs/experiments/poc_gcs.yaml"
 
 gcloud run jobs describe memorybench-autorater --region="${REGION}" >/dev/null 2>&1 \
   && gcloud run jobs update memorybench-autorater "${COMMON[@]}" \
-      --args="execute-autorater,configs/experiments/poc.yaml" \
+      --args="execute-autorater,configs/experiments/poc_gcs.yaml" \
   || gcloud run jobs create memorybench-autorater "${COMMON[@]}" \
-      --args="execute-autorater,configs/experiments/poc.yaml"
+      --args="execute-autorater,configs/experiments/poc_gcs.yaml"
 
 echo "Image ${IMAGE}"
 echo "Jobs: memorybench-qa, memorybench-autorater"

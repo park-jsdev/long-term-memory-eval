@@ -6,6 +6,13 @@ from pathlib import Path
 
 from src.memorybench.completed_run_skip import autorater_success_path, qa_success_path
 from src.memorybench.expand_run_matrix import expand_run_matrix
+from src.memorybench.gcs_run_workspace import (
+    autorater_success_remote,
+    gcs_blob_exists,
+    gcs_enabled,
+    qa_success_remote,
+    remote_run_prefix,
+)
 from src.memorybench.load_experiment_yaml import load_experiment_yaml
 from src.memorybench.open_configured_store import local_experiments_root
 
@@ -20,6 +27,20 @@ def report_experiment_status(config_path: str | Path) -> dict[str, int | list[st
     not_started: list[str] = []
     for spec in specs:
         run_dir = out_root / spec.run_id
+        if gcs_enabled(cfg):
+            if gcs_blob_exists(cfg, qa_success_remote(cfg, spec.run_id)):
+                completed.append(spec.run_id)
+                if gcs_blob_exists(cfg, autorater_success_remote(cfg, spec.run_id)):
+                    judged.append(spec.run_id)
+                continue
+            prefix = remote_run_prefix(cfg, spec.run_id)
+            if gcs_blob_exists(cfg, f"{prefix}/errors.jsonl") or gcs_blob_exists(
+                cfg, f"{prefix}/run.json"
+            ):
+                failed.append(spec.run_id)
+            else:
+                not_started.append(spec.run_id)
+            continue
         if qa_success_path(run_dir).is_file():
             completed.append(spec.run_id)
             if autorater_success_path(run_dir).is_file():

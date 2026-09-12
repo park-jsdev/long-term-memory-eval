@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,14 @@ def open_configured_store(cfg: dict[str, Any]):
             root = ROOT / root
         return LocalObjectStore(root)
     if backend == "gcs":
-        bucket = storage.get("bucket")
+        bucket = (
+            os.environ.get("MEMORYBENCH_BUCKET")
+            or storage.get("bucket")
+        )
         if not bucket:
-            raise ValueError("storage.bucket is required when backend is gcs")
+            raise ValueError(
+                "storage.bucket or MEMORYBENCH_BUCKET is required when backend is gcs"
+            )
         prefix = str(storage.get("prefix") or "")
         return GCSObjectStore(bucket=str(bucket), prefix=prefix)
     raise ValueError(f"Unknown storage.backend {backend!r} (use local or gcs)")

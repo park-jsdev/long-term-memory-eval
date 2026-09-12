@@ -21,6 +21,13 @@ from src.memorybench.completed_run_skip import (
 from src.memorybench.expand_run_matrix import expand_run_matrix
 from src.memorybench.experiment_run_spec import ExperimentRunSpec
 from src.memorybench.load_experiment_yaml import load_experiment_yaml
+from src.memorybench.gcs_run_workspace import (
+    ensure_dataset_local,
+    gcs_blob_exists,
+    gcs_enabled,
+    qa_success_remote,
+    upload_run_dir,
+)
 from src.memorybench.open_configured_store import local_experiments_root
 from src.memorybench.resolve_task_index import resolve_task_index
 from src.memorybench.write_analysis_parquet import (
@@ -67,25 +74,39 @@ def execute_qa_run(
         )
     out_root = local_experiments_root(cfg)
     run_dir = out_root / spec.run_id
+    if (
+        gcs_enabled(cfg)
+        and not force
+        and gcs_blob_exists(cfg, qa_success_remote(cfg, spec.run_id))
+    ):
+        print(f"skip qa {spec.run_id}: GCS _SUCCESS exists (pass --force to regenerate)")
+        return run_dir
     marker = qa_success_path(run_dir)
     if should_skip_completed(marker, force=force):
         print(f"skip qa {spec.run_id}: {marker} exists (pass --force to regenerate)")
         return run_dir
 
+    work_cfg = dict(cfg)
+    work_cfg["benchmark"] = dict(cfg.get("benchmark") or {})
+    work_cfg["benchmark"]["dataset_path"] = str(ensure_dataset_local(cfg))
+
     execution = cfg.get("execution") or {}
     reader_override = execution.get("reader_provider")
     try:
         _require_shared_indexes(spec, out_root)
-        argv = _qa_argv(spec, cfg, out_root, reader_override)
+        argv = _qa_argv(spec, work_cfg, out_root, reader_override)
         args = build_parser().parse_args(argv)
         locomo_cfg = load_config(args.config)
         run_locomo_pipeline_with_memory_config(locomo_cfg, args)
         _write_qa_artifacts(spec, run_dir, status="completed")
         write_success_marker(marker)
-        print(f"qa complete {spec.run_id} -> {run_dir}")
+        uploaded = upload_run_dir(cfg, spec.run_id, run_dir)
+        extra = f" uploaded={uploaded} blobs" if uploaded else ""
+        print(f"qa complete {spec.run_id} -> {run_dir}{extra}")
         return run_dir
     except Exception as exc:
         _write_error(run_dir, spec, stage="qa", exc=exc)
+        upload_run_dir(cfg, spec.run_id, run_dir)
         raise
 
 

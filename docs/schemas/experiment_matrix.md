@@ -27,7 +27,9 @@ judge:
 
 storage:
   backend: local|gcs
-  path: experiments          # locomo_eval --output-dir; shared indexes live here
+  path: experiments          # locomo_eval --output-dir (scratch on Cloud Run)
+  bucket: PROJECT-memorybench   # gcs only; or env MEMORYBENCH_BUCKET
+  dataset_object: data/locomo10.json  # gcs blob; upload once
 ```
 
 ## Optional

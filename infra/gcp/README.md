@@ -101,8 +101,8 @@ Do not grant `roles/owner` or project-wide storage admin.
 
 | Job name | Args | Tasks |
 |----------|------|--------|
-| `memorybench-qa` | `execute-qa configs/experiments/poc.yaml` | `N` = matrix size; `CLOUD_RUN_TASK_INDEX` selects the row |
-| `memorybench-autorater` | `execute-autorater configs/experiments/poc.yaml` | same `N`, only after QA `_SUCCESS` |
+| `memorybench-qa` | `execute-qa configs/experiments/poc_gcs.yaml` | `N` = matrix size; `CLOUD_RUN_TASK_INDEX` selects the row |
+| `memorybench-autorater` | `execute-autorater configs/experiments/poc_gcs.yaml` | same `N`, only after QA `_SUCCESS` |
 
 Suggested first limits (overridable later):
 
@@ -124,7 +124,46 @@ Mount / inject:
 
 Cloud SQL, Firestore, Pub/Sub, GKE, Vertex AI endpoints, Cloud Functions, a second job per matrix cell, or a downloaded JSON key inside the container.
 
-## 8. Local vs cloud
+## 8. Deploy the image (after secrets exist)
+
+Docker Desktop must be running. From the **repo root**:
+
+PowerShell (recommended on Windows; uses `gcloud.cmd`, no Bash):
+
+```powershell
+$env:PROJECT_ID = "YOUR_PROJECT_ID"
+$env:REGION = "us-central1"
+$env:AR_REPO = "memorybench"
+$env:SA = "memorybench-runner"
+.\scripts\deploy_gcp.ps1
+```
+
+Git Bash / Linux / macOS (`export`, then `./scripts/deploy_gcp.sh`). Shell scripts in this repo use Unix (LF) line endings; `set: pipefail` under `bash` on Windows usually means CRLF. Use the `.ps1` instead.
+
+Jobs run `configs/experiments/poc_gcs.yaml` (downloads `gs://$BUCKET/data/locomo10.json`, writes `gs://$BUCKET/experiments/locomo-poc/runs/<run_id>/`). **Redeploy after that YAML/code exists in the image.**
+
+Execute one QA task (mock; no live LLM):
+
+```powershell
+gcloud.cmd run jobs execute memorybench-qa --region=us-central1 --tasks=1 --wait
+```
+
+Then autorater (after QA `_SUCCESS` is in the bucket):
+
+```powershell
+gcloud.cmd run jobs execute memorybench-autorater --region=us-central1 --tasks=1 --wait
+```
+
+### Console after execute
+
+Project `agent-platform-508416` (region `us-central1`):
+
+1. [Cloud Run Jobs](https://console.cloud.google.com/run/jobs?project=agent-platform-508416) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`.
+2. Direct executions list: [memorybench-qa executions](https://console.cloud.google.com/run/jobs/details/us-central1/memorybench-qa/executions?project=agent-platform-508416).
+3. [Bucket browser](https://console.cloud.google.com/storage/browser/agent-platform-508416-memorybench/experiments/locomo-poc/runs?project=agent-platform-508416) → folder `locomo-poc-<8 hex>/` (current mock cell is `locomo-poc-d43c3dda`). Must contain `_SUCCESS`, `predictions.jsonl`, `TRACE.md`, `reader/traces.jsonl`. After the autorater job: `autorater/_SUCCESS`.
+4. Job **Configuration** / container args must be `execute-qa` + `configs/experiments/poc_gcs.yaml` (not `poc.yaml`). If you still see `poc.yaml`, the image was not redeployed.
+
+## 9. Local vs cloud
 
 Laptops: `conda activate distillation`. Image: `uv` or the Dockerfile `pip install -r requirements.txt`. Same CLI:
 
