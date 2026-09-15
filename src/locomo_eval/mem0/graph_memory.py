@@ -175,7 +175,9 @@ class Mem0GraphMemory(GraphMemory):
         self._edge_n += 1
         return eid
 
-    def _merge_node(self, name: str, entity_type: str, timestamp: str) -> GraphNode:
+    def _merge_node(
+        self, name: str, entity_type: str, timestamp: str
+    ) -> tuple[GraphNode, dict[str, Any]]:
         key = normalize_entity_name(name)
         emb = self.embedder.embed_one(key)
         best: GraphNode | None = None
@@ -186,7 +188,13 @@ class Mem0GraphMemory(GraphMemory):
                 best = node
                 best_sim = sim
         if best is not None:
-            return best
+            return best, {
+                "op": "reuse_node",
+                "node_id": best.node_id,
+                "query": key,
+                "matched": best.name,
+                "similarity": round(float(best_sim), 4),
+            }
         node = GraphNode(
             node_id=key,
             name=key,
@@ -195,7 +203,7 @@ class Mem0GraphMemory(GraphMemory):
             timestamp=timestamp,
         )
         self.nodes[key] = node
-        return node
+        return node, {"op": "new_node", "node_id": key, "name": key}
 
     def ingest(
         self,
@@ -249,14 +257,22 @@ class Mem0GraphMemory(GraphMemory):
             for ent in entities
         }
         type_by_name.setdefault(normalize_entity_name(user_id), "person")
+        logged_nodes: set[str] = set()
         for rel in relations:
             src = normalize_entity_name(rel.get("source") or "")
             tgt = normalize_entity_name(rel.get("target") or "")
             relationship = (rel.get("relationship") or "related_to").strip()
             if not src or not tgt or not relationship:
                 continue
-            self._merge_node(src, type_by_name.get(src, "other"), timestamp)
-            self._merge_node(tgt, type_by_name.get(tgt, "other"), timestamp)
+            for name, etype in (
+                (src, type_by_name.get(src, "other")),
+                (tgt, type_by_name.get(tgt, "other")),
+            ):
+                _node, node_op = self._merge_node(name, etype, timestamp)
+                node_id = str(node_op.get("node_id") or "")
+                if node_id and node_id not in logged_nodes:
+                    logged_nodes.add(node_id)
+                    ops.append(node_op)
             dup = next(
                 (
                     e
@@ -269,6 +285,15 @@ class Mem0GraphMemory(GraphMemory):
                 None,
             )
             if dup:
+                ops.append(
+                    {
+                        "op": "skip_dup",
+                        "source": src,
+                        "relationship": relationship,
+                        "target": tgt,
+                        "edge_id": dup.edge_id,
+                    }
+                )
                 continue
             edge = GraphEdge(
                 edge_id=self._new_edge_id(),
@@ -290,8 +315,8 @@ class Mem0GraphMemory(GraphMemory):
             )
         return ops
 
-    def search_relations(self, query_text: str, top_k: int = 5) -> list[GraphEdge]:
-        """Score valid edges by cosine of ``source relationship target`` vs query."""
+    def rank_relations(self, query_text: str) -> list[tuple[GraphEdge, float]]:
+        """All valid edges scored against the query (no top-k cut)."""
         q = self.embedder.embed_one(query_text or "")
         scored: list[tuple[GraphEdge, float]] = []
         for edge in self.edges:
@@ -300,7 +325,12 @@ class Mem0GraphMemory(GraphMemory):
             blob = f"{edge.source} {edge.relationship} {edge.target}"
             scored.append((edge, cosine_similarity(q, self.embedder.embed_one(blob))))
         scored.sort(key=lambda item: item[1], reverse=True)
-        return [edge for edge, _ in scored[: max(0, int(top_k))]]
+        return scored
+
+    def search_relations(self, query_text: str, top_k: int = 5) -> list[GraphEdge]:
+        """Score valid edges by cosine of ``source relationship target`` vs query."""
+        ranked = self.rank_relations(query_text)
+        return [edge for edge, _ in ranked[: max(0, int(top_k))]]
 
     def to_dict(self) -> dict[str, Any]:
         return {

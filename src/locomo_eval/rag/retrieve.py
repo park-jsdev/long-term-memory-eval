@@ -33,6 +33,19 @@ def require_sample_dump(index_root: Path, sample_id: str) -> Path:
     return sample_dir
 
 
+def score_chunks(
+    chunks: list[RagChunk],
+    query_embedding: list[float],
+) -> list[tuple[float, RagChunk]]:
+    scored: list[tuple[float, RagChunk]] = []
+    for chunk in chunks:
+        if not chunk.embedding:
+            continue
+        scored.append((cosine_similarity(query_embedding, chunk.embedding), chunk))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored
+
+
 def retrieve_top_chunks(
     chunks: list[RagChunk],
     query_embedding: list[float],
@@ -40,12 +53,7 @@ def retrieve_top_chunks(
 ) -> tuple[list[RagChunk], float]:
     """Return top-k chunks by cosine similarity and search latency (seconds)."""
     t0 = time.perf_counter()
-    scored: list[tuple[float, RagChunk]] = []
-    for chunk in chunks:
-        if not chunk.embedding:
-            continue
-        scored.append((cosine_similarity(query_embedding, chunk.embedding), chunk))
-    scored.sort(key=lambda item: item[0], reverse=True)
+    scored = score_chunks(chunks, query_embedding)
     k = max(1, int(k))
     picked = [chunk for _score, chunk in scored[:k]]
     if not picked and chunks:
@@ -67,8 +75,45 @@ def retrieve_rag_text(
     k: int,
 ) -> tuple[str, list[str], float]:
     """Load dump → embed query → join top-k. Returns (text, source_ids, search_s)."""
+    text, source_ids, search_s, _ranks = retrieve_rag_with_ranks(
+        index_root, sample_id, query, embedder, k
+    )
+    return text, source_ids, search_s
+
+
+def retrieve_rag_with_ranks(
+    index_root: Path,
+    sample_id: str,
+    query: str,
+    embedder: Embedder,
+    k: int,
+) -> tuple[str, list[str], float, list[dict]]:
+    """Same as retrieve_rag_text plus the full ranked candidate list."""
+    from ..experiments.claim_audit import preview
+
     sample_dir = require_sample_dump(index_root, sample_id)
     _transcript, chunks = load_sample_chunks(sample_dir)
+    t0 = time.perf_counter()
     q_emb = embedder.embed_one(query)
-    picked, search_s = retrieve_top_chunks(chunks, q_emb, k)
-    return format_retrieved_chunks(picked), [c.chunk_id for c in picked], search_s
+    scored = score_chunks(chunks, q_emb)
+    k = max(1, int(k))
+    picked = [chunk for _score, chunk in scored[:k]]
+    if not picked and chunks:
+        picked = chunks[:k]
+        scored = [(0.0, c) for c in picked]
+    search_s = time.perf_counter() - t0
+    selected_ids = {c.chunk_id for c in picked}
+    ranks = []
+    for i, (score, chunk) in enumerate(scored, start=1):
+        ranks.append(
+            {
+                "item_id": chunk.chunk_id,
+                "item_kind": "rag_chunk",
+                "score": round(float(score), 6),
+                "rank": i,
+                "selected": chunk.chunk_id in selected_ids,
+                "text_preview": preview(chunk.text),
+                "n_tokens": chunk.n_tokens,
+            }
+        )
+    return format_retrieved_chunks(picked), [c.chunk_id for c in picked], search_s, ranks

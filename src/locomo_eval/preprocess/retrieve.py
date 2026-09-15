@@ -16,7 +16,7 @@ from pathlib import Path
 from ..memory import format_session_turns
 from ..schemas import Conversation, Question, Session, SessionBlock, Turn
 from .dump import load_session_blocks, load_session_documents, require_sample_dump
-from .session_documents import MemoryField, SessionDocument, naive_rank_session_ids
+from .session_documents import MemoryField, SessionDocument, naive_rank_session_candidates, naive_rank_session_ids
 
 
 def session_from_block(block: SessionBlock) -> Session:
@@ -152,6 +152,18 @@ def build_raw_chunks_from_index(
     )
 
 
+def rank_raw_chunks_from_index(
+    index_dir: str | Path,
+    conversation: Conversation,
+    question: Question,
+    *,
+    top_k: int | None = None,
+) -> list[dict]:
+    sample_dir = require_sample_dump(Path(index_dir), conversation.sample_id)
+    docs = load_session_documents(sample_dir)
+    return naive_rank_session_candidates(question.question, docs, "turns", top_k)
+
+
 def build_session_summaries_from_index(
     index_dir: str | Path,
     conversation: Conversation,
@@ -163,3 +175,15 @@ def build_session_summaries_from_index(
     docs = load_session_documents(sample_dir)
     docs = select_documents(docs, question.question, "summary", top_k)
     return format_session_summaries_from_documents(docs)
+
+
+def rank_session_summaries_from_index(
+    index_dir: str | Path,
+    conversation: Conversation,
+    question: Question,
+    *,
+    top_k: int | None = None,
+) -> list[dict]:
+    sample_dir = require_sample_dump(Path(index_dir), conversation.sample_id)
+    docs = load_session_documents(sample_dir)
+    return naive_rank_session_candidates(question.question, docs, "summary", top_k)
