@@ -19,6 +19,7 @@ from typing import Any
 from .env import load_env
 from .models import (
     TEACHER_THINKING_MIN_OUTPUT_TOKENS,
+    anthropic_messages_kwargs,
     apply_openai_thinking,
     chat_create_kwargs,
     resolve_model,
@@ -388,7 +389,7 @@ class AnthropicReader(Reader):
                     kwargs["system"] = system
                 if self.spec.supports_temperature:
                     kwargs["temperature"] = float(self.temperature)
-                resp = self._client.messages.create(**kwargs)
+                resp = self._client.messages.create(**anthropic_messages_kwargs(kwargs))
                 self._last_request_t = time.time()
                 latency = time.time() - t0
                 text_parts = []

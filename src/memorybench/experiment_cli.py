@@ -12,7 +12,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.env import load_env
-from src.memorybench.aggregate_successful_runs import aggregate_successful_runs
+from src.memorybench.aggregate_successful_runs import (
+    collect_experiment_results,
+    collect_full_run_packs,
+)
 from src.memorybench.execute_autorater_run import execute_autorater_run
 from src.memorybench.execute_qa_run import execute_qa_run
 from src.memorybench.expand_run_matrix import expand_run_matrix
@@ -42,8 +45,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_run_flags(judge)
 
-    agg = sub.add_parser("aggregate", help="Concat Parquet from runs with _SUCCESS")
+    agg = sub.add_parser(
+        "aggregate",
+        help="Default collect: Parquet + thin audit catalog (after QA, ideally after autorater)",
+    )
     agg.add_argument("config")
+
+    full = sub.add_parser(
+        "collect-full",
+        help="On-demand: copy complete run packs including memory dumps",
+    )
+    full.add_argument("config")
+
+    rep = sub.add_parser(
+        "report",
+        help="Offline tables/plots from analysis YAML (campaign + experiment)",
+    )
+    rep.add_argument("config")
+    rep.add_argument(
+        "--experiment",
+        default=None,
+        help="Campaign experiment id (smoke|baseline|writers). Omit for all + campaign concat.",
+    )
 
     st = sub.add_parser("status", help="Count completed / failed / not started")
     st.add_argument("config")
@@ -98,9 +121,32 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
     if args.command == "aggregate":
-        written = aggregate_successful_runs(args.config)
+        written = collect_experiment_results(args.config)
+        print(f"aggregate complete -> {written.get('aggregate_dir')}")
         for key, path in written.items():
-            print(f"{key}: {path}")
+            if key == "aggregate_dir":
+                continue
+            print(f"  {key}: {path}")
+        return
+    if args.command == "collect-full":
+        written = collect_full_run_packs(args.config)
+        print(f"collect-full complete -> {written.get('aggregate_dir')}")
+        for key, path in written.items():
+            if key == "aggregate_dir":
+                continue
+            print(f"  {key}: {path}")
+        return
+    if args.command == "report":
+        from src.memorybench.analysis.report import run_report
+
+        reports = run_report(args.config, experiment_id=args.experiment)
+        for report in reports:
+            print(f"{report.scope} -> {report.out_dir}")
+            if report.missing_packs:
+                print(f"  missing: {', '.join(report.missing_packs)}")
+            for item in report.results:
+                extra = f" skipped={item.skipped}" if item.skipped else f" n={len(item.table)}"
+                print(f"  {item.spec.id}{extra}")
         return
     if args.command == "status":
         report = report_experiment_status(args.config)

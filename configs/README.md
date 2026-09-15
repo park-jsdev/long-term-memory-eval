@@ -15,6 +15,7 @@ configs/
   presets/       one-axis overlays (Mem0-parity reader, Luna reader, …)
   models/        generation catalog (snapshots)
   experiments/   memorybench matrices
+  analysis/      campaign vs experiment recipes (tables/plots); engines in scripts/analysis/
 ```
 
 A **writer** file is runnable: it includes `stacks/qa_default.yaml` (frozen gpt-4o-mini + `qa_mem0_v1`). Swap one piece by including another file after it:

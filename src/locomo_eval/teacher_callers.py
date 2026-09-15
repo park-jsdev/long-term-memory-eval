@@ -21,7 +21,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from .env import load_env
-from .models import resolve_model
+from .models import anthropic_messages_kwargs, resolve_model
 from .readers import OpenAIChatCaller, _is_rate_limit_error, _retry_after_seconds
 from .reasoning_extractor import openai_reasoning_text, split_anthropic_content
 
@@ -199,7 +199,9 @@ class AnthropicTeacherCaller(TeacherCaller):
             self._pace()
             t0 = time.time()
             try:
-                resp = self._client.messages.create(**create_kwargs)
+                resp = self._client.messages.create(
+                    **anthropic_messages_kwargs(create_kwargs)
+                )
                 self._last_request_t = time.time()
                 latency = time.time() - t0
                 text, reasoning = split_anthropic_content(resp.content)

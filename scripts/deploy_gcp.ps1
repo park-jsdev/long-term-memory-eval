@@ -1,7 +1,7 @@
 # Build and push the experiment image; create/update Cloud Run Jobs.
 # Requires: Docker Desktop, gcloud.cmd, PROJECT_ID.
 # Usage (PowerShell, repo root):
-#   $env:PROJECT_ID = "agent-platform-508416"
+#   $env:PROJECT_ID = "your-gcp-project-id"
 #   $env:REGION = "us-central1"
 #   .\scripts\deploy_gcp.ps1
 
@@ -16,6 +16,9 @@ $AR_REPO = if ($env:AR_REPO) { $env:AR_REPO } else { "memorybench" }
 $SA = if ($env:SA) { $env:SA } else { "memorybench-runner" }
 $BUCKET = if ($env:BUCKET) { $env:BUCKET } else { "$($env:PROJECT_ID)-memorybench" }
 $TAG = if ($env:TAG) { $env:TAG } else { (git rev-parse --short HEAD).Trim() }
+$JOB_MEMORY = if ($env:JOB_MEMORY) { $env:JOB_MEMORY } else { "4Gi" }
+$JOB_PARALLELISM = if ($env:JOB_PARALLELISM) { $env:JOB_PARALLELISM } else { "3" }
+$EXP_YAML = if ($env:EXPERIMENT_YAML) { $env:EXPERIMENT_YAML } else { "configs/experiments/poc_gcs.yaml" }
 $IMAGE = "${REGION}-docker.pkg.dev/$($env:PROJECT_ID)/${AR_REPO}/memorybench:${TAG}"
 $SA_EMAIL = "$SA@$($env:PROJECT_ID).iam.gserviceaccount.com"
 $SECRETS = "OPENAI_API_KEY=openai-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,DEEPSEEK_API_KEY=deepseek-api-key:latest"
@@ -40,11 +43,11 @@ $common = @(
     "--region=$REGION",
     "--service-account=$SA_EMAIL",
     "--tasks=1",
-    "--parallelism=1",
+    "--parallelism=$JOB_PARALLELISM",
     "--task-timeout=12h",
     "--max-retries=2",
     "--cpu=1",
-    "--memory=2Gi",
+    "--memory=$JOB_MEMORY",
     "--set-secrets=$SECRETS",
     "--set-env-vars=$ENV_VARS"
 )
@@ -66,8 +69,11 @@ function Set-MemorybenchJob {
     }
 }
 
-Set-MemorybenchJob -Name "memorybench-qa" -ArgsCsv "execute-qa,configs/experiments/poc_gcs.yaml"
-Set-MemorybenchJob -Name "memorybench-autorater" -ArgsCsv "execute-autorater,configs/experiments/poc_gcs.yaml"
+Set-MemorybenchJob -Name "memorybench-qa" -ArgsCsv "execute-qa,$EXP_YAML"
+Set-MemorybenchJob -Name "memorybench-autorater" -ArgsCsv "execute-autorater,$EXP_YAML"
+Set-MemorybenchJob -Name "memorybench-aggregate" -ArgsCsv "aggregate,$EXP_YAML"
+Set-MemorybenchJob -Name "memorybench-collect-full" -ArgsCsv "collect-full,$EXP_YAML"
 
 Write-Host "Image $IMAGE"
-Write-Host "Jobs: memorybench-qa, memorybench-autorater"
+Write-Host "Experiment YAML $EXP_YAML"
+Write-Host "Jobs: memorybench-qa, memorybench-autorater, memorybench-aggregate, memorybench-collect-full"

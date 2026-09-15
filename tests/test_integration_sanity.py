@@ -198,6 +198,43 @@ class TestModelCatalog(unittest.TestCase):
         out = apply_openai_thinking(spec, kwargs, None)
         self.assertEqual(out.get("reasoning_effort"), "none")
 
+    def test_chat_create_kwargs_for_gpt5_uses_minimal_not_none(self):
+        spec = resolve_model("gpt-5")
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        self.assertEqual(kwargs.get("reasoning_effort"), "minimal")
+        self.assertNotIn("temperature", kwargs)
+        self.assertIn("max_completion_tokens", kwargs)
+
+    def test_apply_openai_thinking_false_maps_gpt5_none_to_minimal(self):
+        spec = resolve_model("gpt-5")
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        out = apply_openai_thinking(spec, kwargs, False)
+        self.assertEqual(out.get("reasoning_effort"), "minimal")
+
+    def test_anthropic_messages_kwargs_moves_temperature_to_extra_body(self):
+        from src.locomo_eval.models import anthropic_messages_kwargs
+
+        out = anthropic_messages_kwargs(
+            {
+                "model": "claude-sonnet-4-5-20250929",
+                "temperature": 0.0,
+                "max_tokens": 64,
+            }
+        )
+        self.assertNotIn("temperature", out)
+        self.assertEqual(out["extra_body"]["temperature"], 0.0)
+        self.assertEqual(out["max_tokens"], 64)
+
     def test_apply_openai_thinking_true_sets_luna_teacher_effort_high(self):
         spec = resolve_model(GPT56_LUNA)
         kwargs = chat_create_kwargs(

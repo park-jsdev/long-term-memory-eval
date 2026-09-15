@@ -52,7 +52,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `prompts/writers/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/reports/multi_teacher_methodologies.md` | Researcher guide: teacher methods, LLMs, fusion, reproduce |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
-| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) |
+| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) — **local only** |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
 | `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v2` claim audit) |
@@ -62,20 +62,28 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `src/locomo_eval/` | Baseline package |
 | `scripts/compare_full_runs.py` | Sandwich report for finished run packs; infers frozen prompt from run metadata |
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
+| `scripts/analysis/campaign_tables.py` / `campaign_plots.py` | YAML-driven campaign/experiment means + bars (legend outside; category names) |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
 | `scripts/analysis/compare_to_paper.py` | Offline paper Table 2 J vs best local autorater J (grouped bars) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
-| `configs/experiments/*.yaml` | Harness matrices (`poc` local, `poc_gcs` Cloud Run, sandwich, longitudinal, ablation) |
+| `configs/experiments/*.yaml` | Harness matrices (`poc`, `mem0_reader_2024_writers`, sandwich, longitudinal, ablation) |
 | `src/memorybench/` | Thin orchestrator: expand matrix, hashed ids, QA then autorater, Parquet |
-| `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements |
-| `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate |
+| `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements — **local only** |
+| `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate — **local only** |
 | `infra/gcp/README.md` | Exact GCP resources to create |
-| `docs/agent/SPEC_v1.md` | Phase 1 requirements |
-| `docs/agent/HUMANS.md` | Human-facing brief |
-| `docs/agent/traces/` | Doc version history |
+| `docs/agent/GCP_RUNBOOK.md` | PowerShell: infra, deploy, four-wave execute, pull from GCS |
+| `docs/agent/RUNBOOK_2025_LIVE.md` | This campaign: 2025 readers smoke + `{full_context, rag}` + writers |
+| `configs/analysis/campaign_2025_live.yaml` | Campaign vs experiment analysis plane (tables/plots, no LLM) |
+| `notebooks/` | `NN_<frozen>_<variable>[_protocol|_analysis].ipynb` — gitignored; see `notebooks/README.md` |
+| `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
+| `README.md` | Architecture: recipe / engine / experiment / campaign / job / audit / test layers |
+| `docs/REPRODUCE.md` | Staged reproduction runbook (offline stages 0–3, paid stages 4–7) |
+| `LICENSE` / `NOTICE.md` | MIT code license + LoCoMo (CC BY-NC) and Mem0 (Apache-2.0) terms |
+| `docs/agent/HUMANS.md` | Human-facing brief — **local only** |
+| `docs/agent/traces/` | Doc version history — **local only** |
 
 ### Package modules (`src/locomo_eval/`)
 
@@ -119,9 +127,11 @@ Purpose-named files (no generic `run.py` / `config.py`). Wraps locomo_eval; does
 | `hashed_run_id.py` | Deterministic `<experiment>-<8 hex>` |
 | `execute_qa_run.py` | One cell → locomo_eval QA + Parquet + `_SUCCESS` |
 | `execute_autorater_run.py` | Separate judge job on stored predictions |
+| `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*` |
+| `aggregate_successful_runs.py` | Third wave: collect all cells → `experiments/<name>/aggregate/` |
 | `completed_run_skip.py` | Skip if `_SUCCESS` unless `--force` |
-| `open_configured_store.py` / `local_object_store.py` / `gcs_object_store.py` / `gcs_run_workspace.py` | Portable storage; GCS download/upload for Cloud Run |
-| `experiment_cli.py` | `write-manifest`, `execute-qa`, `execute-autorater`, `aggregate`, `status` |
+| `open_configured_store.py` / `local_object_store.py` / `gcs_object_store.py` / `gcs_run_workspace.py` | Portable storage; GCS download/upload for Cloud Run (dataset + `shared/<index_run_id>/`) |
+| `experiment_cli.py` | `write-manifest`, `execute-qa`, `execute-autorater`, `aggregate`, `collect-full`, `report`, `status` |
 
 ---
 
@@ -136,11 +146,13 @@ python scripts/fetch_locomo.py
 python -m src.memorybench write-manifest configs/experiments/poc.yaml
 python -m src.memorybench execute-qa configs/experiments/poc.yaml --run-index 0
 python -m src.memorybench execute-autorater configs/experiments/poc.yaml --run-index 0
-python -m src.memorybench status configs/experiments/poc.yaml
 python -m src.memorybench aggregate configs/experiments/poc.yaml
+python -m src.memorybench collect-full configs/experiments/poc.yaml
+python -m src.memorybench status configs/experiments/poc.yaml
+python -m src.memorybench report configs/analysis/campaign_2025_live.yaml --experiment smoke
 
-# Cloud Run PoC (GCS). Redeploy image after this lands, then execute memorybench-qa.
-# python -m src.memorybench execute-qa configs/experiments/poc_gcs.yaml --run-index 0
+# Cloud Run PoC (GCS). Operator steps: docs/agent/GCP_RUNBOOK.md
+# Live 2025 campaign (smoke / baseline RAG / writers): docs/agent/RUNBOOK_2025_LIVE.md
 
 # Offline smoke (no API key)
 python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
@@ -188,9 +200,9 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -216,7 +228,7 @@ python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml
 python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_teachers
 python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
 # Override fusion without a new YAML: --fusion resolve_first
-# Teacher thinking on by default (write path only). Frozen reader stays reasoning_effort=none.
+# Teacher thinking on by default (write path only). Frozen GPT-5.6 reader stays reasoning_effort=none; gpt-5 uses minimal.
 python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --thinking off --reader mock --teacher mock --max-questions 3 --run-id smoke_thinking_off
 
 # Live teachers (needs OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY). Do not pass --teacher mock.
@@ -270,7 +282,7 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 ## Design rules for agents
 
-1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). Do not mix a reader sweep into a sandwich claim. GPT-5.6 readers stay `reasoning_effort=none`. Teacher thinking is write-path only.
+1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). Do not mix a reader sweep into a sandwich claim. GPT-5.6 readers stay `reasoning_effort=none`. Hosted `gpt-5` readers use `minimal` (API rejects `none`). Teacher thinking is write-path only.
 2. **Orchestrator is software**, not one giant LLM call (`TeacherOrchestrator` + `fusion.py`). The **harness** (`memorybench`) only expands matrices and launches one locomo_eval cell per task.
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
@@ -280,8 +292,9 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
    not occupy the literature J column, and must never log a live model id.
 5. **Runs are self-contained.** A bare `locomo_eval.run` invocation still clears and regenerates. **`memorybench execute-qa` skips** when `_SUCCESS` exists (Cloud Run retries). `--force` regenerates. Do not add response stores or per-question resume. Shared Mem0/RAG indexes (`mem0_locomo10`, `rag_locomo10`) are built once and reused across reader cells.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B. Components live under `configs/{writers,readers,layouts,autoraters,teachers}/` and compose with `includes:` (later keys win). `pipeline.memory` is still a builder id, not a path to another YAML.
-7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
+7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files. Traces stay local (gitignored); keep writing them anyway.
 8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
+9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them except for a notebook backing a reported result. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
 
 ---
 
@@ -326,7 +339,7 @@ Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone
 - [ ] `tests/test_compare_to_paper.py` stays green (offline paper vs local J; no API)
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
 - [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, `tests/test_teacher_orchestrator.py`, and `tests/test_claim_audit.py` stay green (mock only; no API)
-- [ ] `tests/test_memorybench_matrix.py` and `tests/test_memorybench_execute_qa.py` stay green (mock only)
+- [ ] `tests/test_memorybench_matrix.py`, `tests/test_memorybench_execute_qa.py`, and `tests/test_memorybench_aggregate.py` stay green (mock only)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---

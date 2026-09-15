@@ -1,0 +1,15 @@
+# Experiment 1: 3 readers × full_context only (no RAG index required).
+#   $env:EXPERIMENT_YAML = "configs/experiments/2025_readers_full_context_smoke_gcs.yaml"
+includes:
+  - configs/experiments/2025_readers_full_context_gcs.yaml
+
+experiment:
+  name: locomo-2025-readers-full-context-smoke
+
+matrix:
+  memory_method:
+    - full_context
+
+subset:
+  max_samples: 1
+  max_questions: 5

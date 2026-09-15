@@ -1,0 +1,11 @@
+# Paid 1-conversation check before the full LoCoMo cells (same freeze, different run ids).
+#   $env:EXPERIMENT_YAML = "configs/experiments/mem0_reader_2024_writers_smoke_gcs.yaml"
+includes:
+  - configs/experiments/mem0_reader_2024_writers_gcs.yaml
+
+experiment:
+  name: locomo-mem0-reader-2024-writers-smoke
+
+subset:
+  max_samples: 1
+  max_questions: 5

@@ -68,6 +68,120 @@ class TestExpandRunMatrixCounts(unittest.TestCase):
         specs = expand_run_matrix(load_experiment_yaml(CEILING))
         self.assertEqual(len(specs), 3)
 
+    def test_mem0_reader_2024_writers_is_three_runnable_sandwich_cells(self):
+        path = ROOT / "configs" / "experiments" / "mem0_reader_2024_writers.yaml"
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 3)
+        self.assertEqual(
+            [(s.memory_method, s.writer.catalog_id if s.writer else None) for s in specs],
+            [
+                ("full_context", None),
+                ("teacher_graph", "gpt-4o"),
+                ("teacher_graph", "claude-3-5-sonnet"),
+            ],
+        )
+        self.assertEqual({s.reader.catalog_id for s in specs}, {"gpt-4o"})
+        self.assertEqual(specs[0].status, "runnable")
+        self.assertEqual(specs[1].status, "runnable")
+        self.assertEqual(specs[2].status, "to_confirm")
+        self.assertEqual(len({s.run_id for s in specs}), 3)
+
+    def test_2025_readers_full_context_is_six_reader_by_memory_cells(self):
+        path = ROOT / "configs" / "experiments" / "2025_readers_full_context.yaml"
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 6)
+        self.assertEqual(
+            [s.memory_method for s in specs],
+            ["full_context", "rag"] * 3,
+        )
+        self.assertEqual(
+            [s.reader.catalog_id for s in specs],
+            [
+                "gpt-5",
+                "gpt-5",
+                "claude-sonnet-4-5",
+                "claude-sonnet-4-5",
+                "deepseek-v3",
+                "deepseek-v3",
+            ],
+        )
+        self.assertEqual({s.status for s in specs}, {"runnable"})
+        self.assertEqual({s.max_questions for s in specs}, {None})
+        self.assertEqual({s.max_samples for s in specs}, {None})
+        self.assertTrue(
+            all(
+                s.rag_index_run_id == "rag_locomo10"
+                for s in specs
+                if s.memory_method == "rag"
+            )
+        )
+        self.assertTrue(
+            all(s.rag_index_run_id is None for s in specs if s.memory_method == "full_context")
+        )
+
+    def test_2025_readers_full_context_smoke_keeps_subset(self):
+        cfg = load_experiment_yaml(
+            ROOT / "configs" / "experiments" / "2025_readers_full_context_smoke_gcs.yaml"
+        )
+        self.assertEqual(
+            cfg["experiment"]["name"], "locomo-2025-readers-full-context-smoke"
+        )
+        specs = expand_run_matrix(cfg)
+        self.assertEqual(len(specs), 3)
+        self.assertEqual([s.memory_method for s in specs], ["full_context"] * 3)
+        self.assertEqual({s.max_questions for s in specs}, {5})
+        self.assertEqual({s.max_samples for s in specs}, {1})
+        self.assertTrue(
+            all(s.run_id.startswith("locomo-2025-readers-full-context-smoke-") for s in specs)
+        )
+
+    def test_mem0_reader_2025_writers_is_six_sandwich_cells(self):
+        path = ROOT / "configs" / "experiments" / "mem0_reader_2025_writers.yaml"
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 6)
+        self.assertEqual({s.reader.catalog_id for s in specs}, {"gpt-4o-mini"})
+        pairs = [(s.memory_method, s.writer.catalog_id) for s in specs]
+        self.assertEqual(
+            pairs,
+            [
+                ("teacher_session_summaries", "gpt-5"),
+                ("teacher_session_summaries", "claude-sonnet-4-5"),
+                ("teacher_session_summaries", "deepseek-v3"),
+                ("teacher_graph", "gpt-5"),
+                ("teacher_graph", "claude-sonnet-4-5"),
+                ("teacher_graph", "deepseek-v3"),
+            ],
+        )
+        self.assertEqual({s.status for s in specs}, {"runnable"})
+
+
+    def test_mem0_reader_2024_writers_gcs_keeps_live_execution(self):
+        cfg = load_experiment_yaml(
+            ROOT / "configs" / "experiments" / "mem0_reader_2024_writers_gcs.yaml"
+        )
+        self.assertEqual(cfg["storage"]["backend"], "gcs")
+        self.assertNotEqual((cfg.get("execution") or {}).get("reader_provider"), "mock")
+        specs = expand_run_matrix(cfg)
+        self.assertEqual(len(specs), 3)
+
+    def test_smoke_gcs_overlay_keeps_three_cells_and_subset(self):
+        cfg = load_experiment_yaml(
+            ROOT / "configs" / "experiments" / "mem0_reader_2024_writers_smoke_gcs.yaml"
+        )
+        self.assertEqual(
+            cfg["experiment"]["name"], "locomo-mem0-reader-2024-writers-smoke"
+        )
+        specs = expand_run_matrix(cfg)
+        self.assertEqual(len(specs), 3)
+        self.assertEqual({s.max_samples for s in specs}, {1})
+        self.assertEqual({s.max_questions for s in specs}, {5})
+        self.assertTrue(
+            all(
+                s.run_id.startswith("locomo-mem0-reader-2024-writers-smoke-")
+                for s in specs
+            )
+        )
+
 
 class TestHashedRunIdsAreStable(unittest.TestCase):
     def test_expanding_the_same_yaml_twice_keeps_order_and_ids(self):

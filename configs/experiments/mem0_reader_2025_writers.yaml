@@ -1,0 +1,52 @@
+# Experiment 3: frozen Mem0-parity reader (gpt-4o-mini + qa_mem0_v1).
+# Vary 2025 single-teacher writers × {session summaries, graph}.
+# teacher_session_summaries is NOT Mem0 extract/update: same teacher_session_v1
+# prompt to all three writers. teacher_graph is teacher_graph_v1 → locked Mem0g.
+# Cartesian is 2 × 3 = 6 cells.
+#
+#   python -m src.memorybench write-manifest configs/experiments/mem0_reader_2025_writers.yaml
+# Cloud: configs/experiments/mem0_reader_2025_writers_gcs.yaml
+# Smoke: configs/experiments/mem0_reader_2025_writers_smoke_gcs.yaml
+# Protocol: notebooks/05_mem0_reader_2025_writers_protocol.ipynb
+# Operator: docs/agent/RUNBOOK_2025_LIVE.md
+
+experiment:
+  name: locomo-mem0-reader-2025-writers
+  type: sandwich
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    reader:
+      catalog: gpt-4o-mini
+    judge:
+      provider: openai
+      api_model_id: gpt-4o-mini
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  memory_method:
+    - teacher_session_summaries
+    - teacher_graph
+  writer:
+    - catalog: gpt-5
+    - catalog: claude-sonnet-4-5
+    - catalog: deepseek-v3
+  seed:
+    - 1
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 180
+  max_api_retries: 8
+
+storage:
+  backend: local
+  path: experiments

@@ -23,6 +23,7 @@ from src.memorybench.experiment_run_spec import ExperimentRunSpec
 from src.memorybench.load_experiment_yaml import load_experiment_yaml
 from src.memorybench.gcs_run_workspace import (
     ensure_dataset_local,
+    ensure_shared_index_local,
     gcs_blob_exists,
     gcs_enabled,
     qa_success_remote,
@@ -93,6 +94,7 @@ def execute_qa_run(
     execution = cfg.get("execution") or {}
     reader_override = execution.get("reader_provider")
     try:
+        _ensure_shared_indexes(cfg, spec, out_root)
         _require_shared_indexes(spec, out_root)
         argv = _qa_argv(spec, work_cfg, out_root, reader_override)
         args = build_parser().parse_args(argv)
@@ -146,7 +148,25 @@ def _qa_argv(
         argv.extend(["--mem0-index-run-id", spec.mem0_index_run_id])
     if spec.rag_index_run_id:
         argv.extend(["--rag-index-run-id", spec.rag_index_run_id])
+    if spec.writer is not None:
+        argv.extend(
+            [
+                "--teacher",
+                spec.writer.provider,
+                "--teacher-model",
+                spec.writer.api_model_id,
+            ]
+        )
     return argv
+
+
+def _ensure_shared_indexes(
+    cfg: dict[str, Any], spec: ExperimentRunSpec, out_root: Path
+) -> None:
+    if spec.rag_index_run_id:
+        ensure_shared_index_local(cfg, spec.rag_index_run_id, "rag_index", out_root)
+    if spec.mem0_index_run_id:
+        ensure_shared_index_local(cfg, spec.mem0_index_run_id, "mem0_index", out_root)
 
 
 def _require_shared_indexes(spec: ExperimentRunSpec, out_root: Path) -> None:

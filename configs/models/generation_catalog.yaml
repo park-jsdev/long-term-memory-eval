@@ -8,8 +8,8 @@ models:
     provider: openai
     family: openai
     generation: 2024
-    api_model_id: gpt-4o
-    model_snapshot: TO_CONFIRM
+    api_model_id: gpt-4o-2024-08-06
+    model_snapshot: gpt-4o-2024-08-06
     status: runnable
 
   gpt-5:
@@ -19,7 +19,8 @@ models:
     generation: 2025
     api_model_id: gpt-5
     model_snapshot: TO_CONFIRM
-    status: to_confirm
+    notes: "Hosted gpt-5 rejects reasoning_effort=none; locomo_eval sends minimal."
+    status: runnable
 
   gpt-5.6-sol:
     display_name: GPT-5.6 Sol
@@ -44,8 +45,9 @@ models:
     provider: anthropic
     family: anthropic
     generation: 2024
-    api_model_id: claude-3-5-sonnet-latest
-    model_snapshot: TO_CONFIRM
+    api_model_id: claude-3-5-sonnet-20241022
+    model_snapshot: claude-3-5-sonnet-20241022
+    notes: "Retired from the Anthropic API on 2025-10-28 (404 not_found). Do not launch."
     status: to_confirm
 
   claude-sonnet-4:
@@ -63,8 +65,8 @@ models:
     provider: anthropic
     family: anthropic
     generation: 2025
-    api_model_id: claude-sonnet-4-5
-    model_snapshot: TO_CONFIRM
+    api_model_id: claude-sonnet-4-5-20250929
+    model_snapshot: claude-sonnet-4-5-20250929
     status: runnable
 
   claude-sonnet-5:
@@ -83,6 +85,7 @@ models:
     generation: 2024
     api_model_id: TO_CONFIRM
     model_snapshot: TO_CONFIRM
+    notes: "Hosted DeepSeek no longer serves V2.5; deepseek-chat is a moving alias (now V3/V4). Do not launch this cell until a dated V2.5 id exists."
     status: to_confirm
 
   deepseek-v3:
@@ -92,8 +95,8 @@ models:
     generation: 2025
     api_model_id: deepseek-chat
     model_snapshot: TO_CONFIRM
-    notes: "deepseek-chat is a moving alias. Replace with a dated V3 id."
-    status: to_confirm
+    notes: "Hosted alias historically V3; if 404, swap to a current DeepSeek chat id before relaunch."
+    status: runnable
 
   deepseek-v4-pro:
     display_name: DeepSeek-V4 Pro

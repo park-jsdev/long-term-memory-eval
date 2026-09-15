@@ -1,0 +1,50 @@
+# Experiment 2: 2025 readers × {full_context, rag} on all of LoCoMo.
+# RAG is the Mem0-paper knob (256-token chunks, k=2, text-embedding-3-small).
+# Shared rag_locomo10 dump is frozen — only the answer model varies.
+# Smoke (full_context only, 1 conversation): 2025_readers_full_context_smoke_gcs.yaml
+#
+#   python -m src.memorybench write-manifest configs/experiments/2025_readers_full_context.yaml
+# Cloud: configs/experiments/2025_readers_full_context_gcs.yaml
+# Protocol: notebooks/04_2025_readers_full_context_protocol.ipynb
+# Operator: docs/agent/RUNBOOK_2025_LIVE.md
+
+experiment:
+  name: locomo-2025-readers-full-context
+  type: sweep
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  reader:
+    - catalog: gpt-5
+    - catalog: claude-sonnet-4-5
+    - catalog: deepseek-v3
+  memory_method:
+    - full_context
+    - rag
+  seed:
+    - 1
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 180
+  max_api_retries: 8
+
+storage:
+  backend: local
+  path: experiments
+
+shared_indexes:
+  rag:
+    index_run_id: rag_locomo10
+    writer: frozen-text-embedding-3-small

@@ -32,10 +32,11 @@ print(len(expand_run_matrix(load_experiment_yaml(r'$Config'))))
 if ($LASTEXITCODE -ne 0) { throw "matrix expand failed" }
 $N = $N.Trim()
 
-Write-Host "Executing $N QA tasks, parallelism=$Parallelism"
+Write-Host "Executing $N QA tasks (job parallelism=$Parallelism)"
+& gcloud.cmd run jobs update memorybench-qa --region=$REGION --parallelism=$Parallelism
+if ($LASTEXITCODE -ne 0) { throw "gcloud run jobs update parallelism failed" }
 & gcloud.cmd run jobs execute memorybench-qa `
     --region=$REGION `
     --tasks=$N `
-    --parallelism=$Parallelism `
     --wait
 if ($LASTEXITCODE -ne 0) { throw "gcloud run jobs execute failed" }

@@ -159,6 +159,22 @@ _CATALOG: dict[str, ModelSpec] = {
         max_tokens_field="max_tokens",
         supports_temperature=True,
     ),
+    "claude-sonnet-4-5-20250929": ModelSpec(
+        model_id="claude-sonnet-4-5-20250929",
+        family=FAMILY_CLAUDE,
+        display_name="Claude Sonnet 4.5",
+        max_tokens_field="max_tokens",
+        supports_temperature=True,
+    ),
+    "gpt-5": ModelSpec(
+        model_id="gpt-5",
+        family="gpt-5",
+        display_name="GPT-5",
+        max_tokens_field="max_completion_tokens",
+        supports_temperature=False,
+        # Hosted gpt-5 rejects reasoning_effort=none; minimal is the frozen-reader pin.
+        reasoning_effort="minimal",
+    ),
 }
 
 # Short names for CLI / tests. Keys are lowercase.
@@ -223,13 +239,16 @@ def resolve_model(name: str) -> ModelSpec:
         return _CATALOG[key]
     family = infer_family(key)
     gpt5 = family.startswith("gpt-5")
+    effort = None
+    if gpt5:
+        effort = "minimal" if _gpt5_minor(key) == 0 else "none"
     return ModelSpec(
         model_id=key,
         family=family,
         display_name=key,
         max_tokens_field="max_completion_tokens" if gpt5 else "max_tokens",
         supports_temperature=not gpt5,
-        reasoning_effort="none" if gpt5 else None,
+        reasoning_effort=effort,
     )
 
 
@@ -241,9 +260,58 @@ def models_in_family(family: str) -> list[str]:
     return [spec.model_id for spec in _CATALOG.values() if spec.family == family]
 
 
-# Write-path overlay only. The frozen GPT-5.6 *reader* stays catalog `none`.
+# Write-path overlay only. Frozen GPT-5.6 reader stays catalog `none`;
+# hosted gpt-5 (no minor) stays `minimal` (API rejects `none`).
 TEACHER_THINKING_EFFORT = "high"
 TEACHER_THINKING_MIN_OUTPUT_TOKENS = 1024
+
+
+def _gpt5_minor(model_id: str) -> int | None:
+    """Return the x in gpt-5.x, or 0 for gpt-5 / gpt-5-mini. None if not GPT-5."""
+    mid = (model_id or "").strip().lower()
+    if not mid.startswith("gpt-5"):
+        return None
+    rest = mid[5:]
+    if rest.startswith("."):
+        digits: list[str] = []
+        for ch in rest[1:]:
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        return int("".join(digits)) if digits else 0
+    return 0
+
+
+def pin_reasoning_effort(spec: ModelSpec, effort: str | None) -> str | None:
+    """Map catalog/teacher effort onto values the hosted model accepts.
+
+    gpt-5 / gpt-5-mini / gpt-5-nano reject ``none``; closest freeze is ``minimal``.
+    gpt-5.1+ and gpt-5.6 accept ``none``.
+    """
+    if effort is None:
+        return None
+    if effort == "none" and _gpt5_minor(spec.model_id) == 0:
+        return "minimal"
+    return effort
+
+
+def anthropic_messages_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Move sampling knobs to extra_body.
+
+    Anthropic Python SDK 1.0 (2026-08) dropped ``temperature`` / ``top_p`` /
+    ``top_k`` from ``messages.create()``; extra_body still serializes them.
+    """
+    out = dict(kwargs)
+    extra = dict(out.get("extra_body") or {})
+    moved = False
+    for key in ("temperature", "top_p", "top_k"):
+        if key in out:
+            extra[key] = out.pop(key)
+            moved = True
+    if moved:
+        out["extra_body"] = extra
+    return out
 
 
 def supports_reasoning_effort(spec: ModelSpec) -> bool:
@@ -268,14 +336,15 @@ def apply_openai_thinking(
 ) -> dict[str, Any]:
     """Overlay teacher thinking onto Chat Completions kwargs.
 
-    ``None`` leaves the catalog pin (reader: GPT-5.6 ``reasoning_effort=none``).
+    ``None`` leaves the catalog pin (GPT-5.6 ``none``; gpt-5 ``minimal``).
     ``True`` sets teacher effort on models that support it; ``False`` forces
-    ``none``. gpt-4o-mini is a no-op either way.
+    the lowest accepted effort (``none`` or ``minimal``). gpt-4o-mini is a no-op.
     """
     out = dict(kwargs)
     if thinking is None or not supports_reasoning_effort(spec):
         return out
-    out["reasoning_effort"] = TEACHER_THINKING_EFFORT if thinking else "none"
+    raw = TEACHER_THINKING_EFFORT if thinking else "none"
+    out["reasoning_effort"] = pin_reasoning_effort(spec, raw)
     if thinking:
         field = spec.max_tokens_field
         n = int(out.get(field) or 16)
@@ -303,5 +372,5 @@ def chat_create_kwargs(
     if spec.supports_temperature:
         kwargs["temperature"] = float(temperature)
     if spec.reasoning_effort is not None:
-        kwargs["reasoning_effort"] = spec.reasoning_effort
+        kwargs["reasoning_effort"] = pin_reasoning_effort(spec, spec.reasoning_effort)
     return kwargs

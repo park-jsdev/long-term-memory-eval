@@ -54,15 +54,22 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
     value_lists = [axes[k] for k in keys]
     combos = list(product(*value_lists)) if value_lists else [()]
 
+    writer_axis = "writer" in axes
     specs: list[ExperimentRunSpec] = []
-    for run_index, combo in enumerate(combos):
+    for combo in combos:
         cell = dict(zip(keys, combo))
         reader = cell["reader"]
         memory_method = str(cell["memory_method"])
         writer = cell.get("writer")
+        if writer_axis and _memory_uses_teacher_writer(memory_method) != (
+            writer is not None
+        ):
+            # full_context × teacher writers is not a sandwich claim.
+            continue
         seed = int(cell.get("seed") or 1)
         indexes = index_run_ids_for_memory(memory_method, shared)
         status = _cell_status(reader, writer)
+        run_index = len(specs)
         spec = ExperimentRunSpec(
             experiment_name=name,
             experiment_type=exp_type,
@@ -161,6 +168,15 @@ def _parse_reader(item: Any, catalog: dict[str, Any]) -> ReaderModelRef:
         catalog_id=_as_str(data.get("catalog") or data.get("id")),
         status=str(data.get("status") or "runnable"),
     )
+
+
+def _memory_uses_teacher_writer(memory_method: str) -> bool:
+    """True when matrix.writer is the live teacher (not a shared Mem0/RAG dump)."""
+    key = str(memory_method)
+    return key in {
+        "teacher_graph",
+        "teacher_session_summaries",
+    } or key.startswith("pooled_teacher") or key.startswith("fused_teacher")
 
 
 def _parse_writer(item: Any, catalog: dict[str, Any]) -> WriterModelRef | None:

@@ -1,5 +1,8 @@
 # GCP resources for the memorybench PoC
 
+**How to run (PowerShell, deploy, four waves, pull):** [`docs/agent/GCP_RUNBOOK.md`](../../docs/agent/GCP_RUNBOOK.md).  
+**This 2025 live campaign:** [`docs/agent/RUNBOOK_2025_LIVE.md`](../../docs/agent/RUNBOOK_2025_LIVE.md). This file is the resource inventory.
+
 Create **only** these. Do not add Cloud SQL, Firestore, Pub/Sub, GKE, Vertex AI, or Cloud Functions.
 
 Set these once in your shell (PowerShell):
@@ -62,7 +65,8 @@ gs://$BUCKET/
   experiments/<experiment_name>/
     manifest/runs.jsonl
     runs/<run_id>/               # each task owns this prefix
-    aggregate/
+    aggregate/                   # default wave 3 (thin catalog)
+    collected/                   # on-demand wave 3 (full packs)
 ```
 
 ## 4. Secret Manager
@@ -97,12 +101,14 @@ Grant **only**:
 
 Do not grant `roles/owner` or project-wide storage admin.
 
-## 6. Cloud Run Jobs (same image, two jobs)
+## 6. Cloud Run Jobs (same image, four jobs)
 
 | Job name | Args | Tasks |
 |----------|------|--------|
 | `memorybench-qa` | `execute-qa configs/experiments/poc_gcs.yaml` | `N` = matrix size; `CLOUD_RUN_TASK_INDEX` selects the row |
 | `memorybench-autorater` | `execute-autorater configs/experiments/poc_gcs.yaml` | same `N`, only after QA `_SUCCESS` |
+| `memorybench-aggregate` | `aggregate configs/experiments/poc_gcs.yaml` | **1** task; default after autorater. Thin catalog + parquet → `experiments/<name>/aggregate/` |
+| `memorybench-collect-full` | `collect-full configs/experiments/poc_gcs.yaml` | **1** task; **on-demand**. Full packs including `memory/` → `experiments/<name>/collected/` |
 
 Suggested first limits (overridable later):
 
@@ -151,16 +157,28 @@ gcloud.cmd run jobs execute memorybench-qa --region=us-central1 --tasks=1 --wait
 Then autorater (after QA `_SUCCESS` is in the bucket):
 
 ```powershell
-gcloud.cmd run jobs execute memorybench-autorater --region=us-central1 --tasks=1 --wait
+gcloud.cmd run jobs execute memorybench-autorater --region=us-central1 --tasks=1 --async
+```
+
+Then collect (after autorater `_SUCCESS`; always `--tasks=1`):
+
+```powershell
+gcloud.cmd run jobs execute memorybench-aggregate --region=us-central1 --tasks=1 --async
+```
+
+Full `{memory}` dumps (trigger when you need them; not part of the default wave):
+
+```powershell
+gcloud.cmd run jobs execute memorybench-collect-full --region=us-central1 --tasks=1 --async
 ```
 
 ### Console after execute
 
-Project `agent-platform-508416` (region `us-central1`):
+In your own project (region `us-central1`). Console URLs below take `?project=$PROJECT_ID`:
 
-1. [Cloud Run Jobs](https://console.cloud.google.com/run/jobs?project=agent-platform-508416) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`.
-2. Direct executions list: [memorybench-qa executions](https://console.cloud.google.com/run/jobs/details/us-central1/memorybench-qa/executions?project=agent-platform-508416).
-3. [Bucket browser](https://console.cloud.google.com/storage/browser/agent-platform-508416-memorybench/experiments/locomo-poc/runs?project=agent-platform-508416) → folder `locomo-poc-<8 hex>/` (current mock cell is `locomo-poc-d43c3dda`). Must contain `_SUCCESS`, `predictions.jsonl`, `TRACE.md`, `reader/traces.jsonl`. After the autorater job: `autorater/_SUCCESS`.
+1. **Cloud Run Jobs** (`console.cloud.google.com/run/jobs`) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`.
+2. Direct executions list: `console.cloud.google.com/run/jobs/details/us-central1/memorybench-qa/executions`.
+3. **Bucket browser** (`console.cloud.google.com/storage/browser/$BUCKET/experiments/locomo-poc/runs`) → folder `locomo-poc-<8 hex>/`. Must contain `_SUCCESS`, `predictions.jsonl`, `TRACE.md`, `reader/traces.jsonl`. After the autorater job: `autorater/_SUCCESS`. After aggregate, `experiments/locomo-poc/aggregate` holds `SUMMARY.md`, parquet, and `by_run/<run_id>/`.
 4. Job **Configuration** / container args must be `execute-qa` + `configs/experiments/poc_gcs.yaml` (not `poc.yaml`). If you still see `poc.yaml`, the image was not redeployed.
 
 ## 9. Local vs cloud

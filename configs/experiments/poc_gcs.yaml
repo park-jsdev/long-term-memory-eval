@@ -6,6 +6,6 @@ includes:
 
 storage:
   backend: gcs
-  bucket: agent-platform-508416-memorybench
+  # Bucket comes from $MEMORYBENCH_BUCKET so this config stays account-agnostic.
   dataset_object: data/locomo10.json
   path: /tmp/memorybench-experiments

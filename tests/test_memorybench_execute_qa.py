@@ -13,7 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.memorybench.execute_autorater_run import execute_autorater_run
-from src.memorybench.execute_qa_run import execute_qa_run
+from src.memorybench.execute_qa_run import _qa_argv, execute_qa_run
+from src.memorybench.experiment_run_spec import (
+    ExperimentRunSpec,
+    ReaderModelRef,
+    WriterModelRef,
+)
 from src.memorybench.report_experiment_status import report_experiment_status
 
 GOLD = "UNIQ_GOLD_REF_ZZZ"
@@ -132,6 +137,68 @@ class TestExecuteQaWritesAuditAndParquet(unittest.TestCase):
             self.assertEqual(report["expected_runs"], 1)
             self.assertEqual(report["qa_completed"], 1)
             self.assertEqual(report["autorater_completed"], 1)
+
+
+def _reader() -> ReaderModelRef:
+    return ReaderModelRef(
+        display_name="GPT-4o",
+        provider="openai",
+        family="openai",
+        generation=2024,
+        api_model_id="gpt-4o-2024-08-06",
+        catalog_id="gpt-4o",
+    )
+
+
+def _spec(*, memory_method: str, writer: WriterModelRef | None) -> ExperimentRunSpec:
+    return ExperimentRunSpec(
+        experiment_name="locomo-mem0-reader-2024-writers",
+        experiment_type="sandwich",
+        run_index=0,
+        run_id="cell-1",
+        benchmark="locomo",
+        memory_method=memory_method,
+        reader=_reader(),
+        seed=1,
+        prompt_path="prompts/readers/qa_mem0_v1.txt",
+        judge_provider="openai",
+        judge_model="gpt-4o-mini",
+        writer=writer,
+        method_yaml="configs/writers/teacher_graph.yaml"
+        if memory_method == "teacher_graph"
+        else "configs/writers/full_context.yaml",
+    )
+
+
+class TestQaArgvPassesTeacherWriter(unittest.TestCase):
+    def test_teacher_graph_argv_includes_provider_and_model(self):
+        writer = WriterModelRef(
+            display_name="Claude 3.5 Sonnet",
+            provider="anthropic",
+            api_model_id="claude-3-5-sonnet-20241022",
+            catalog_id="claude-3-5-sonnet",
+        )
+        argv = _qa_argv(
+            _spec(memory_method="teacher_graph", writer=writer),
+            {"benchmark": {"dataset_path": "data/raw/locomo10.json"}},
+            Path("/tmp/out"),
+            None,
+        )
+        self.assertEqual(argv[argv.index("--teacher") + 1], "anthropic")
+        self.assertEqual(
+            argv[argv.index("--teacher-model") + 1], "claude-3-5-sonnet-20241022"
+        )
+        self.assertEqual(argv[argv.index("--model") + 1], "gpt-4o-2024-08-06")
+
+    def test_full_context_argv_omits_teacher_flags(self):
+        argv = _qa_argv(
+            _spec(memory_method="full_context", writer=None),
+            {},
+            Path("/tmp/out"),
+            None,
+        )
+        self.assertNotIn("--teacher", argv)
+        self.assertNotIn("--teacher-model", argv)
 
 
 if __name__ == "__main__":

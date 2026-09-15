@@ -14,6 +14,7 @@ from src.config import load_config
 from src.memorybench.expand_run_matrix import expand_run_matrix
 from src.memorybench.gcs_run_workspace import (
     download_tree,
+    ensure_shared_index_local,
     gcs_enabled,
     remote_run_prefix,
     upload_tree,
@@ -70,6 +71,33 @@ class TestGcsWorkspaceHelpers(unittest.TestCase):
         self.assertEqual(specs[0].memory_method, "full_context")
         prefix = remote_run_prefix(cfg, specs[0].run_id)
         self.assertTrue(prefix.startswith("experiments/locomo-poc/runs/"))
+
+    def test_ensure_shared_index_downloads_rag_dump_from_shared_prefix(self):
+        store = FakeStore()
+        cfg = {"storage": {"backend": "gcs"}}
+        with tempfile.TemporaryDirectory() as raw:
+            src = Path(raw) / "idx"
+            (src / "rag_index").mkdir(parents=True)
+            (src / "rag_index" / "schema.json").write_text("{}\n", encoding="utf-8")
+            upload_tree(store, src, "shared/rag_locomo10")
+            out = Path(raw) / "experiments"
+            dest = ensure_shared_index_local(
+                cfg, "rag_locomo10", "rag_index", out, store=store
+            )
+            self.assertTrue((dest / "schema.json").is_file())
+
+    def test_ensure_shared_index_raises_when_shared_prefix_is_empty(self):
+        store = FakeStore()
+        cfg = {"storage": {"backend": "gcs"}}
+        with tempfile.TemporaryDirectory() as raw:
+            with self.assertRaises(SystemExit):
+                ensure_shared_index_local(
+                    cfg,
+                    "rag_locomo10",
+                    "rag_index",
+                    Path(raw) / "experiments",
+                    store=store,
+                )
 
     def test_poc_gcs_include_does_not_drop_mock_execution(self):
         cfg = load_config(ROOT / "configs" / "experiments" / "poc_gcs.yaml")

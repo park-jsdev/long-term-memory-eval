@@ -22,9 +22,9 @@ from src.memorybench.load_experiment_yaml import load_experiment_yaml
 print(len(expand_run_matrix(load_experiment_yaml('${CONFIG}'))))
 ")"
 
-echo "Executing ${N} QA tasks, parallelism=${PARALLELISM}"
+echo "Executing ${N} QA tasks (job parallelism=${PARALLELISM})"
+gcloud run jobs update memorybench-qa --region="${REGION}" --parallelism="${PARALLELISM}"
 gcloud run jobs execute memorybench-qa \
   --region="${REGION}" \
   --tasks="${N}" \
-  --parallelism="${PARALLELISM}" \
   --wait
