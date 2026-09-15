@@ -300,6 +300,7 @@ def write_memory_run_log(
             f"- Fused graph snapshot (when used): `memory/graph/`",
             f"- Claim lineage: `memory/lineage.jsonl` (question → item → teacher)",
             f"- Retrieve ranks (losers included): `memory/retrieve_ranks.jsonl`",
+            f"- Attribution (call → role → claims): `ATTRIBUTION.md` / `attribution.jsonl`",
             "",
             "This folder is the audit trail of **exactly** what `{memory}` contained "
             "(payload) plus claim links (`lineage.jsonl`, retrieve ranks, graph ingest).",

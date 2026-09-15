@@ -59,7 +59,6 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `prompts/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/reports/multi_teacher_methodologies.md` | Researcher guide: teacher methods, LLMs, fusion, reproduce |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
-| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
 | `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v2` claim audit) |
@@ -217,12 +216,9 @@ Each run under `experiments/<run_id>/` must include:
 - `config.source.yaml` / `config.resolved.yaml` — frozen YAML + CLI overrides
 - `cost.json` — reader/teacher token totals and pinned-USD rollup
 - `SUMMARY.md` — human claim-audit report (lineage pointers, teacher quality, ingest)
-- `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → sandwich role → claims made
 - `plots/` — overall + category bars
 - `reader/` — answer-LLM traces (`traces.jsonl`) + LoCoMo predictions
 - `memory/` — `{memory}` payload; `lineage.jsonl` (question → item → teacher); `retrieve_ranks.jsonl` (losers included); `memory/teachers/` when a teacher wrote (calls, session text, fusion votes, quality.json); `memory/graph/` when graph memory was built (`ingest.jsonl` after fusion)
-
-Each QA run also writes `ATTRIBUTION.md` (human) and `attribution.jsonl` (machine): every LLM call, the role it played (reader / teacher / teacher_graph), and the claims that call produced (triples, summaries, predicted answers), joined to fusion `kept` and lineage injection when those files exist.
 
 Agents must not silently skip CSV/plots when code paths change.
 
@@ -278,7 +274,6 @@ From review. Follow these when adding or renaming code.
 - One unit test focuses on one function (`exact_match` tests stay separate from `token_f1` tests).
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
-- Claim-audit joins: lock sample/session isolation, retrieve-loser exclusion, and **optional** fields/filters (`None` = no restriction; missing layers = empty, not invented teachers). See `tests/test_claim_audit.py`, `tests/test_experiment_pack.py`, and `tests/test_regressions.py`.
 
 **Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Full/cross-model comparisons infer the answer prompt from `run_meta.json` and reject mismatched prompts unless an explicit `--prompt` is supplied. Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
 

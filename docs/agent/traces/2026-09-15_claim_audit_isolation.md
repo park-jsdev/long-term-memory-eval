@@ -278,7 +278,6 @@ From review. Follow these when adding or renaming code.
 - One unit test focuses on one function (`exact_match` tests stay separate from `token_f1` tests).
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
-- Claim-audit joins: lock sample/session isolation, retrieve-loser exclusion, and **optional** fields/filters (`None` = no restriction; missing layers = empty, not invented teachers). See `tests/test_claim_audit.py`, `tests/test_experiment_pack.py`, and `tests/test_regressions.py`.
 
 **Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Full/cross-model comparisons infer the answer prompt from `run_meta.json` and reject mismatched prompts unless an explicit `--prompt` is supplied. Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
 

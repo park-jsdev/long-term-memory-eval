@@ -372,12 +372,8 @@ python -m src.locomo_eval.run --config configs/mem0_baseline.yaml \
   --max-tokens 64 --message-layout default_system_user --run-id ablation
 ```
 
-`tests/test_regressions.py` locks the on-disk defaults, CLI overrides, and
-claim-audit tracing: joins are keyed by sample; omitted optional filters mean
-“no restriction” (not a phantom filter or a leak); retrieve losers stay out of
-lineage; reusing a run id clears attribution leftovers. Unit coverage for
-missing dump layers and optional `sample_id` / `kept` / `role` / `usage` lives
-in `tests/test_claim_audit.py` and `tests/test_experiment_pack.py`.
+`tests/test_regressions.py` locks the on-disk defaults and verifies that CLI
+overrides affect only the effective run metadata.
 
 ---
 

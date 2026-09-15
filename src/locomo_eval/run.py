@@ -461,6 +461,8 @@ def _reset_run_output(run_dir: Path) -> None:
         "run_meta.json",
         "cost.json",
         "SUMMARY.md",
+        "ATTRIBUTION.md",
+        "attribution.jsonl",
         "config.source.yaml",
         "config.resolved.yaml",
     ):

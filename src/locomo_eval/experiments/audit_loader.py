@@ -19,12 +19,14 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    """Read a JSON object, or ``{}`` when the optional layer was not dumped."""
     if not path.is_file():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Read JSONL rows, or ``[]`` when the optional layer was not dumped."""
     if not path.is_file():
         return []
     rows: list[dict[str, Any]] = []
@@ -37,7 +39,11 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def predictions_jsonl(run_dir: str | Path) -> Path | None:
-    """Prefer run-root predictions.jsonl, then reader/predictions.jsonl."""
+    """Locate predictions inside an already-resolved run directory.
+
+    Prefers the run-root copy, then ``reader/predictions.jsonl``, so compare
+    scripts work on packs written before the reader/ split.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     if paths.predictions_root.is_file():
         return paths.predictions_root
@@ -49,13 +55,17 @@ def predictions_jsonl(run_dir: str | Path) -> Path | None:
 def resolve_predictions_jsonl(path: str | Path, *, repo_root: Path | None = None) -> Path:
     """Resolve a run dir, run id, or JSONL file to a predictions.jsonl.
 
-    Same search rules as the compare CLI (cwd + repo-root experiments/).
+    Same search rules as the compare CLI (cwd + repo-root ``experiments/``).
+    Empty decoy directories are skipped so a leftover cwd folder cannot hide
+    ``experiments/<run_id>``. Distinct from ``predictions_jsonl``, which
+    assumes ``path`` is already a run directory.
     """
     root = Path(repo_root) if repo_root is not None else REPO_ROOT
     raw = Path(path)
     candidates: list[Path] = []
 
     def _add(item: Path) -> None:
+        """Dedup search candidates; resolve only paths that already exist."""
         resolved = item.resolve() if item.exists() else item
         if resolved not in candidates:
             candidates.append(resolved)
@@ -67,18 +77,23 @@ def resolve_predictions_jsonl(path: str | Path, *, repo_root: Path | None = None
         _add(root / "experiments" / raw.name)
 
     existing_dirs = [c for c in candidates if c.is_dir()]
+    empty_dirs: list[Path] = []
     for directory in existing_dirs:
         found = predictions_jsonl(directory)
         if found is not None:
             return found
-        raise FileNotFoundError(
-            f"Run directory {directory} has no predictions.jsonl. "
-            f"Finish the pipeline for that --run-id first."
-        )
+        empty_dirs.append(directory)
 
     for candidate in candidates:
         if candidate.is_file():
             return candidate
+
+    if empty_dirs:
+        directory = empty_dirs[0]
+        raise FileNotFoundError(
+            f"Run directory {directory} has no predictions.jsonl. "
+            f"Finish the pipeline for that --run-id first."
+        )
 
     tried = ", ".join(str(c) for c in candidates)
     hint_id = raw.name if raw.suffix != ".jsonl" else raw.stem
@@ -91,7 +106,11 @@ def resolve_predictions_jsonl(path: str | Path, *, repo_root: Path | None = None
 
 
 def load_qa_pack(run_dir: str | Path) -> dict[str, Any]:
-    """QA/reader slice of a sandwich audit (stable keys for compare_full_runs)."""
+    """QA/reader slice only (metrics + predictions + run_meta).
+
+    Return keys match ``scripts.compare_full_runs.load_pack`` so compare
+    stays independent of teachers/lineage/attribution.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     if not paths.metrics.is_file():
         raise FileNotFoundError(f"Missing {paths.metrics}")
@@ -130,10 +149,16 @@ class SandwichAudit:
     graph_ingest: list[dict[str, Any]] = field(default_factory=list)
     teacher_quality: dict[str, Any] = field(default_factory=dict)
     cost: dict[str, Any] = field(default_factory=dict)
+    attribution: list[dict[str, Any]] = field(default_factory=list)
     autorater_verdicts: list[dict[str, Any]] = field(default_factory=list)
     autorater_traces: list[dict[str, Any]] = field(default_factory=list)
 
     def teacher_calls_for(self, teacher_id: str) -> list[dict[str, Any]]:
+        """Calls for one teacher_id.
+
+        Prefers the in-memory ``calls.jsonl`` load; falls back to the
+        ``by_teacher/<id>/`` partition if the combined file is empty.
+        """
         wanted = str(teacher_id)
         rows = [row for row in self.teacher_calls if str(row.get("teacher_id")) == wanted]
         if rows:
@@ -141,7 +166,7 @@ class SandwichAudit:
         return load_jsonl(self.paths.teacher_calls_path(wanted))
 
     def fusion_kept_for(self, *, sample_id: str | None = None) -> list[dict[str, Any]]:
-        """Flatten fusion.jsonl to kept triples, optionally one sample."""
+        """Kept triples only (fusion software, not an LLM). Optional one sample."""
         out: list[dict[str, Any]] = []
         for session in self.fusion:
             if sample_id is not None and str(session.get("sample_id")) != str(sample_id):
@@ -158,22 +183,83 @@ class SandwichAudit:
                 )
         return out
 
-    def lineage_for(self, *, question_id: str | None = None) -> list[dict[str, Any]]:
-        if question_id is None:
-            return list(self.lineage)
-        wanted = str(question_id)
-        return [row for row in self.lineage if str(row.get("question_id")) == wanted]
+    def lineage_for(
+        self,
+        *,
+        question_id: str | None = None,
+        sample_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Injected memory items for one question and/or sample (or the whole run)."""
+        rows = list(self.lineage)
+        if question_id is not None:
+            wanted = str(question_id)
+            rows = [row for row in rows if str(row.get("question_id")) == wanted]
+        if sample_id is not None:
+            wanted = str(sample_id)
+            rows = [row for row in rows if str(row.get("sample_id")) == wanted]
+        return rows
 
-    def retrieve_ranks_for(self, *, question_id: str) -> dict[str, Any] | None:
-        wanted = str(question_id)
+    def retrieve_ranks_for(
+        self,
+        *,
+        question_id: str,
+        sample_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Full ranked candidate list for one question, including retrieve losers."""
+        wanted_q = str(question_id)
+        wanted_s = str(sample_id) if sample_id is not None else None
         for row in self.retrieve_ranks:
-            if str(row.get("question_id")) == wanted:
-                return row
+            if str(row.get("question_id")) != wanted_q:
+                continue
+            if wanted_s is not None and str(row.get("sample_id") or "") != wanted_s:
+                continue
+            return row
         return None
+
+    def attribution_for(
+        self,
+        *,
+        role: str | None = None,
+        teacher_id: str | None = None,
+        question_id: str | None = None,
+        sample_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """LLM calls with role + claims they made.
+
+        ``question_id`` matches reader rows and teacher claims whose
+        ``injected_question_ids`` include that question. ``sample_id``
+        keeps sibling conversations from leaking into the same filter.
+        """
+        rows = list(self.attribution)
+        if role is not None:
+            wanted = str(role)
+            rows = [row for row in rows if str(row.get("role")) == wanted]
+        if teacher_id is not None:
+            wanted = str(teacher_id)
+            rows = [row for row in rows if str(row.get("teacher_id")) == wanted]
+        if question_id is not None:
+            wanted = str(question_id)
+            rows = [
+                row
+                for row in rows
+                if str(row.get("question_id") or "") == wanted
+                or any(
+                    wanted in (claim.get("injected_question_ids") or [])
+                    for claim in (row.get("claims") or [])
+                )
+            ]
+        if sample_id is not None:
+            wanted = str(sample_id)
+            rows = [row for row in rows if str(row.get("sample_id") or "") == wanted]
+        return rows
 
 
 def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
-    """Load reader + optional teacher/graph/autorater traces for analysis."""
+    """Load the full sandwich pack for analysis (no LLM).
+
+    Missing optional layers (teachers, graph, autorater, attribution) load
+    as empty lists. Teacher calls fall back to the compat path.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     pred_path = predictions_jsonl(paths.run_dir)
     calls = load_jsonl(paths.teacher_calls)
@@ -193,6 +279,7 @@ def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
         graph_ingest=load_jsonl(paths.graph_ingest),
         teacher_quality=load_json(paths.teacher_quality),
         cost=load_json(paths.cost),
+        attribution=load_jsonl(paths.attribution),
         autorater_verdicts=load_jsonl(paths.autorater_verdicts),
         autorater_traces=load_jsonl(paths.autorater_traces),
     )

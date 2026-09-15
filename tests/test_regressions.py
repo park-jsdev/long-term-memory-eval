@@ -11,6 +11,9 @@ Frozen contracts:
   - Audit pack, prediction fields, and dual metrics (EM / token F1 / LoCoMo F1)
   - Same function for 1 question or N; every invocation regenerates
   - offline_evaluate.py rescores strings only (does not rewrite predicted answers)
+  - Claim-audit joins are keyed by sample (and session when present); optional
+    filters omitted mean "no restriction", never a phantom restriction or a leak
+  - Retrieve losers never enter lineage; reusing a run id clears attribution leftovers
 
 Offline / mock only — no live API.
 """
@@ -37,7 +40,11 @@ from src.locomo_eval.readers import (
     build_reader_messages,
 )
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
-from src.locomo_eval.run import build_parser, run_locomo_pipeline_with_memory_config
+from src.locomo_eval.experiments.audit_loader import SandwichAudit, resolve_predictions_jsonl
+from src.locomo_eval.experiments.audit_layout import AuditPaths
+from src.locomo_eval.experiments.claim_audit import lineage_rows
+from src.locomo_eval.run import _reset_run_output, build_parser, run_locomo_pipeline_with_memory_config
+from src.locomo_eval.schemas import Memory
 
 
 # Token that must never leak into memory or the filled reader prompt.
@@ -495,6 +502,137 @@ class TestCompareAndOfflineEvaluateAfterTwoPipelineRuns(unittest.TestCase):
             rescored = _load_json(out / "metrics.json")["metrics"]
             for name in FROZEN_METRIC_NAMES:
                 self.assertIn(name, rescored)
+
+
+class TestClaimAuditTracingDoesNotLeakAcrossSamplesOrOptionalFilters(unittest.TestCase):
+    def test_shared_edge_id_does_not_copy_proposed_by_from_another_sample(self):
+        rows = lineage_rows(
+            prediction_rows=[
+                {"question_id": "q0", "sample_id": "s1"},
+                {"question_id": "q1", "sample_id": "s2"},
+            ],
+            memories_by_sample={
+                "s1": Memory(memory_type="fused_teacher_graph", text="p", source_ids=["e0000"]),
+                "s2": Memory(memory_type="fused_teacher_graph", text="z", source_ids=["e0000"]),
+            },
+            ingest_rows=[
+                {
+                    "sample_id": "s1",
+                    "session_id": 1,
+                    "ops": [
+                        {
+                            "op": "add_edge",
+                            "edge_id": "e0000",
+                            "source": "alice",
+                            "relationship": "started",
+                            "target": "painting",
+                        }
+                    ],
+                },
+                {
+                    "sample_id": "s2",
+                    "session_id": 1,
+                    "ops": [
+                        {
+                            "op": "add_edge",
+                            "edge_id": "e0000",
+                            "source": "bob",
+                            "relationship": "likes",
+                            "target": "pizza",
+                        }
+                    ],
+                },
+            ],
+            fusion_rows=[
+                {
+                    "sample_id": "s1",
+                    "session_id": 1,
+                    "relations": [
+                        {
+                            "source": "alice",
+                            "relationship": "started",
+                            "target": "painting",
+                            "proposed_by": ["openai"],
+                            "kept": True,
+                        }
+                    ],
+                },
+                {
+                    "sample_id": "s2",
+                    "session_id": 1,
+                    "relations": [
+                        {
+                            "source": "bob",
+                            "relationship": "likes",
+                            "target": "pizza",
+                            "proposed_by": ["anthropic"],
+                            "kept": True,
+                        }
+                    ],
+                },
+            ],
+        )
+        by_q = {row["question_id"]: row for row in rows}
+        self.assertEqual(by_q["q0"]["proposed_by"], ["openai"])
+        self.assertEqual(by_q["q1"]["proposed_by"], ["anthropic"])
+
+    def test_retrieve_losers_never_appear_in_lineage_rows(self):
+        rows = lineage_rows(
+            prediction_rows=[{"question_id": "q0", "sample_id": "s1"}],
+            retrieve_ranks=[
+                {
+                    "sample_id": "s1",
+                    "question_id": "q0",
+                    "candidates": [
+                        {"item_id": "win", "selected": True},
+                        {"item_id": "lose", "selected": False},
+                    ],
+                }
+            ],
+        )
+        self.assertEqual([row["item_id"] for row in rows], ["win"])
+
+    def test_omitted_sample_id_filter_does_not_drop_rows_and_set_filter_does_not_leak(self):
+        audit = SandwichAudit(
+            paths=AuditPaths.from_run_dir("unused"),
+            meta={},
+            metrics={},
+            predictions=[],
+            lineage=[
+                {"question_id": "q0", "sample_id": "s1", "item_id": "a"},
+                {"question_id": "q0", "sample_id": "s2", "item_id": "b"},
+            ],
+        )
+        self.assertEqual({row["item_id"] for row in audit.lineage_for()}, {"a", "b"})
+        self.assertEqual([row["item_id"] for row in audit.lineage_for(sample_id="s1")], ["a"])
+
+    def test_reset_run_output_deletes_stale_attribution_lineage_and_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "run"
+            run.mkdir()
+            (run / "ATTRIBUTION.md").write_text("stale teacher leak", encoding="utf-8")
+            (run / "attribution.jsonl").write_text("{}\n", encoding="utf-8")
+            (run / "cost.json").write_text("{}", encoding="utf-8")
+            mem = run / "memory"
+            mem.mkdir()
+            (mem / "lineage.jsonl").write_text("{}\n", encoding="utf-8")
+            _reset_run_output(run)
+            self.assertFalse((run / "ATTRIBUTION.md").exists())
+            self.assertFalse((run / "attribution.jsonl").exists())
+            self.assertFalse((run / "cost.json").exists())
+            self.assertFalse(mem.exists())
+
+    def test_predictions_search_skips_empty_decoy_dir_instead_of_hiding_the_real_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "reg_iso_run").mkdir()
+            real = root / "experiments" / "reg_iso_run"
+            real.mkdir(parents=True)
+            (real / "predictions.jsonl").write_text(
+                json.dumps({"question_id": "wanted"}) + "\n", encoding="utf-8"
+            )
+            found = resolve_predictions_jsonl("reg_iso_run", repo_root=root)
+            self.assertEqual(found, real / "predictions.jsonl")
 
 
 if __name__ == "__main__":

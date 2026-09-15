@@ -11,6 +11,7 @@ Writes (each optional except reader on a completed QA run):
 - ``memory/graph/`` — fused Mem0g snapshot + ingest ops after fusion
 - ``memory/lineage.jsonl`` — question → injected item → teacher
 - ``memory/retrieve_ranks.jsonl`` — full ranked candidates, not just winners
+- ``attribution.jsonl`` / ``ATTRIBUTION.md`` — LLM call → role → claims made
 - ``config.*.yaml`` / ``cost.json`` / ``SUMMARY.md`` — frozen run + human audit
 - ``autorater/traces.jsonl`` — judge reasoning next to verdicts
 """
@@ -27,8 +28,11 @@ import yaml
 from ..report import write_json, write_jsonl
 from .audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths, teacher_dir_name
 from .claim_audit import (
+    attribution_call_rows,
+    attribution_role_summary,
     cost_rollup,
     lineage_rows,
+    render_attribution_md,
     render_summary_md,
     sha256_text,
     teacher_quality_stats,
@@ -36,7 +40,10 @@ from .claim_audit import (
 
 
 def audit_graph_dict(graph: Any, *, sample_id: str) -> dict[str, Any]:
-    """Slim Mem0g snapshot (no embeddings) for claim audit."""
+    """Slim Mem0g snapshot for claim audit (nodes + edges, no embeddings).
+
+    Duck-typed so dump does not import ``Mem0GraphMemory`` into analysis.
+    """
     nodes = getattr(graph, "nodes", {}) or {}
     edges = getattr(graph, "edges", []) or []
     node_rows = []
@@ -81,7 +88,10 @@ def write_reader_module(
     traces: list[dict[str, Any]],
     summary: dict[str, Any] | None = None,
 ) -> Path:
-    """Write experiments/<run_id>/reader/ (answer LLM traces + predictions)."""
+    """Dump frozen answer-LLM traces + LoCoMo predictions under ``reader/``.
+
+    Gold stays on prediction rows for scoring; it is not in the reader prompt.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     paths.reader_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(paths.reader_predictions, prediction_rows)
@@ -131,7 +141,11 @@ def write_teacher_module(
     fusion_rows: list[dict[str, Any]] | None = None,
     session_texts: list[dict[str, Any]] | None = None,
 ) -> Path | None:
-    """Write experiments/<run_id>/memory/teachers/ plus compat teacher_calls.jsonl."""
+    """Dump write-path teacher calls, fusion votes, and session input texts.
+
+    Also writes the compat ``memory/teacher_calls.jsonl`` copy. Returns None
+    when this run had no teachers.
+    """
     if not calls and not fusion_rows and not session_texts:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
@@ -217,7 +231,10 @@ def write_teacher_module(
 
 
 def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path | None:
-    """Write experiments/<run_id>/memory/graph/by_sample/<id>.json."""
+    """Dump fused Mem0g snapshots after pool/fusion (not the LLM call log).
+
+    ``ingest.jsonl`` is written separately by ``write_graph_ingest`` / claim audit.
+    """
     if not graphs_by_sample:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
@@ -258,7 +275,10 @@ def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path 
 
 
 def write_autorater_traces(out_dir: Path, scored: list[dict[str, Any]]) -> Path:
-    """Write autorater/traces.jsonl (judge reasoning) next to verdicts."""
+    """Judge-LLM subset next to autorater verdicts (gold is visible here).
+
+    Called from ``run_benchmark``, not from ``run.py``.
+    """
     traces = []
     for row in scored:
         traces.append(
@@ -294,6 +314,7 @@ def write_autorater_traces(out_dir: Path, scored: list[dict[str, Any]]) -> Path:
 
 
 def _jsonable(obj: Any) -> Any:
+    """Make CLI overrides / YAML Path objects JSON- and YAML-serializable."""
     if isinstance(obj, Path):
         return str(obj)
     if isinstance(obj, dict):
@@ -311,7 +332,11 @@ def write_frozen_config(
     source_config: str | Path | None = None,
     repo_root: Path | None = None,
 ) -> Path:
-    """Copy the source YAML and dump YAML + CLI overrides that actually ran."""
+    """Pin the YAML file plus the CLI overrides that actually ran.
+
+    ``config.source.yaml`` is the copied file; ``config.resolved.yaml`` is
+    YAML + non-None argparse overrides so a rerun is reconstructable.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     raw = source_config or getattr(overrides, "config", None)
     src: Path | None = None
@@ -342,7 +367,11 @@ def write_frozen_config(
 
 
 def write_teacher_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -> Path | None:
-    """Dump the exact session text each teacher saw (once per sample/session)."""
+    """Dump the exact session text each teacher saw (once per sample/session).
+
+    De-dupes by ``(sample_id, session_id)`` because builders may append the
+    same session again on later questions; the file is the construction input.
+    """
     if not session_texts:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
@@ -375,6 +404,7 @@ def write_teacher_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -
 
 
 def write_graph_ingest(run_dir: Path, ingest_rows: list[dict[str, Any]]) -> Path | None:
+    """MERGE / invalidate / skip_dup ops after fusion, one JSONL row per session."""
     if not ingest_rows:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
@@ -397,7 +427,11 @@ def write_claim_audit(
     metrics: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """Lineage, ranks, teacher quality, cost, and human SUMMARY.md."""
+    """Join traces into claim-audit files (lineage, ranks, attribution, SUMMARY).
+
+    This is the audit of claims, not of API calls. Returns relative keys of
+    paths actually written so ``run.py`` can print them.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     ingest_rows = ingest_rows or []
     retrieve_ranks = retrieve_ranks or []
@@ -428,6 +462,25 @@ def write_claim_audit(
         write_json(paths.teacher_quality, quality)
         written["teacher_quality"] = str(paths.teacher_quality)
 
+    attribution = attribution_call_rows(
+        reader_traces=reader_traces,
+        teacher_calls=teacher_calls,
+        fusion_rows=fusion_rows,
+        lineage=lineage,
+    )
+    roles = attribution_role_summary(attribution)
+    write_jsonl(paths.attribution, attribution)
+    written["attribution"] = str(paths.attribution)
+    paths.attribution_md.write_text(
+        render_attribution_md(
+            run_id=str((meta or {}).get("run_id") or paths.run_dir.name),
+            calls=attribution,
+            roles=roles,
+        ),
+        encoding="utf-8",
+    )
+    written["attribution_md"] = str(paths.attribution_md)
+
     cost = cost_rollup(reader_traces=reader_traces, teacher_calls=teacher_calls)
     write_json(paths.cost, cost)
     written["cost"] = str(paths.cost)
@@ -443,6 +496,7 @@ def write_claim_audit(
         lineage=lineage,
         n_teacher_calls=len(teacher_calls),
         n_predictions=len(prediction_rows),
+        attribution_roles=roles,
     )
     paths.summary.write_text(summary, encoding="utf-8")
     written["summary"] = str(paths.summary)

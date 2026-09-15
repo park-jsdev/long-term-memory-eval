@@ -24,6 +24,7 @@ MEMORY = "memory"
 TEACHERS = "memory/teachers"
 GRAPH = "memory/graph"
 AUTORATER = "autorater"
+# Run-root copies so older compare scripts need not know about reader/ / teachers/.
 COMPAT_PREDICTIONS = "predictions.jsonl"
 COMPAT_TEACHER_CALLS = "memory/teacher_calls.jsonl"
 LINEAGE = "memory/lineage.jsonl"
@@ -33,12 +34,18 @@ TEACHER_QUALITY = "memory/teachers/quality.json"
 TEACHER_SESSIONS = "memory/teachers/sessions.jsonl"
 COST = "cost.json"
 SUMMARY = "SUMMARY.md"
+ATTRIBUTION = "attribution.jsonl"
+ATTRIBUTION_MD = "ATTRIBUTION.md"
 CONFIG_SOURCE = "config.source.yaml"
 CONFIG_RESOLVED = "config.resolved.yaml"
 
 
 def audit_layout_meta() -> dict[str, str]:
-    """Value stored on run_meta.json['audit_layout']."""
+    """Relative paths pinned on ``run_meta.json['audit_layout']``.
+
+    Analysis should read this dict (or ``AuditPaths``) instead of hardcoding
+    filenames, so a layout bump is visible in the run pack.
+    """
     return {
         "version": AUDIT_LAYOUT_VERSION,
         "reader": f"{READER}/",
@@ -54,12 +61,19 @@ def audit_layout_meta() -> dict[str, str]:
         "teacher_sessions": TEACHER_SESSIONS,
         "cost": COST,
         "summary": SUMMARY,
+        "attribution": ATTRIBUTION,
+        "attribution_md": ATTRIBUTION_MD,
         "config_source": CONFIG_SOURCE,
         "config_resolved": CONFIG_RESOLVED,
     }
 
 
 def teacher_dir_name(teacher_id: str) -> str:
+    """Filesystem-safe folder for ``memory/teachers/by_teacher/<id>/``.
+
+    Teacher ids can contain ``+`` or provider punctuation; those are not
+    legal directory names on every OS.
+    """
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(teacher_id))
     return safe or "teacher"
 
@@ -71,7 +85,7 @@ class AuditPaths:
     run_dir: Path
     run_meta: Path
     metrics: Path
-    predictions_root: Path
+    predictions_root: Path  # run-root copy; reader/predictions.jsonl is the same rows
     reader_dir: Path
     reader_predictions: Path
     reader_traces: Path
@@ -81,7 +95,7 @@ class AuditPaths:
     teacher_index: Path
     teacher_calls: Path
     teacher_fusion: Path
-    teacher_calls_compat: Path
+    teacher_calls_compat: Path  # memory/teacher_calls.jsonl; same as teachers/calls.jsonl
     teacher_quality: Path
     teacher_sessions_index: Path
     graph_dir: Path
@@ -94,11 +108,17 @@ class AuditPaths:
     autorater_traces: Path
     cost: Path
     summary: Path
+    attribution: Path  # machine call → role → claims
+    attribution_md: Path  # human ATTRIBUTION.md
     config_source: Path
     config_resolved: Path
 
     @classmethod
     def from_run_dir(cls, run_dir: str | Path) -> AuditPaths:
+        """Bind the relative contract names to one ``experiments/<run_id>/``.
+
+        Missing files are still listed so dump and load share one map.
+        """
         root = Path(run_dir)
         reader = root / READER
         teachers = root / TEACHERS
@@ -131,17 +151,22 @@ class AuditPaths:
             autorater_traces=autorater / "traces.jsonl",
             cost=root / COST,
             summary=root / SUMMARY,
+            attribution=root / ATTRIBUTION,
+            attribution_md=root / ATTRIBUTION_MD,
             config_source=root / CONFIG_SOURCE,
             config_resolved=root / CONFIG_RESOLVED,
         )
 
     def teacher_calls_path(self, teacher_id: str) -> Path:
+        """Per-teacher partition of ``calls.jsonl`` (same rows, one model)."""
         return self.teachers_dir / "by_teacher" / teacher_dir_name(teacher_id) / "calls.jsonl"
 
     def graph_sample_path(self, sample_id: str) -> Path:
+        """Fused Mem0g snapshot for one conversation (embeddings omitted)."""
         return self.graph_dir / "by_sample" / f"{sample_id}.json"
 
     def teacher_session_text_path(self, sample_id: str, session_id: str | int) -> Path:
+        """Exact session text that teacher(s) saw for this sample/session."""
         return (
             self.teachers_dir
             / "sessions"
