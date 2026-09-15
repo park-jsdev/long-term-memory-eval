@@ -57,6 +57,33 @@ def retrieve_speaker_facts(
     return [fact for fact, _score in store.search(query_embedding, top_k)]
 
 
+def rank_speaker_facts(
+    store: VectorMemoryStore,
+    query_embedding: list[float],
+    top_k: int,
+) -> list[dict]:
+    """All scored facts with rank + selected flag for claim audit."""
+    from ..experiments.claim_audit import preview
+
+    ranked = store.rank_all(query_embedding)
+    selected_ids = {fact.fact_id for fact, _ in ranked[: max(0, int(top_k))]}
+    rows = []
+    for i, (fact, score) in enumerate(ranked, start=1):
+        rows.append(
+            {
+                "item_id": fact.fact_id,
+                "item_kind": "mem0_fact",
+                "speaker_index": fact.speaker_index or store.speaker_index,
+                "score": round(float(score), 6),
+                "rank": i,
+                "selected": fact.fact_id in selected_ids,
+                "text_preview": preview(fact.text),
+                "timestamp": fact.timestamp,
+            }
+        )
+    return rows
+
+
 def format_mem0_text(
     *,
     speaker_a: str,

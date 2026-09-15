@@ -171,6 +171,10 @@ def _qa_overrides(args: argparse.Namespace, index_run_id: str | None) -> argpars
         ),
         preprocess_index_run_id=None,
         retrieve_top_k=None,
+        config=getattr(args, "config", None),
+        pool=getattr(args, "pool", None),
+        fusion=getattr(args, "fusion", None),
+        thinking=getattr(args, "thinking", None),
     )
 
 
@@ -239,6 +243,7 @@ def run_eval_pipeline(args: argparse.Namespace) -> Path:
         method = "openai_memory"
     args.method = method
     cfg_path = args.config or default_config_for_method(method)
+    args.config = cfg_path
     cfg = load_config(cfg_path if Path(cfg_path).is_file() else ROOT / cfg_path)
     if args.memory is None and method not in ("mem0_baseline",):
         try:

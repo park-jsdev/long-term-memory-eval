@@ -117,6 +117,8 @@ class TeacherOrchestrator:
         self.thinking = thinking
         self.call_log: list[dict[str, Any]] = []
         self.fusion_log: list[dict[str, Any]] = []
+        self.ingest_log: list[dict[str, Any]] = []
+        self.session_texts: dict[tuple[str, int], dict[str, Any]] = {}
 
     @property
     def teacher_model(self) -> str | None:
@@ -183,12 +185,32 @@ class TeacherOrchestrator:
                     "slots": slot_audit,
                 }
             )
-            graph.ingest_triples(
+            ops = graph.ingest_triples(
                 entities=entities,
                 relations=relations,
                 user_id=block.speaker_a,
                 timestamp=block.date_time_raw or block.date_time_normalized or "",
                 text=format_session_block(block),
+            )
+            n_valid = sum(1 for e in graph.edges if e.valid)
+            self.ingest_log.append(
+                {
+                    "sample_id": block.sample_id,
+                    "session_id": block.session_id,
+                    "session_index": block.session_index,
+                    "n_fused_entities": len(entities),
+                    "n_fused_relations": len(relations),
+                    "n_ops": len(ops),
+                    "n_add_edge": sum(1 for op in ops if op.get("op") == "add_edge"),
+                    "n_invalidate": sum(1 for op in ops if op.get("op") == "invalidate"),
+                    "n_skip_dup": sum(1 for op in ops if op.get("op") == "skip_dup"),
+                    "n_new_node": sum(1 for op in ops if op.get("op") == "new_node"),
+                    "n_reuse_node": sum(1 for op in ops if op.get("op") == "reuse_node"),
+                    "n_nodes_after": len(graph.nodes),
+                    "n_edges_after": len(graph.edges),
+                    "n_valid_edges_after": n_valid,
+                    "ops": ops,
+                }
             )
         return graph
 
@@ -202,6 +224,12 @@ class TeacherOrchestrator:
         if not self.teachers:
             return []
         session_text = format_session_block(block)
+        self.session_texts[(block.sample_id, int(block.session_id))] = {
+            "sample_id": block.sample_id,
+            "session_id": block.session_id,
+            "session_index": session_index,
+            "text": session_text,
+        }
         user_id = normalize_entity_name(block.speaker_a) or block.speaker_a
         ids = [t.teacher_id for t in self.teachers]
         chosen = set(
@@ -224,6 +252,7 @@ class TeacherOrchestrator:
                     session_index=session_index,
                     entities=entities,
                     relations=relations,
+                    session_text=session_text,
                 )
             )
             proposals.append(

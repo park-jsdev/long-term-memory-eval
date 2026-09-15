@@ -47,14 +47,42 @@ class OpenAIMemoryBuilder(MemoryBuilder):
 
     def __init__(self, index_dir: str | Path):
         self.index_dir = Path(index_dir)
+        self.retrieve_log: list[dict] = []
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
+        from ..experiments.claim_audit import preview, retrieve_rank_row
+
         sample_dir = require_sample_dump(self.index_dir, conversation.sample_id)
         memories = load_sample_memories(sample_dir)
         text = format_openai_memory_text(memories)
         source_ids = [
             f"{m.speaker}:{i}" for i, m in enumerate(memories)
         ]
+        candidates = []
+        for i, mem in enumerate(memories, start=1):
+            item_id = f"{mem.speaker}:{i - 1}"
+            candidates.append(
+                {
+                    "item_id": item_id,
+                    "item_kind": "openai_memory",
+                    "score": None,
+                    "rank": i,
+                    "selected": True,
+                    "text_preview": preview(mem.text),
+                    "speaker": mem.speaker,
+                    "timestamp": mem.timestamp,
+                }
+            )
+        self.retrieve_log.append(
+            retrieve_rank_row(
+                sample_id=conversation.sample_id,
+                question_id=question.question_id,
+                retriever="openai_memory",
+                top_k=None,
+                candidates=candidates,
+                search_latency_s=0.0,
+            )
+        )
         return Memory(
             memory_type=self.name,
             text=text,

@@ -166,14 +166,16 @@ def write_prompt_bundle(
         if entry_path.is_file():
             entry_rel = repo_rel(entry_path)
             includes = [repo_rel(p) for p in list_config_chain(entry_path)]
-            if not merge:
+            # write_frozen_config already copied the entry when the QA pipeline ran.
+            if not merge and not paths.config_source.is_file():
                 shutil.copy2(entry_path, paths.config_source)
 
     if merge:
         includes = existing.get("config_includes") or includes
         entry_rel = existing.get("config_entry") or entry_rel
 
-    if not merge:
+    # Claim-audit frozen config includes CLI overrides; do not replace it with YAML-only.
+    if not merge and not paths.config_resolved.is_file():
         with paths.config_resolved.open("w", encoding="utf-8") as handle:
             yaml.safe_dump(
                 cfg,
@@ -266,6 +268,8 @@ def _render_trace(payload: dict[str, Any], *, run_dir: Path) -> str:
             "| `memory/teachers/calls.jsonl` | Write-path teacher calls (if teachers ran) |",
             "| `autorater/traces.jsonl` | Judge LLM (separate job; gold is visible here) |",
             "| `run_meta.json` | Pins: models, `prompt_path`, hashes |",
+            "| `SUMMARY.md` | Claim audit: sandwich pins, cost, how to follow one question |",
+            "| `ATTRIBUTION.md` | LLM call → role → claims made |",
             "",
         ]
     )

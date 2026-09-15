@@ -7,23 +7,43 @@ use ``audit_loader`` on a finished directory instead.
 Writes (each optional except reader on a completed QA run):
 
 - ``reader/`` — frozen answer-LLM traces + predictions
-- ``memory/teachers/`` — write-path teacher calls + fusion audit
-- ``memory/graph/`` — fused Mem0g snapshot (no embeddings)
+- ``memory/teachers/`` — write-path teacher calls + fusion audit + session text
+- ``memory/graph/`` — fused Mem0g snapshot + ingest ops after fusion
+- ``memory/lineage.jsonl`` — question → injected item → teacher
+- ``memory/retrieve_ranks.jsonl`` — full ranked candidates, not just winners
+- ``attribution.jsonl`` / ``ATTRIBUTION.md`` — LLM call → role → claims made
+- ``config.*.yaml`` / ``cost.json`` / ``SUMMARY.md`` — frozen run + human audit
 - ``autorater/traces.jsonl`` — judge reasoning next to verdicts
 """
 
 from __future__ import annotations
 
+import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ..report import write_json, write_jsonl
 from .audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths, teacher_dir_name
+from .claim_audit import (
+    attribution_call_rows,
+    attribution_role_summary,
+    cost_rollup,
+    lineage_rows,
+    render_attribution_md,
+    render_summary_md,
+    sha256_text,
+    teacher_quality_stats,
+)
 
 
 def audit_graph_dict(graph: Any, *, sample_id: str) -> dict[str, Any]:
-    """Slim Mem0g snapshot (no embeddings) for claim audit."""
+    """Slim Mem0g snapshot for claim audit (nodes + edges, no embeddings).
+
+    Duck-typed so dump does not import ``Mem0GraphMemory`` into analysis.
+    """
     nodes = getattr(graph, "nodes", {}) or {}
     edges = getattr(graph, "edges", []) or []
     node_rows = []
@@ -68,7 +88,10 @@ def write_reader_module(
     traces: list[dict[str, Any]],
     summary: dict[str, Any] | None = None,
 ) -> Path:
-    """Write experiments/<run_id>/reader/ (answer LLM traces + predictions)."""
+    """Dump frozen answer-LLM traces + LoCoMo predictions under ``reader/``.
+
+    Gold stays on prediction rows for scoring; it is not in the reader prompt.
+    """
     paths = AuditPaths.from_run_dir(run_dir)
     paths.reader_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(paths.reader_predictions, prediction_rows)
@@ -116,14 +139,20 @@ def write_teacher_module(
     *,
     calls: list[dict[str, Any]],
     fusion_rows: list[dict[str, Any]] | None = None,
+    session_texts: list[dict[str, Any]] | None = None,
 ) -> Path | None:
-    """Write experiments/<run_id>/memory/teachers/ plus compat teacher_calls.jsonl."""
-    if not calls and not fusion_rows:
+    """Dump write-path teacher calls, fusion votes, and session input texts.
+
+    Also writes the compat ``memory/teacher_calls.jsonl`` copy. Returns None
+    when this run had no teachers.
+    """
+    if not calls and not fusion_rows and not session_texts:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
     paths.teachers_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(paths.teacher_calls, calls)
     write_jsonl(paths.teacher_calls_compat, calls)
+    write_teacher_sessions(run_dir, session_texts or [])
 
     index_rows = []
     by_teacher: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -146,6 +175,8 @@ def write_teacher_module(
                 "n_relations": call.get("n_relations"),
                 "n_reasoning_chars": len(reasoning),
                 "parse": call.get("parse"),
+                "session_text_sha256": call.get("session_text_sha256"),
+                "n_session_chars": call.get("n_session_chars"),
                 "path": f"memory/teachers/by_teacher/{teacher_dir_name(tid)}/calls.jsonl",
             }
         )
@@ -171,6 +202,9 @@ def write_teacher_module(
                 "calls.jsonl": "full call: reasoning, output_text, entities, relations",
                 "by_teacher/<id>/calls.jsonl": "same rows partitioned by teacher_id",
                 "fusion.jsonl": "per session: proposed_by[], votes, kept",
+                "sessions/by_sample/<id>/session_<k>.txt": "exact teacher input text",
+                "sessions.jsonl": "index of session texts (sha256, path)",
+                "quality.json": "parse/yield/keep rates per teacher",
             },
         },
     )
@@ -183,7 +217,9 @@ def write_teacher_module(
                 "",
                 "1. `index.jsonl` — which teacher was called for which session",
                 "2. `by_teacher/<teacher_id>/calls.jsonl` — that model's reasoning + triples",
-                "3. `fusion.jsonl` — `proposed_by` / `kept` for each graph triple",
+                "3. `sessions/by_sample/<id>/session_<k>.txt` — the session text the teacher saw",
+                "4. `fusion.jsonl` — `proposed_by` / `kept` for each graph triple",
+                "5. `quality.json` — parse / yield / keep-rate stats",
                 "",
                 "Compat copy: `memory/teacher_calls.jsonl` is the same as `calls.jsonl`.",
                 "",
@@ -195,7 +231,10 @@ def write_teacher_module(
 
 
 def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path | None:
-    """Write experiments/<run_id>/memory/graph/by_sample/<id>.json."""
+    """Dump fused Mem0g snapshots after pool/fusion (not the LLM call log).
+
+    ``ingest.jsonl`` is written separately by ``write_graph_ingest`` / claim audit.
+    """
     if not graphs_by_sample:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
@@ -221,14 +260,25 @@ def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path 
         {
             "schema_version": AUDIT_LAYOUT_VERSION,
             "role": "memory_graph",
-            "notes": "Fused Mem0g snapshot after pool/fusion. Embeddings omitted.",
+            "notes": (
+                "Fused Mem0g snapshot after pool/fusion. Embeddings omitted. "
+                "ingest.jsonl is the MERGE/invalidate trail (claim audit), not the LLM call log."
+            ),
+            "files": {
+                "index.jsonl": "per-sample node/edge counts",
+                "by_sample/<id>.json": "nodes + edges after all sessions",
+                "ingest.jsonl": "per-session ops after fusion (add_edge, invalidate, skip_dup, node merge)",
+            },
         },
     )
     return paths.graph_dir
 
 
 def write_autorater_traces(out_dir: Path, scored: list[dict[str, Any]]) -> Path:
-    """Write autorater/traces.jsonl (judge reasoning) next to verdicts."""
+    """Judge-LLM subset next to autorater verdicts (gold is visible here).
+
+    Called from ``run_benchmark``, not from ``run.py``.
+    """
     traces = []
     for row in scored:
         traces.append(
@@ -261,3 +311,193 @@ def write_autorater_traces(out_dir: Path, scored: list[dict[str, Any]]) -> Path:
         },
     )
     return path
+
+
+def _jsonable(obj: Any) -> Any:
+    """Make CLI overrides / YAML Path objects JSON- and YAML-serializable."""
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {str(k): _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(x) for x in obj]
+    return obj
+
+
+def write_frozen_config(
+    run_dir: Path,
+    *,
+    cfg: dict[str, Any],
+    overrides: Any,
+    source_config: str | Path | None = None,
+    repo_root: Path | None = None,
+) -> Path:
+    """Pin the YAML file plus the CLI overrides that actually ran.
+
+    ``config.source.yaml`` is the copied file; ``config.resolved.yaml`` is
+    YAML + non-None argparse overrides so a rerun is reconstructable.
+    """
+    paths = AuditPaths.from_run_dir(run_dir)
+    raw = source_config or getattr(overrides, "config", None)
+    src: Path | None = None
+    if raw:
+        candidate = Path(str(raw))
+        if candidate.is_file():
+            src = candidate
+        elif repo_root is not None and (Path(repo_root) / candidate).is_file():
+            src = Path(repo_root) / candidate
+    if src is not None:
+        shutil.copy2(src, paths.config_source)
+    cli = {}
+    if overrides is not None:
+        for key, value in vars(overrides).items():
+            if value is None:
+                continue
+            cli[key] = _jsonable(value)
+    payload = {
+        "source_config": str(src) if src is not None else (str(raw) if raw else None),
+        "cli_overrides": cli,
+        "yaml": _jsonable(cfg),
+    }
+    paths.config_resolved.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return paths.config_resolved
+
+
+def write_teacher_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -> Path | None:
+    """Dump the exact session text each teacher saw (once per sample/session).
+
+    De-dupes by ``(sample_id, session_id)`` because builders may append the
+    same session again on later questions; the file is the construction input.
+    """
+    if not session_texts:
+        return None
+    paths = AuditPaths.from_run_dir(run_dir)
+    index_rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in session_texts:
+        sample_id = str(row.get("sample_id") or "")
+        session_id = row.get("session_id")
+        key = (sample_id, str(session_id))
+        if key in seen:
+            continue
+        seen.add(key)
+        text = str(row.get("text") or "")
+        dest = paths.teacher_session_text_path(sample_id, session_id)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+        rel = dest.relative_to(paths.run_dir).as_posix()
+        index_rows.append(
+            {
+                "sample_id": sample_id,
+                "session_id": session_id,
+                "session_index": row.get("session_index"),
+                "n_chars": len(text),
+                "text_sha256": row.get("text_sha256") or sha256_text(text),
+                "path": rel,
+            }
+        )
+    write_jsonl(paths.teacher_sessions_index, index_rows)
+    return paths.teacher_sessions_index
+
+
+def write_graph_ingest(run_dir: Path, ingest_rows: list[dict[str, Any]]) -> Path | None:
+    """MERGE / invalidate / skip_dup ops after fusion, one JSONL row per session."""
+    if not ingest_rows:
+        return None
+    paths = AuditPaths.from_run_dir(run_dir)
+    paths.graph_dir.mkdir(parents=True, exist_ok=True)
+    write_jsonl(paths.graph_ingest, ingest_rows)
+    return paths.graph_ingest
+
+
+def write_claim_audit(
+    run_dir: Path,
+    *,
+    prediction_rows: list[dict[str, Any]],
+    reader_traces: list[dict[str, Any]],
+    teacher_calls: list[dict[str, Any]],
+    fusion_rows: list[dict[str, Any]],
+    ingest_rows: list[dict[str, Any]] | None = None,
+    retrieve_ranks: list[dict[str, Any]] | None = None,
+    memories_by_sample: dict[str, Any] | None = None,
+    memories_by_question: dict[str, Any] | None = None,
+    metrics: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Join traces into claim-audit files (lineage, ranks, attribution, SUMMARY).
+
+    This is the audit of claims, not of API calls. Returns relative keys of
+    paths actually written so ``run.py`` can print them.
+    """
+    paths = AuditPaths.from_run_dir(run_dir)
+    ingest_rows = ingest_rows or []
+    retrieve_ranks = retrieve_ranks or []
+    written: dict[str, str] = {}
+
+    if ingest_rows:
+        write_graph_ingest(run_dir, ingest_rows)
+        written["graph_ingest"] = str(paths.graph_ingest)
+    if retrieve_ranks:
+        write_jsonl(paths.retrieve_ranks, retrieve_ranks)
+        written["retrieve_ranks"] = str(paths.retrieve_ranks)
+
+    lineage = lineage_rows(
+        prediction_rows=prediction_rows,
+        memories_by_sample=memories_by_sample,
+        memories_by_question=memories_by_question,
+        retrieve_ranks=retrieve_ranks,
+        ingest_rows=ingest_rows,
+        fusion_rows=fusion_rows,
+        teacher_calls=teacher_calls,
+    )
+    if lineage:
+        write_jsonl(paths.lineage, lineage)
+        written["lineage"] = str(paths.lineage)
+
+    quality = teacher_quality_stats(teacher_calls, fusion_rows)
+    if teacher_calls or fusion_rows:
+        write_json(paths.teacher_quality, quality)
+        written["teacher_quality"] = str(paths.teacher_quality)
+
+    attribution = attribution_call_rows(
+        reader_traces=reader_traces,
+        teacher_calls=teacher_calls,
+        fusion_rows=fusion_rows,
+        lineage=lineage,
+    )
+    roles = attribution_role_summary(attribution)
+    write_jsonl(paths.attribution, attribution)
+    written["attribution"] = str(paths.attribution)
+    paths.attribution_md.write_text(
+        render_attribution_md(
+            run_id=str((meta or {}).get("run_id") or paths.run_dir.name),
+            calls=attribution,
+            roles=roles,
+        ),
+        encoding="utf-8",
+    )
+    written["attribution_md"] = str(paths.attribution_md)
+
+    cost = cost_rollup(reader_traces=reader_traces, teacher_calls=teacher_calls)
+    write_json(paths.cost, cost)
+    written["cost"] = str(paths.cost)
+
+    summary = render_summary_md(
+        run_id=str((meta or {}).get("run_id") or paths.run_dir.name),
+        meta=meta or {},
+        metrics=metrics or {},
+        cost=cost,
+        quality=quality if (teacher_calls or fusion_rows) else None,
+        ingest_rows=ingest_rows,
+        retrieve_ranks=retrieve_ranks,
+        lineage=lineage,
+        n_teacher_calls=len(teacher_calls),
+        n_predictions=len(prediction_rows),
+        attribution_roles=roles,
+    )
+    paths.summary.write_text(summary, encoding="utf-8")
+    written["summary"] = str(paths.summary)
+    return written

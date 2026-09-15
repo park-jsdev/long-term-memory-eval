@@ -298,8 +298,12 @@ def write_memory_run_log(
             f"- Index: `memory/index.jsonl`",
             f"- Teacher LLM traces (when used): `memory/teachers/`",
             f"- Fused graph snapshot (when used): `memory/graph/`",
+            f"- Claim lineage: `memory/lineage.jsonl` (question → item → teacher)",
+            f"- Retrieve ranks (losers included): `memory/retrieve_ranks.jsonl`",
+            f"- Attribution (call → role → claims): `ATTRIBUTION.md` / `attribution.jsonl`",
             "",
-            "This folder is the audit trail of **exactly** what `{memory}` contained.",
+            "This folder is the audit trail of **exactly** what `{memory}` contained "
+            "(payload) plus claim links (`lineage.jsonl`, retrieve ranks, graph ingest).",
             "",
         ]
     )
@@ -388,6 +392,30 @@ def collect_fusion_log(builder: Any) -> list[dict[str, Any]]:
     if orch is None:
         return []
     return list(getattr(orch, "fusion_log", []) or [])
+
+
+def collect_ingest_log(builder: Any) -> list[dict[str, Any]]:
+    orch = getattr(builder, "orchestrator", None)
+    if orch is None:
+        return []
+    return list(getattr(orch, "ingest_log", []) or [])
+
+
+def collect_retrieve_log(builder: Any) -> list[dict[str, Any]]:
+    return list(getattr(builder, "retrieve_log", []) or [])
+
+
+def collect_session_texts(builder: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    orch = getattr(builder, "orchestrator", None)
+    if orch is not None:
+        stored = getattr(orch, "session_texts", {}) or {}
+        if isinstance(stored, dict):
+            rows.extend(stored.values())
+        else:
+            rows.extend(list(stored))
+    rows.extend(list(getattr(builder, "session_texts", []) or []))
+    return rows
 
 
 def write_teacher_call_log(run_dir: Path, rows: list[dict[str, Any]]) -> Path | None:

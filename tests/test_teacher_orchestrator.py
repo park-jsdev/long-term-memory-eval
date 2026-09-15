@@ -718,6 +718,19 @@ class TestMockPipelineTeacherGraphWritesAuditPack(unittest.TestCase):
             self.assertEqual(reader_trace["role"], "reader")
             self.assertIn("reasoning", reader_trace)
             self.assertEqual(meta["audit_layout"]["teachers"], "memory/teachers/")
+            self.assertEqual(meta["audit_layout"]["version"], "audit_pack.v2")
+            self.assertTrue((run_dir / "SUMMARY.md").is_file())
+            self.assertTrue((run_dir / "ATTRIBUTION.md").is_file())
+            self.assertTrue((run_dir / "attribution.jsonl").is_file())
+            self.assertTrue((run_dir / "cost.json").is_file())
+            self.assertTrue((run_dir / "config.resolved.yaml").is_file())
+            self.assertTrue((run_dir / "memory" / "lineage.jsonl").is_file())
+            self.assertTrue((run_dir / "memory" / "graph" / "ingest.jsonl").is_file())
+            self.assertTrue((teachers_dir / "sessions.jsonl").is_file())
+            self.assertIn("audit of claims", (run_dir / "SUMMARY.md").read_text(encoding="utf-8"))
+            attr_md = (run_dir / "ATTRIBUTION.md").read_text(encoding="utf-8")
+            self.assertIn("LLM roles", attr_md)
+            self.assertIn("teacher_graph", attr_md)
 
 
 if __name__ == "__main__":

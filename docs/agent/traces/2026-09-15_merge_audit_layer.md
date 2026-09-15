@@ -52,10 +52,9 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `prompts/writers/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/reports/multi_teacher_methodologies.md` | Researcher guide: teacher methods, LLMs, fusion, reproduce |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
-| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
-| `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v2` claim audit) |
+| `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_writer` / `audit_loader`) |
 | `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `docs/schemas/rag_index.md` | RAG chunk dump (`rag_index.v1`) |
 | `docs/schemas/openai_memory_index.md` | Privileged extract-all dump |
@@ -105,7 +104,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) |
+| `experiments/` | Sandwich-run I/O: `audit_layout` + `audit_loader` vs `audit_writer` / `prompt_bundle` (`TRACE.md`) |
 | `audit_pack.py` | Compat shim re-exporting `audit_writer` / `audit_layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
@@ -188,9 +187,9 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -232,21 +231,16 @@ python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resol
 Each run under `experiments/<run_id>/` must include:
 
 - `TRACE.md` — config include chain → prompt files → jsonl outputs
+- `config.resolved.yaml` — merged YAML actually used
 - `prompts/` — snapshot copies of every `*_prompt_path` in that YAML
 - `predictions.jsonl` — one row per question (incl. memory text); also copied to `reader/`
 - `predictions.csv` — spreadsheet-friendly + scores + memory preview
 - `metrics.json` — overall + by-category
 - `metrics_by_category.csv`
 - `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp, `audit_layout`
-- `config.source.yaml` / `config.resolved.yaml` — source YAML copy + loaded YAML with CLI overrides
-- `cost.json` — reader/teacher token totals and pinned-USD rollup
-- `SUMMARY.md` — human claim-audit report (lineage pointers, teacher quality, ingest)
-- `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → sandwich role → claims made
 - `plots/` — overall + category bars
 - `reader/` — answer-LLM traces (`traces.jsonl`) + LoCoMo predictions
-- `memory/` — `{memory}` payload; `lineage.jsonl` (question → item → teacher); `retrieve_ranks.jsonl` (losers included); `memory/teachers/` when a teacher wrote (calls, session text, fusion votes, quality.json); `memory/graph/` when graph memory was built (`ingest.jsonl` after fusion)
-
-Each QA run also writes `ATTRIBUTION.md` (human) and `attribution.jsonl` (machine): every LLM call, the role it played (reader / teacher / teacher_graph), and the claims that call produced (triples, summaries, predicted answers), joined to fusion `kept` and lineage injection when those files exist.
+- `memory/` — `{memory}` payload; `memory/teachers/` when a teacher wrote (calls, reasoning, fusion votes); `memory/graph/` when graph memory was built
 
 Agents must not silently skip CSV/plots when code paths change.
 
@@ -299,7 +293,6 @@ From review. Follow these when adding or renaming code.
 - One unit test focuses on one function (`exact_match` tests stay separate from `token_f1` tests).
 - Test names include the behavior **and** the expected outcome, e.g. `test_exact_match_returns_one_when_answers_match_after_normalization`.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
-- Claim-audit joins: lock sample/session isolation, retrieve-loser exclusion, and **optional** fields/filters (`None` = no restriction; missing layers = empty, not invented teachers). See `tests/test_claim_audit.py`, `tests/test_experiment_pack.py`, and `tests/test_regressions.py`.
 
 **Experiments.** One locomo_eval YAML per `run_locomo_pipeline_with_memory_config` call. The harness (`configs/experiments/*.yaml`) expands many cells and calls that once per `--run-index`. QA and autorater are separate jobs. Compare packs with `scripts/compare_full_runs.py` as before.
 
@@ -325,7 +318,7 @@ Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone
 - [ ] `tests/test_autorater_sanity.py` stays green (mock only; no API)
 - [ ] `tests/test_compare_to_paper.py` stays green (offline paper vs local J; no API)
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
-- [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, `tests/test_teacher_orchestrator.py`, and `tests/test_claim_audit.py` stay green (mock only; no API)
+- [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, and `tests/test_teacher_orchestrator.py` stay green (mock only; no API)
 - [ ] `tests/test_memorybench_matrix.py` and `tests/test_memorybench_execute_qa.py` stay green (mock only)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 

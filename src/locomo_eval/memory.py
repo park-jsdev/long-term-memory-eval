@@ -80,10 +80,12 @@ class RawConversationMemoryBuilder(MemoryBuilder):
             Path(preprocess_index_dir) if preprocess_index_dir else None
         )
         self.retrieve_top_k = retrieve_top_k
+        self.retrieve_log: list[dict] = []
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         if self.preprocess_index_dir is not None:
-            from .preprocess.retrieve import build_raw_chunks_from_index
+            from .experiments.claim_audit import retrieve_rank_row
+            from .preprocess.retrieve import build_raw_chunks_from_index, rank_raw_chunks_from_index
 
             text, source_ids = build_raw_chunks_from_index(
                 self.preprocess_index_dir,
@@ -91,6 +93,20 @@ class RawConversationMemoryBuilder(MemoryBuilder):
                 question,
                 max_chars=self.max_chars,
                 top_k=self.retrieve_top_k,
+            )
+            self.retrieve_log.append(
+                retrieve_rank_row(
+                    sample_id=conversation.sample_id,
+                    question_id=question.question_id,
+                    retriever="preprocess_turns",
+                    top_k=self.retrieve_top_k,
+                    candidates=rank_raw_chunks_from_index(
+                        self.preprocess_index_dir,
+                        conversation,
+                        question,
+                        top_k=self.retrieve_top_k,
+                    ),
+                )
             )
             return Memory(
                 memory_type=self.name,
@@ -154,16 +170,35 @@ class SessionSummaryMemoryBuilder(MemoryBuilder):
             Path(preprocess_index_dir) if preprocess_index_dir else None
         )
         self.retrieve_top_k = retrieve_top_k
+        self.retrieve_log: list[dict] = []
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         if self.preprocess_index_dir is not None:
-            from .preprocess.retrieve import build_session_summaries_from_index
+            from .experiments.claim_audit import retrieve_rank_row
+            from .preprocess.retrieve import (
+                build_session_summaries_from_index,
+                rank_session_summaries_from_index,
+            )
 
             text, source_ids = build_session_summaries_from_index(
                 self.preprocess_index_dir,
                 conversation,
                 question,
                 top_k=self.retrieve_top_k,
+            )
+            self.retrieve_log.append(
+                retrieve_rank_row(
+                    sample_id=conversation.sample_id,
+                    question_id=question.question_id,
+                    retriever="preprocess_summary",
+                    top_k=self.retrieve_top_k,
+                    candidates=rank_session_summaries_from_index(
+                        self.preprocess_index_dir,
+                        conversation,
+                        question,
+                        top_k=self.retrieve_top_k,
+                    ),
+                )
             )
             return Memory(
                 memory_type=self.name,
@@ -203,6 +238,7 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
     def __init__(self, teacher: Teacher):
         self.teacher = teacher
         self.teacher_call_log: list[dict] = []
+        self.session_texts: list[dict] = []
 
     @property
     def teacher_model(self) -> str:
@@ -219,6 +255,14 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
             if not session.turns:
                 continue
             session_text = format_session_turns(session)
+            self.session_texts.append(
+                {
+                    "sample_id": conversation.sample_id,
+                    "session_id": session.session_id,
+                    "session_index": None,
+                    "text": session_text,
+                }
+            )
             summary, meta = self.teacher.summarize_session(
                 session_text=session_text,
                 date_time=session.date_time,
@@ -234,6 +278,7 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
                     sample_id=conversation.sample_id,
                     session_id=session.session_id,
                     output_text=summary,
+                    session_text=session_text,
                 )
             )
             summary = (summary or "").strip()
