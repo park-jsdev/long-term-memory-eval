@@ -116,6 +116,10 @@ class AnthropicTeacherCaller(TeacherCaller):
         self.model_name = self.spec.model_id
         self.temperature = temperature
         self.max_tokens = 512 if max_tokens is None else int(max_tokens)
+        if thinking:
+            from .readers import THINKING_HTTP_TIMEOUT_S
+
+            timeout_s = max(float(timeout_s), THINKING_HTTP_TIMEOUT_S)
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.min_request_interval_s = min_request_interval_s

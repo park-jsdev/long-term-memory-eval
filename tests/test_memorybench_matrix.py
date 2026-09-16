@@ -154,6 +154,268 @@ class TestExpandRunMatrixCounts(unittest.TestCase):
         )
         self.assertEqual({s.status for s in specs}, {"runnable"})
 
+    def test_2025_readers_openai_deepseek_is_eight_thinking_cells(self):
+        path = ROOT / "configs" / "experiments" / "2025_readers_openai_deepseek.yaml"
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 8)
+        self.assertEqual(
+            [(s.reader.catalog_id, s.memory_method, s.thinking_label()) for s in specs],
+            [
+                ("gpt-5", "full_context", "off"),
+                ("gpt-5", "full_context", "on"),
+                ("gpt-5", "rag", "off"),
+                ("gpt-5", "rag", "on"),
+                ("deepseek-v3", "full_context", "off"),
+                ("deepseek-v3", "full_context", "on"),
+                ("deepseek-v3", "rag", "off"),
+                ("deepseek-v3", "rag", "on"),
+            ],
+        )
+        off = [s for s in specs if s.thinking_label() == "off"]
+        on = [s for s in specs if s.thinking_label() == "on"]
+        self.assertTrue(all(s.reader.max_tokens == 256 for s in off))
+        self.assertTrue(all(s.reader.max_tokens == 8192 for s in on))
+        self.assertTrue(all("reader_thinking" in s.qa_identity() for s in specs))
+        self.assertNotEqual(off[0].run_id, on[0].run_id)
+        self.assertTrue(
+            all(s.run_id.startswith("locomo-2025-readers-openai-deepseek-") for s in specs)
+        )
+        self.assertFalse(
+            any(s.run_id.startswith("locomo-2025-readers-full-context-") for s in specs)
+        )
+        self.assertEqual({s.status for s in specs}, {"runnable"})
+
+    def test_2025_readers_openai_deepseek_smoke_is_four_full_context_cells(self):
+        cfg = load_experiment_yaml(
+            ROOT / "configs" / "experiments" / "2025_readers_openai_deepseek_smoke.yaml"
+        )
+        self.assertEqual(
+            cfg["experiment"]["name"], "locomo-2025-readers-openai-deepseek-smoke"
+        )
+        self.assertEqual((cfg.get("storage") or {}).get("backend"), "local")
+        specs = expand_run_matrix(cfg)
+        self.assertEqual(len(specs), 4)
+        self.assertEqual([s.memory_method for s in specs], ["full_context"] * 4)
+        self.assertEqual(
+            [s.reader.catalog_id for s in specs],
+            ["gpt-5", "gpt-5", "deepseek-v3", "deepseek-v3"],
+        )
+        self.assertEqual(
+            [s.thinking_label() for s in specs],
+            ["off", "on", "off", "on"],
+        )
+        self.assertEqual({s.max_questions for s in specs}, {5})
+        self.assertEqual({s.max_samples for s in specs}, {1})
+
+    def test_mem0_reader_2025_writers_openai_deepseek_is_eight_sandwich_cells(self):
+        path = (
+            ROOT
+            / "configs"
+            / "experiments"
+            / "mem0_reader_2025_writers_openai_deepseek.yaml"
+        )
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 8)
+        self.assertEqual({s.reader.catalog_id for s in specs}, {"gpt-4o-mini"})
+        self.assertTrue(all(s.reader.thinking is None for s in specs))
+        self.assertEqual(
+            [(s.memory_method, s.writer.catalog_id, s.thinking_label()) for s in specs],
+            [
+                ("teacher_session_summaries", "gpt-5", "off"),
+                ("teacher_session_summaries", "gpt-5", "on"),
+                ("teacher_session_summaries", "deepseek-v3", "off"),
+                ("teacher_session_summaries", "deepseek-v3", "on"),
+                ("teacher_graph", "gpt-5", "off"),
+                ("teacher_graph", "gpt-5", "on"),
+                ("teacher_graph", "deepseek-v3", "off"),
+                ("teacher_graph", "deepseek-v3", "on"),
+            ],
+        )
+        self.assertTrue(
+            all(
+                s.run_id.startswith("locomo-mem0-reader-2025-writers-openai-deepseek-")
+                for s in specs
+            )
+        )
+        self.assertEqual({s.status for s in specs}, {"runnable"})
+        off = [s for s in specs if s.thinking_label() == "off"]
+        on = [s for s in specs if s.thinking_label() == "on"]
+        self.assertTrue(all(s.writer.thinking is False for s in off))
+        self.assertTrue(all(s.writer.thinking is True for s in on))
+        self.assertTrue(all(s.writer.max_tokens == 8192 for s in off))
+        self.assertTrue(all(s.writer.max_tokens == 32768 for s in on))
+        self.assertTrue(all("teacher_thinking" in s.qa_identity() for s in specs))
+        gpt5 = [s for s in specs if s.writer.catalog_id == "gpt-5"]
+        self.assertNotEqual(
+            {s.run_id for s in gpt5 if s.thinking_label() == "off"},
+            {s.run_id for s in gpt5 if s.thinking_label() == "on"},
+        )
+
+    def test_2025_openai_deepseek_gcs_overlays_keep_cell_counts(self):
+        smoke = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT
+                / "configs"
+                / "experiments"
+                / "2025_readers_openai_deepseek_smoke_gcs.yaml"
+            )
+        )
+        baseline = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT / "configs" / "experiments" / "2025_readers_openai_deepseek_gcs.yaml"
+            )
+        )
+        writers = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT
+                / "configs"
+                / "experiments"
+                / "mem0_reader_2025_writers_openai_deepseek_gcs.yaml"
+            )
+        )
+        self.assertEqual(len(smoke), 4)
+        self.assertEqual(len(baseline), 8)
+        self.assertEqual(len(writers), 8)
+        self.assertEqual(
+            {s.reader.catalog_id for s in smoke},
+            {"gpt-5", "deepseek-v3"},
+        )
+        smoke_cfg = load_experiment_yaml(
+            ROOT
+            / "configs"
+            / "experiments"
+            / "2025_readers_openai_deepseek_smoke_gcs.yaml"
+        )
+        self.assertEqual(smoke_cfg["storage"]["backend"], "gcs")
+        self.assertEqual({s.reader.catalog_id for s in writers}, {"gpt-4o-mini"})
+        self.assertEqual(
+            {s.writer.catalog_id for s in writers},
+            {"gpt-5", "deepseek-v3"},
+        )
+
+    def test_2026_readers_openai_deepseek_is_eight_thinking_cells(self):
+        path = ROOT / "configs" / "experiments" / "2026_readers_openai_deepseek.yaml"
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 8)
+        self.assertEqual(
+            [s.reader.catalog_id for s in specs],
+            ["gpt-5.6-terra"] * 4 + ["deepseek-v4"] * 4,
+        )
+        self.assertEqual(
+            [s.reader.api_model_id for s in specs],
+            ["gpt-5.6-terra"] * 4 + ["deepseek-v4-flash"] * 4,
+        )
+        self.assertEqual(
+            [s.thinking_label() for s in specs],
+            ["off", "on"] * 4,
+        )
+        self.assertTrue(
+            all(s.run_id.startswith("locomo-2026-readers-openai-deepseek-") for s in specs)
+        )
+        self.assertFalse(any("anthropic" in (s.reader.provider or "") for s in specs))
+        self.assertEqual({s.status for s in specs}, {"runnable"})
+
+    def test_2026_readers_openai_deepseek_smoke_is_four_full_context_cells(self):
+        cfg = load_experiment_yaml(
+            ROOT / "configs" / "experiments" / "2026_readers_openai_deepseek_smoke.yaml"
+        )
+        self.assertEqual(
+            cfg["experiment"]["name"], "locomo-2026-readers-openai-deepseek-smoke"
+        )
+        self.assertEqual((cfg.get("storage") or {}).get("backend"), "local")
+        specs = expand_run_matrix(cfg)
+        self.assertEqual(len(specs), 4)
+        self.assertEqual([s.memory_method for s in specs], ["full_context"] * 4)
+        self.assertEqual(
+            [s.reader.catalog_id for s in specs],
+            ["gpt-5.6-terra", "gpt-5.6-terra", "deepseek-v4", "deepseek-v4"],
+        )
+        self.assertEqual({s.max_questions for s in specs}, {5})
+        self.assertEqual({s.max_samples for s in specs}, {1})
+
+    def test_mem0_reader_2026_writers_openai_deepseek_is_eight_sandwich_cells(self):
+        path = (
+            ROOT
+            / "configs"
+            / "experiments"
+            / "mem0_reader_2026_writers_openai_deepseek.yaml"
+        )
+        specs = expand_run_matrix(load_experiment_yaml(path))
+        self.assertEqual(len(specs), 8)
+        self.assertEqual({s.reader.catalog_id for s in specs}, {"gpt-4o-mini"})
+        self.assertEqual(
+            [(s.memory_method, s.writer.catalog_id, s.thinking_label()) for s in specs],
+            [
+                ("teacher_session_summaries", "gpt-5.6-terra", "off"),
+                ("teacher_session_summaries", "gpt-5.6-terra", "on"),
+                ("teacher_session_summaries", "deepseek-v4", "off"),
+                ("teacher_session_summaries", "deepseek-v4", "on"),
+                ("teacher_graph", "gpt-5.6-terra", "off"),
+                ("teacher_graph", "gpt-5.6-terra", "on"),
+                ("teacher_graph", "deepseek-v4", "off"),
+                ("teacher_graph", "deepseek-v4", "on"),
+            ],
+        )
+        self.assertTrue(
+            all(
+                s.run_id.startswith("locomo-mem0-reader-2026-writers-openai-deepseek-")
+                for s in specs
+            )
+        )
+        self.assertEqual({s.status for s in specs}, {"runnable"})
+        off = [s for s in specs if s.thinking_label() == "off"]
+        on = [s for s in specs if s.thinking_label() == "on"]
+        self.assertTrue(all(s.writer.max_tokens == 8192 for s in off))
+        self.assertTrue(all(s.writer.max_tokens == 32768 for s in on))
+        terra = [s for s in specs if s.writer.catalog_id == "gpt-5.6-terra"]
+        self.assertTrue(terra)
+        self.assertTrue(all(s.writer.thinking is not None for s in specs))
+
+    def test_2026_openai_deepseek_gcs_overlays_keep_cell_counts(self):
+        smoke = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT
+                / "configs"
+                / "experiments"
+                / "2026_readers_openai_deepseek_smoke_gcs.yaml"
+            )
+        )
+        baseline = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT / "configs" / "experiments" / "2026_readers_openai_deepseek_gcs.yaml"
+            )
+        )
+        writers = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT
+                / "configs"
+                / "experiments"
+                / "mem0_reader_2026_writers_openai_deepseek_gcs.yaml"
+            )
+        )
+        self.assertEqual(len(smoke), 4)
+        self.assertEqual(len(baseline), 8)
+        self.assertEqual(len(writers), 8)
+        self.assertEqual(
+            {s.reader.catalog_id for s in smoke},
+            {"gpt-5.6-terra", "deepseek-v4"},
+        )
+        smoke_cfg = load_experiment_yaml(
+            ROOT
+            / "configs"
+            / "experiments"
+            / "2026_readers_openai_deepseek_smoke_gcs.yaml"
+        )
+        self.assertEqual(smoke_cfg["storage"]["backend"], "gcs")
+        self.assertEqual({s.reader.catalog_id for s in writers}, {"gpt-4o-mini"})
+        self.assertEqual(
+            {s.writer.catalog_id for s in writers},
+            {"gpt-5.6-terra", "deepseek-v4"},
+        )
+        self.assertEqual(
+            {s.writer.api_model_id for s in writers},
+            {"gpt-5.6-terra", "deepseek-v4-flash"},
+        )
 
     def test_mem0_reader_2024_writers_gcs_keeps_live_execution(self):
         cfg = load_experiment_yaml(

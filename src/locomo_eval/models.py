@@ -182,6 +182,7 @@ _ALIASES: dict[str, str] = {
     "luna": GPT56_LUNA,
     "gpt-5.6-luna": GPT56_LUNA,
     "terra": GPT56_TERRA,
+    "gpt-5.6-terra": GPT56_TERRA,
     "sol": GPT56_SOL,
     "gpt-5.6": GPT56_SOL,  # OpenAI alias routes gpt-5.6 → sol
     "mini": GPT41_MINI,
@@ -198,6 +199,7 @@ _ALIASES: dict[str, str] = {
     "claude": "claude-3-5-haiku-latest",
     "claude-sonnet": "claude-3-5-sonnet-latest",
     "deepseek": DEEPSEEK_V4_FLASH,
+    "deepseek-v4": DEEPSEEK_V4_FLASH,
     "deepseek-v4-flash": DEEPSEEK_V4_FLASH,
     "deepseek-chat": "deepseek-chat",
 }
@@ -327,6 +329,23 @@ def supports_reasoning_effort(spec: ModelSpec) -> bool:
         or mid.startswith("o1")
         or mid.startswith("o3")
     )
+
+
+def apply_deepseek_thinking(
+    kwargs: dict[str, Any],
+    thinking: bool,
+) -> dict[str, Any]:
+    """Set Chat Completions ``extra_body.thinking`` enabled/disabled.
+
+    Do not omit the key. ``deepseek-chat`` now aliases to flash with thinking
+    **off** by default; ``deepseek-v4-flash`` defaults **on**. Explicit type
+    keeps the matrix axis portable across those aliases.
+    """
+    out = dict(kwargs)
+    extra = dict(out.get("extra_body") or {})
+    extra["thinking"] = {"type": "enabled" if thinking else "disabled"}
+    out["extra_body"] = extra
+    return out
 
 
 def apply_openai_thinking(

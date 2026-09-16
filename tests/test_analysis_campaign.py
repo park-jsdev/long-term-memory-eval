@@ -14,15 +14,21 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.memorybench.analysis.load_campaign import load_campaign_yaml
+from src.memorybench.analysis.load_campaign import (
+    AnalysisSpec,
+    PlotSpec,
+    load_campaign_yaml,
+)
 from src.memorybench.analysis.plots import _place_legend_outside
 from src.memorybench.analysis.report import (
     annotate_model_family,
     mean_table,
+    render_analysis,
     render_campaign,
     render_experiment,
     run_report,
 )
+from scripts.analysis.campaign_tables import annotate_generation
 
 CAMPAIGN = ROOT / "configs" / "analysis" / "campaign_2025_live.yaml"
 VALID_PLOT_KINDS = {"bar", "grouped_bar", "metrics_grouped_bar"}
@@ -106,6 +112,211 @@ class TestLoadCampaignYaml(unittest.TestCase):
         self.assertEqual(cat.plots[0].hue, "model_family")
         self.assertEqual(cat.plots[0].y, "locomo_f1")
 
+    def test_2025_openai_deepseek_reuses_recipes_with_separate_packs(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_2025_openai_deepseek.yaml"
+        )
+        self.assertEqual(cfg.id, "2025_openai_deepseek")
+        self.assertEqual(set(cfg.experiments), {"smoke", "baseline", "writers"})
+        self.assertEqual(
+            cfg.experiments["smoke"].name,
+            "locomo-2025-readers-openai-deepseek-smoke",
+        )
+        self.assertEqual(
+            cfg.experiments["baseline"].name,
+            "locomo-2025-readers-openai-deepseek",
+        )
+        self.assertEqual(
+            cfg.experiments["writers"].name,
+            "locomo-mem0-reader-2025-writers-openai-deepseek",
+        )
+        live = load_campaign_yaml(CAMPAIGN)
+        self.assertIn("reader_thinking_tokens", [a.id for a in cfg.campaign_analyses])
+        self.assertIn("writer_thinking_tokens", [a.id for a in cfg.campaign_analyses])
+        self.assertNotEqual(
+            [a.id for a in cfg.campaign_analyses],
+            [a.id for a in live.campaign_analyses],
+        )
+        self.assertNotEqual(cfg.experiments["smoke"].name, live.experiments["smoke"].name)
+        baseline_cat = [
+            a for a in cfg.experiments["baseline"].analyses if a.id == "by_category"
+        ][0]
+        self.assertIn("reader_display_name", baseline_cat.group_by)
+        self.assertIn("memory_method", baseline_cat.group_by)
+        self.assertIn("thinking", baseline_cat.group_by)
+        tokens = [
+            a for a in cfg.experiments["baseline"].analyses if a.id == "thinking_tokens"
+        ][0]
+        self.assertIn("agent_reasoning_tokens", tokens.metrics)
+        writer_tokens = [
+            a for a in cfg.experiments["writers"].analyses if a.id == "thinking_tokens"
+        ][0]
+        self.assertEqual(writer_tokens.source, "runs")
+        self.assertIn("teacher_reasoning_tokens", writer_tokens.metrics)
+
+    def test_2026_openai_deepseek_reuses_recipes_with_separate_packs(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_2026_openai_deepseek.yaml"
+        )
+        self.assertEqual(cfg.id, "2026_openai_deepseek")
+        self.assertEqual(set(cfg.experiments), {"smoke", "baseline", "writers"})
+        self.assertEqual(
+            cfg.experiments["smoke"].name,
+            "locomo-2026-readers-openai-deepseek-smoke",
+        )
+        self.assertEqual(
+            cfg.experiments["baseline"].name,
+            "locomo-2026-readers-openai-deepseek",
+        )
+        self.assertEqual(
+            cfg.experiments["writers"].name,
+            "locomo-mem0-reader-2026-writers-openai-deepseek",
+        )
+        live = load_campaign_yaml(CAMPAIGN)
+        self.assertIn("reader_thinking_tokens", [a.id for a in cfg.campaign_analyses])
+        self.assertIn("writer_thinking_tokens", [a.id for a in cfg.campaign_analyses])
+        self.assertNotEqual(
+            [a.id for a in cfg.campaign_analyses],
+            [a.id for a in live.campaign_analyses],
+        )
+        self.assertNotEqual(cfg.experiments["smoke"].name, live.experiments["smoke"].name)
+        baseline_cat = [
+            a for a in cfg.experiments["baseline"].analyses if a.id == "by_category"
+        ][0]
+        self.assertIn("reader_display_name", baseline_cat.group_by)
+        self.assertIn("memory_method", baseline_cat.group_by)
+        self.assertIn("thinking", baseline_cat.group_by)
+
+
+class TestGroupedBarKeepsReaderAndMemory(unittest.TestCase):
+    def test_baseline_by_category_groups_reader_memory_and_category(self):
+        cfg = load_campaign_yaml(CAMPAIGN)
+        spec = [a for a in cfg.experiments["baseline"].analyses if a.id == "by_category"][0]
+        self.assertEqual(
+            spec.group_by,
+            ("reader_display_name", "memory_method", "question_category"),
+        )
+        self.assertIsNone(spec.plots[0].hue)
+
+    def test_category_plot_table_does_not_average_readers_across_memory(self):
+        spec = AnalysisSpec(
+            id="by_category",
+            title="Reader × memory method × category",
+            group_by=("reader_display_name", "memory_method", "question_category"),
+            metrics=("locomo_f1",),
+            plots=(PlotSpec(kind="grouped_bar", x="question_category", y="locomo_f1"),),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "reader_display_name": "GPT-5",
+                    "memory_method": "full_context",
+                    "question_category": 1,
+                    "locomo_f1": 1.0,
+                },
+                {
+                    "reader_display_name": "GPT-5",
+                    "memory_method": "rag",
+                    "question_category": 1,
+                    "locomo_f1": 0.5,
+                },
+                {
+                    "reader_display_name": "DeepSeek-V3",
+                    "memory_method": "full_context",
+                    "question_category": 1,
+                    "locomo_f1": 0.25,
+                },
+                {
+                    "reader_display_name": "DeepSeek-V3",
+                    "memory_method": "rag",
+                    "question_category": 1,
+                    "locomo_f1": 0.0,
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+        self.assertEqual(len(result.table), 4)
+        self.assertEqual(
+            set(result.table["reader_display_name"]), {"GPT-5", "DeepSeek-V3"}
+        )
+        self.assertEqual(set(result.table["memory_method"]), {"full_context", "rag"})
+        gpt_full = result.table[
+            (result.table["reader_display_name"] == "GPT-5")
+            & (result.table["memory_method"] == "full_context")
+        ].iloc[0]
+        self.assertAlmostEqual(float(gpt_full["locomo_f1"]), 1.0)
+
+
+class TestAdversarialExcludedFromOverall(unittest.TestCase):
+    def test_overall_metrics_drop_category_5_without_yaml_exclude(self):
+        spec = AnalysisSpec(
+            id="by_reader",
+            title="Per-reader cell means",
+            group_by=("reader_display_name",),
+            metrics=("locomo_f1", "judge_score"),
+            plots=(PlotSpec(kind="metrics_grouped_bar"),),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "reader_display_name": "GPT-5",
+                    "question_category": 1,
+                    "locomo_f1": 1.0,
+                    "judge_score": 1.0,
+                },
+                {
+                    "reader_display_name": "GPT-5",
+                    "question_category": 5,
+                    "locomo_f1": 0.0,
+                    "judge_score": 0.0,
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+        self.assertEqual(len(result.table), 1)
+        self.assertAlmostEqual(float(result.table.iloc[0]["locomo_f1"]), 1.0)
+        self.assertAlmostEqual(float(result.table.iloc[0]["judge_score"]), 1.0)
+        self.assertEqual(int(result.table.iloc[0]["n"]), 1)
+
+    def test_category_plots_keep_category_5(self):
+        spec = AnalysisSpec(
+            id="by_category",
+            title="Per-reader LoCoMo F1 by category",
+            group_by=("reader_display_name", "question_category"),
+            metrics=("locomo_f1",),
+            plots=(
+                PlotSpec(
+                    kind="grouped_bar", x="question_category", y="locomo_f1"
+                ),
+            ),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "reader_display_name": "GPT-5",
+                    "question_category": 1,
+                    "locomo_f1": 1.0,
+                },
+                {
+                    "reader_display_name": "GPT-5",
+                    "question_category": 5,
+                    "locomo_f1": 0.25,
+                },
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+        labels = set(result.table["question_category"])
+        self.assertIn("1 multi-hop", labels)
+        self.assertIn("5 adversarial", labels)
+        adv = result.table[result.table["question_category"] == "5 adversarial"].iloc[0]
+        self.assertAlmostEqual(float(adv["locomo_f1"]), 0.25)
+
 
 class TestAnalysisYamlContract(unittest.TestCase):
     def test_every_campaign_analysis_references_configured_experiments(self):
@@ -165,7 +376,8 @@ class TestAnalysisNotebookContract(unittest.TestCase):
                 code = _notebook_code(notebook)
                 self.assertIn("campaign_2025_live.yaml", code)
                 self.assertIn(f'render_experiment(camp, "{ref.id}"', code)
-                self.assertIn("notebook_show(report)", code)
+                self.assertIn("notebook_pretest(camp,", code)
+                self.assertIn("notebook_posttest(camp,", code)
                 self.assertNotIn("matplotlib", code)
                 self.assertNotIn("groupby(", code)
 
@@ -174,7 +386,8 @@ class TestAnalysisNotebookContract(unittest.TestCase):
         code = _notebook_code(notebook)
         self.assertIn("campaign_2025_live.yaml", code)
         self.assertIn("render_campaign(camp, root=ROOT)", code)
-        self.assertIn("notebook_show(report)", code)
+        self.assertIn("notebook_pretest(camp, root=ROOT)", code)
+        self.assertIn("notebook_posttest(camp,", code)
         self.assertNotIn("matplotlib", code)
         self.assertNotIn("groupby(", code)
 
@@ -360,6 +573,107 @@ class TestSmokeReportWhenPackPresent(unittest.TestCase):
         family = next(r for r in reports[0].results if r.spec.id == "reader_family_metrics")
         self.assertGreaterEqual(len(family.table), 3)
         self.assertTrue((reports[0].out_dir / "tables" / "by_reader.csv").is_file())
+
+
+class TestYearFamilyCampaign(unittest.TestCase):
+    YAML = ROOT / "configs" / "analysis" / "campaign_year_family.yaml"
+
+    def test_year_family_yaml_has_pins_and_2026_axis_note(self):
+        cfg = load_campaign_yaml(self.YAML)
+        self.assertEqual(cfg.id, "year_family")
+        self.assertEqual(set(cfg.experiments), {"readers", "writers", "readers_2026", "writers_2026"})
+        self.assertGreaterEqual(len(cfg.pins), 7)
+        generations = {str(row.get("generation")) for row in cfg.pins}
+        self.assertEqual(generations, {"2024"})
+        sources = {str(row.get("result_source")) for row in cfg.pins}
+        self.assertEqual(sources, {"paper", "local_clone"})
+        ids = [spec.id for spec in cfg.campaign_analyses]
+        self.assertIn("j_full_context_by_year_family", ids)
+        self.assertIn("j_rag_by_year_family", ids)
+        self.assertIn("j_memory_write_by_year_family", ids)
+        self.assertIn("year_family_by_thinking", ids)
+        self.assertIn("thinking_tokens_by_year_family", ids)
+        self.assertIn("writer_thinking_tokens_by_year_family", ids)
+        fc = [a for a in cfg.campaign_analyses if a.id == "j_full_context_by_year_family"][0]
+        self.assertTrue(fc.include_pins)
+        self.assertEqual(fc.exclude_question_categories, (5,))
+        self.assertEqual(fc.where, (("memory_method", ("full_context",)),))
+
+    def test_annotate_generation_uses_catalog_year(self):
+        df = pd.DataFrame(
+            {
+                "reader_model": ["gpt-4o-mini", "gpt-5", "deepseek-chat"],
+                "reader_generation": ["2024", "2025", "2025"],
+            }
+        )
+        readers = annotate_generation(df, "reader")
+        self.assertEqual(list(readers["generation"]), ["2024", "2025", "2025"])
+        writers = annotate_generation(
+            pd.DataFrame({"writer_model": ["gpt-5", "deepseek-chat", "gpt-4o-mini"]}),
+            "writer",
+        )
+        self.assertEqual(list(writers["generation"]), ["2025", "2025", "2024"])
+
+    def test_pins_are_not_averaged_into_live_rows_and_cat5_is_dropped(self):
+        spec = AnalysisSpec(
+            id="j_full_context",
+            title="Full-context J",
+            group_by=("generation", "model_family", "result_source"),
+            metrics=("judge_score",),
+            plots=(PlotSpec(kind="grouped_bar", x="generation", y="judge_score"),),
+            source="examples",
+            where=(("memory_method", ("full_context",)),),
+            exclude_question_categories=(5,),
+            include_pins=True,
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "generation": "2025",
+                    "model_family": "OpenAI",
+                    "result_source": "live",
+                    "memory_method": "full_context",
+                    "question_category": 1,
+                    "judge_score": 1.0,
+                },
+                {
+                    "generation": "2025",
+                    "model_family": "OpenAI",
+                    "result_source": "live",
+                    "memory_method": "full_context",
+                    "question_category": 5,
+                    "judge_score": 0.0,
+                },
+                {
+                    "generation": "2025",
+                    "model_family": "OpenAI",
+                    "result_source": "live",
+                    "memory_method": "rag",
+                    "question_category": 1,
+                    "judge_score": 0.0,
+                },
+            ]
+        )
+        pins = [
+            {
+                "generation": "2024",
+                "model_family": "OpenAI",
+                "memory_method": "full_context",
+                "result_source": "paper",
+                "judge_score": 0.729,
+                "n": 1540,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp), pins=pins)
+        self.assertEqual(len(result.table), 2)
+        live = result.table[result.table["result_source"] == "live"].iloc[0]
+        paper = result.table[result.table["result_source"] == "paper"].iloc[0]
+        self.assertAlmostEqual(float(live["judge_score"]), 1.0)
+        self.assertEqual(int(live["n"]), 1)
+        self.assertAlmostEqual(float(paper["judge_score"]), 0.729)
+        self.assertEqual(int(paper["n"]), 1540)
+        self.assertEqual(list(result.table["generation"]), ["2024", "2025"])
 
 
 if __name__ == "__main__":

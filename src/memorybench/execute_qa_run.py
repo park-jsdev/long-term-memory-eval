@@ -157,6 +157,18 @@ def _qa_argv(
                 spec.writer.api_model_id,
             ]
         )
+        if spec.writer.thinking is False:
+            argv.extend(["--thinking", "off"])
+        elif spec.writer.thinking is True:
+            argv.extend(["--thinking", "on"])
+        if spec.writer.max_tokens is not None:
+            argv.extend(["--teacher-max-tokens", str(spec.writer.max_tokens)])
+    elif spec.reader.thinking is False:
+        argv.extend(["--reader-thinking", "off"])
+    elif spec.reader.thinking is True:
+        argv.extend(["--reader-thinking", "on"])
+    if spec.writer is None and spec.reader.max_tokens is not None:
+        argv.extend(["--max-tokens", str(spec.reader.max_tokens)])
     return argv
 
 

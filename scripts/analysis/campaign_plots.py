@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from scripts.analysis.campaign_tables import GENERATION_AXIS
+
 FAMILY_COLORS = {
     "OpenAI": "#4C78A8",
     "Anthropic": "#F58518",
@@ -62,6 +64,18 @@ def _save(fig, path: Path) -> Path:
 def _axis_title(col: str) -> str:
     if col == "question_category":
         return "LoCoMo question category"
+    if col == "generation":
+        return "Generation"
+    if col == "thinking":
+        return "Thinking"
+    if col == "agent_reasoning_tokens":
+        return "Reader reasoning tokens"
+    if col == "teacher_reasoning_tokens":
+        return "Teacher reasoning tokens"
+    if col == "agent_latency_seconds":
+        return "Reader latency (s)"
+    if col == "teacher_latency_seconds":
+        return "Teacher latency (s)"
     return col.replace("_", " ")
 
 
@@ -87,17 +101,20 @@ def write_metrics_grouped_bar(
     fig, ax = plt.subplots(figsize=(8.2, 4.4))
     colors = _colors(labels)
     for i, (label, color) in enumerate(zip(labels, colors)):
-        ys = [float(table.iloc[i][m]) if pd.notna(table.iloc[i][m]) else 0.0 for m in metric_cols]
+        ys = [
+            float(table.iloc[i][m]) if pd.notna(table.iloc[i][m]) else float("nan")
+            for m in metric_cols
+        ]
         offset = (i - (n - 1) / 2) * width
         ax.bar([xi + offset for xi in x], ys, width, label=label, color=color)
     ax.set_xticks(x)
     ax.set_xticklabels(metric_cols, rotation=20, ha="right")
     ymax = 1.05
-    if any(m == "agent_latency_seconds" for m in metric_cols):
+    if any(m == "agent_latency_seconds" or str(m).startswith("usd") for m in metric_cols):
         ymax = None
     if ymax is not None:
         ax.set_ylim(0, ymax)
-    ax.set_ylabel("Score")
+    ax.set_ylabel("USD" if all(str(m).startswith("usd") for m in metric_cols) else "Score")
     ax.set_title(title)
     _place_legend_outside(ax)
     _save(fig, path)
@@ -118,6 +135,9 @@ def write_grouped_bar(
     if plt is None or table.empty or metric not in table.columns:
         return None
     xs = [str(v) for v in table[x_col].drop_duplicates().tolist()]
+    if x_col == "generation":
+        known = [year for year in GENERATION_AXIS if year in xs]
+        xs = known + [year for year in xs if year not in GENERATION_AXIS]
     hues = [str(v) for v in table[hue_col].drop_duplicates().tolist()]
     pivot = table.pivot_table(index=x_col, columns=hue_col, values=metric, aggfunc="mean")
     pivot = pivot.reindex(index=xs, columns=hues)
@@ -127,13 +147,16 @@ def write_grouped_bar(
     width = min(0.8 / n, 0.25)
     colors = _colors(hues)
     for i, (hue, color) in enumerate(zip(hues, colors)):
-        ys = [float(v) if pd.notna(v) else 0.0 for v in pivot[pivot.columns[i]].tolist()]
+        ys = [
+            float(v) if pd.notna(v) else float("nan")
+            for v in pivot[pivot.columns[i]].tolist()
+        ]
         offset = (i - (n - 1) / 2) * width
         ax.bar([xi + offset for xi in x], ys, width, label=hue, color=color)
     ax.set_xticks(x)
     ax.set_xticklabels(xs, rotation=20, ha="right")
     ax.set_xlabel(_axis_title(x_col))
-    if metric != "agent_latency_seconds":
+    if metric != "agent_latency_seconds" and not str(metric).startswith("usd"):
         ax.set_ylim(0, 1.05)
     ax.set_ylabel(metric)
     ax.set_title(title)
@@ -155,13 +178,13 @@ def write_bar(
     if plt is None or table.empty or metric not in table.columns:
         return None
     labels = [str(v) for v in table[x_col].tolist()]
-    ys = [float(v) if pd.notna(v) else 0.0 for v in table[metric].tolist()]
+    ys = [float(v) if pd.notna(v) else float("nan") for v in table[metric].tolist()]
     fig, ax = plt.subplots(figsize=(6.5, 4.2))
     ax.bar(labels, ys, color=_colors(labels))
     ax.set_xlabel(_axis_title(x_col))
     ax.set_ylabel(metric)
     ax.set_title(title)
-    if metric != "agent_latency_seconds":
+    if metric != "agent_latency_seconds" and not str(metric).startswith("usd"):
         ax.set_ylim(0, 1.05)
     fig.autofmt_xdate(rotation=20)
     _save(fig, path)

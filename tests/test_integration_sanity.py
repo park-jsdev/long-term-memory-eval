@@ -35,6 +35,7 @@ from src.locomo_eval.models import (
     GPT56_TERRA,
     TEACHER_THINKING_EFFORT,
     TEACHER_THINKING_MIN_OUTPUT_TOKENS,
+    apply_deepseek_thinking,
     apply_openai_thinking,
     chat_create_kwargs,
     models_in_family,
@@ -248,6 +249,14 @@ class TestModelCatalog(unittest.TestCase):
         self.assertGreaterEqual(
             out["max_completion_tokens"], TEACHER_THINKING_MIN_OUTPUT_TOKENS
         )
+
+    def test_apply_deepseek_thinking_true_sends_type_enabled(self):
+        out = apply_deepseek_thinking({"model": "deepseek-chat"}, True)
+        self.assertEqual(out["extra_body"]["thinking"], {"type": "enabled"})
+
+    def test_apply_deepseek_thinking_false_sends_type_disabled(self):
+        out = apply_deepseek_thinking({"model": "deepseek-chat"}, False)
+        self.assertEqual(out["extra_body"]["thinking"], {"type": "disabled"})
 
     def test_apply_openai_thinking_true_is_noop_for_gpt4o_mini(self):
         spec = resolve_model(BASELINE_READER_MODEL)

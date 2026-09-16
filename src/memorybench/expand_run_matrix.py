@@ -5,6 +5,7 @@ The same YAML always yields the same order and the same hashed run ids.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from itertools import product
 from typing import Any
 
@@ -22,6 +23,18 @@ from src.memorybench.hashed_run_id import hashed_run_id
 from src.memorybench.locomo_method_yaml import method_yaml_for
 from src.memorybench.shared_index_paths import index_run_ids_for_memory
 from src.locomo_eval.prompts import QA_MEM0_V1
+
+# Completion-token caps when ``matrix.thinking`` is set. Overrides catalog
+# ``teacher:`` overlays so GPT-5 on-cells are not stuck at thinking=false.
+# Writer-on is 32768 because graph+high-effort 2025 smoke filled the old
+# 8192 cap with reasoning_tokens. Writer-off is 8192 because 2026
+# DeepSeek-V4 graph-off truncated JSON at 4096 (parse fallback_mock).
+THINKING_OUTPUT_TOKENS = {
+    ("reader", False): 256,
+    ("reader", True): 8192,
+    ("writer", False): 8192,
+    ("writer", True): 32768,
+}
 
 
 def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
@@ -67,6 +80,9 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
             # full_context × teacher writers is not a sandwich claim.
             continue
         seed = int(cell.get("seed") or 1)
+        thinking_flag = cell.get("thinking")
+        if thinking_flag is not None:
+            reader, writer = _apply_thinking_axis(reader, writer, bool(thinking_flag))
         indexes = index_run_ids_for_memory(memory_method, shared)
         status = _cell_status(reader, writer)
         run_index = len(specs)
@@ -144,7 +160,31 @@ def _axis_values(
         axes["seed"] = [int(s) for s in _as_list(seeds)]
     else:
         axes["seed"] = [1]
+    if matrix.get("thinking") is not None:
+        axes["thinking"] = [_as_bool(v) for v in _as_list(matrix.get("thinking"))]
     return axes
+
+
+def _apply_thinking_axis(
+    reader: ReaderModelRef,
+    writer: WriterModelRef | None,
+    thinking: bool,
+) -> tuple[ReaderModelRef, WriterModelRef | None]:
+    """Matched on/off + headroom. Sandwich applies to the writer; sweeps to the reader."""
+    if writer is not None:
+        return reader, replace(
+            writer,
+            thinking=thinking,
+            max_tokens=THINKING_OUTPUT_TOKENS[("writer", thinking)],
+        )
+    return (
+        replace(
+            reader,
+            thinking=thinking,
+            max_tokens=THINKING_OUTPUT_TOKENS[("reader", thinking)],
+        ),
+        writer,
+    )
 
 
 def _parse_reader(item: Any, catalog: dict[str, Any]) -> ReaderModelRef:
@@ -190,13 +230,43 @@ def _parse_writer(item: Any, catalog: dict[str, Any]) -> WriterModelRef | None:
     api_id = str(data.get("api_model_id") or data.get("model") or "")
     if not api_id:
         raise ValueError(f"writer is missing api_model_id: {item!r}")
+    thinking, max_tokens = _teacher_knobs(data)
     return WriterModelRef(
         display_name=str(data.get("display_name") or api_id),
         provider=str(data.get("provider") or "openai"),
         api_model_id=api_id,
         catalog_id=_as_str(data.get("catalog") or data.get("id")),
         status=str(data.get("status") or "runnable"),
+        thinking=thinking,
+        max_tokens=max_tokens,
     )
+
+
+def _teacher_knobs(data: dict[str, Any]) -> tuple[bool | None, int | None]:
+    """Optional write-path overlay from catalog ``teacher:`` (GPT-5/GPT-6)."""
+    block = data.get("teacher") if isinstance(data.get("teacher"), dict) else {}
+    thinking = block.get("thinking")
+    if thinking is None:
+        thinking = data.get("thinking")
+    max_tokens = block.get("max_tokens")
+    if max_tokens is None:
+        max_tokens = data.get("teacher_max_tokens")
+    think_flag = None
+    if thinking is not None:
+        think_flag = _as_bool(thinking)
+    n = None if max_tokens is None or max_tokens == "" else int(max_tokens)
+    return think_flag, n
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"Invalid thinking {value!r}; use on/off or true/false")
 
 
 def _merge_catalog(key: str, catalog: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

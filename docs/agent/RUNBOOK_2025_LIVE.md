@@ -1,5 +1,9 @@
 # 2025 live campaign runbook
 
+**Completed 2025 (budget):** GPT-5 vs DeepSeek-V3 — [`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](RUNBOOK_2025_OPENAI_DEEPSEEK.md).  
+**Next 2026 (budget):** GPT-5.6 Terra vs DeepSeek-V4 — [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](RUNBOOK_2026_OPENAI_DEEPSEEK.md).  
+**Parked:** this three-family sequence (adds Claude Sonnet 4.5) until Anthropic spend is available again. Do not mix GCS prefixes.
+
 **Audience:** operator replaying this exact three-experiment Cloud Run sequence.  
 **Date started:** 2026-09-15.  
 **Not this file:** one-time GCP bootstrap (`docs/agent/GCP_RUNBOOK.md`), resource inventory (`infra/gcp/README.md`), full scientific matrix (`docs/agent/EXPERIMENT_MATRIX_v1.md`).

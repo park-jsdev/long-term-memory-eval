@@ -189,6 +189,56 @@ class TestQaArgvPassesTeacherWriter(unittest.TestCase):
             argv[argv.index("--teacher-model") + 1], "claude-3-5-sonnet-20241022"
         )
         self.assertEqual(argv[argv.index("--model") + 1], "gpt-4o-2024-08-06")
+        self.assertNotIn("--thinking", argv)
+        self.assertNotIn("--teacher-max-tokens", argv)
+
+    def test_gpt5_writer_argv_turns_thinking_off_and_raises_completion_cap(self):
+        writer = WriterModelRef(
+            display_name="GPT-5",
+            provider="openai",
+            api_model_id="gpt-5",
+            catalog_id="gpt-5",
+            thinking=False,
+            max_tokens=8192,
+        )
+        argv = _qa_argv(
+            _spec(memory_method="teacher_session_summaries", writer=writer),
+            {},
+            Path("/tmp/out"),
+            None,
+        )
+        self.assertEqual(argv[argv.index("--thinking") + 1], "off")
+        self.assertEqual(argv[argv.index("--teacher-max-tokens") + 1], "8192")
+
+    def test_full_context_argv_passes_reader_thinking_and_max_tokens(self):
+        reader = ReaderModelRef(
+            display_name="GPT-5",
+            provider="openai",
+            family="openai",
+            generation="2025",
+            api_model_id="gpt-5",
+            catalog_id="gpt-5",
+            thinking=True,
+            max_tokens=8192,
+        )
+        spec = ExperimentRunSpec(
+            experiment_name="locomo-2025-readers-openai-deepseek",
+            experiment_type="sweep",
+            run_index=0,
+            run_id="cell-think",
+            benchmark="locomo",
+            memory_method="full_context",
+            reader=reader,
+            seed=1,
+            prompt_path="prompts/readers/qa_mem0_v1.txt",
+            judge_provider="openai",
+            judge_model="gpt-4o-mini",
+            method_yaml="configs/writers/full_context.yaml",
+        )
+        argv = _qa_argv(spec, {}, Path("/tmp/out"), None)
+        self.assertEqual(argv[argv.index("--reader-thinking") + 1], "on")
+        self.assertEqual(argv[argv.index("--max-tokens") + 1], "8192")
+        self.assertNotIn("--thinking", argv)
 
     def test_full_context_argv_omits_teacher_flags(self):
         argv = _qa_argv(

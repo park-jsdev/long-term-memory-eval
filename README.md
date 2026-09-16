@@ -669,7 +669,9 @@ Step-by-step reproduction, local and Cloud Run: **[`docs/REPRODUCE.md`](docs/REP
 | Document | Audience |
 |---|---|
 | [`docs/REPRODUCE.md`](docs/REPRODUCE.md) | Reproduce the published campaign end to end |
-| [`docs/agent/RUNBOOK_2025_LIVE.md`](docs/agent/RUNBOOK_2025_LIVE.md) | Operator detail for the live 2025 campaign |
+| [`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md) | Operator detail for the budget 2025 campaign (GPT-5 vs DeepSeek-V3) |
+| [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md) | Operator detail for the 2026 campaign (GPT-5.6 Terra vs DeepSeek-V4) |
+| [`docs/agent/RUNBOOK_2025_LIVE.md`](docs/agent/RUNBOOK_2025_LIVE.md) | Parked three-family 2025 campaign (includes Claude) |
 | [`docs/agent/GCP_RUNBOOK.md`](docs/agent/GCP_RUNBOOK.md) | One-time GCP bootstrap |
 | [`docs/agent/AGENTS.md`](docs/agent/AGENTS.md) | Coding-agent operating notes |
 | [`docs/schemas/`](docs/schemas/) | On-disk contracts: audit pack, analysis campaign, indexes |

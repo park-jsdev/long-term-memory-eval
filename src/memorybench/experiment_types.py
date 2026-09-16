@@ -18,6 +18,7 @@ MATRIX_AXIS_ORDER = (
     "reader",
     "memory_method",
     "writer",
+    "thinking",
     "seed",
 )
 

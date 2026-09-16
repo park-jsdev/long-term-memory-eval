@@ -39,7 +39,9 @@ EXAMPLE_COLUMNS = (
     "judge_reasoning",
     "agent_input_tokens",
     "agent_output_tokens",
+    "agent_reasoning_tokens",
     "agent_latency_seconds",
+    "thinking",
     "judge_input_tokens",
     "judge_output_tokens",
     "judge_latency_seconds",
@@ -144,7 +146,13 @@ def _example_record(
         "judge_reasoning": _as_str(verdict.get("reasoning") or verdict.get("raw_text")),
         "agent_input_tokens": _as_int(usage.get("prompt_tokens")),
         "agent_output_tokens": _as_int(usage.get("completion_tokens")),
+        "agent_reasoning_tokens": _as_int(
+            usage.get("reasoning_tokens")
+            if usage.get("reasoning_tokens") is not None
+            else row.get("reasoning_tokens")
+        ),
         "agent_latency_seconds": _as_float(row.get("latency_s")),
+        "thinking": spec.thinking_label(),
         "judge_input_tokens": _as_int(judge_usage.get("prompt_tokens")),
         "judge_output_tokens": _as_int(judge_usage.get("completion_tokens")),
         "judge_latency_seconds": _as_float(verdict.get("latency_s")),
@@ -162,6 +170,11 @@ def qa_summary_row(
     status: str,
 ) -> dict[str, Any]:
     m = (metrics or {}).get("metrics") or metrics or {}
+    cost = _read_json(run_dir / "cost.json")
+    teacher_cost = cost.get("teacher") or {}
+    reader_cost = cost.get("reader") or {}
+    quality = _read_json(run_dir / "memory" / "teachers" / "quality.json")
+    teacher_latency = _mean_teacher_latency(quality)
     return {
         "run_id": spec.run_id,
         "experiment_name": spec.experiment_name,
@@ -175,11 +188,16 @@ def qa_summary_row(
         "judge_provider": spec.judge_provider,
         "judge_model": spec.judge_model,
         "writer_model": spec.writer.api_model_id if spec.writer else None,
+        "thinking": spec.thinking_label(),
         "num_examples": int(n_examples),
         "primary_score": _as_float(m.get("locomo_f1")),
         "exact_match": _as_float(m.get("exact_match")),
         "token_f1": _as_float(m.get("token_f1")),
         "locomo_f1": _as_float(m.get("locomo_f1")),
+        "agent_reasoning_tokens": _as_int(reader_cost.get("reasoning_tokens")),
+        "teacher_reasoning_tokens": _as_int(teacher_cost.get("reasoning_tokens")),
+        "teacher_n_calls": _as_int(teacher_cost.get("n_calls")),
+        "teacher_latency_seconds": teacher_latency,
         "git_commit": meta.get("code_git_hash"),
         "config_hash": spec.run_id.rsplit("-", 1)[-1],
         "status": status,
@@ -236,3 +254,28 @@ def _gen_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _mean_teacher_latency(quality: dict[str, Any]) -> float | None:
+    """Mean teacher-call latency from quality.json (write path, not the frozen reader)."""
+    by_teacher = quality.get("by_teacher") or {}
+    if not isinstance(by_teacher, dict) or not by_teacher:
+        return None
+    weighted = 0.0
+    n = 0
+    for rec in by_teacher.values():
+        latency = rec.get("mean_latency_s")
+        calls = rec.get("n_calls") or 0
+        if latency is None or int(calls) <= 0:
+            continue
+        weighted += float(latency) * int(calls)
+        n += int(calls)
+    if n <= 0:
+        return None
+    return weighted / n

@@ -162,21 +162,27 @@ failure modes this campaign already hit and pinned:
 
 ---
 
-## Stage 5 — The 2025 live campaign
+## Stage 5 — The 2025 campaign
+
+**Active (budget):** GPT-5 vs DeepSeek-V3. Anthropic cells are parked in the original three-family
+YAMLs (`2025_readers_full_context*.yaml`, `mem0_reader_2025_writers.yaml`) until more funds.
+Do not mix the two experiment-name prefixes.
 
 Three experiments, run in order. Each is one sandwich claim.
 
 | # | Claim | Frozen | Varies | Cells |
 |---|---|---|---|---|
-| 1 smoke | Do the three 2025 readers work at all? | LoCoMo, `qa_mem0_v1`, `full_context`, judge | reader: GPT-5, Claude Sonnet 4.5, DeepSeek-V3 | 3 |
-| 2 baseline | Full-context vs Mem0-paper RAG, per reader | prompt, judge, shared `rag_locomo10` dump | reader × `{full_context, rag}` | 6 |
-| 3 writers | Which 2025 writer builds better memory? | **reader frozen** to `gpt-4o-mini` + `qa_mem0_v1`, judge | writer × `{teacher_session_summaries, teacher_graph}` | 6 |
+| 1 smoke | Do the two 2025 readers work at all? | LoCoMo, `qa_mem0_v1`, `full_context`, judge | reader: GPT-5, DeepSeek-V3 | 2 |
+| 2 baseline | Full-context vs Mem0-paper RAG, per reader | prompt, judge, shared `rag_locomo10` dump | reader × `{full_context, rag}` | 4 |
+| 3 writers | Which 2025 writer builds better memory? | **reader frozen** to `gpt-4o-mini` + `qa_mem0_v1`, judge | writer × `{teacher_session_summaries, teacher_graph}` | 4 |
+
+Parked three-family (adds Claude Sonnet 4.5): 3 / 6 / 6 cells. Operator: [`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md).
 
 Experiment 3 varies only the *write* model. The reader is frozen, so a difference in score is a
 claim about memory construction rather than about answering ability.
 
 Note what experiment 3 is **not**: it does not run the Mem0 paper write path. Both memory methods
-send the same prompt (`teacher_session_v1` or `teacher_graph_v1`) to all three writers. LoCoMo's own
+send the same prompt (`teacher_session_v1` or `teacher_graph_v1`) to both writers. LoCoMo's own
 `session_summaries` are dataset text and are not generated here.
 
 ### Prerequisite: the shared RAG index
@@ -197,42 +203,43 @@ cells will exit.
 Each cell is one command. Run the indices in order; watch cost between cells.
 
 ```bash
-# Experiment 1 (smoke, 3 cells)
-python -m src.memorybench write-manifest configs/experiments/2025_readers_full_context_smoke_gcs.yaml
-python -m src.memorybench execute-qa        configs/experiments/2025_readers_full_context.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/2025_readers_full_context.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/2025_readers_full_context.yaml
+# Experiment 1 (smoke, 4 cells: 2 readers × thinking)
+python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek_smoke.yaml
+python -m src.memorybench execute-qa        configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.memorybench execute-autorater configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.memorybench aggregate         configs/experiments/2025_readers_openai_deepseek_smoke.yaml
 ```
 
-Repeat `--run-index 1 … 5` for experiments 2 and 3, using
-`configs/experiments/2025_readers_full_context.yaml` and
-`configs/experiments/mem0_reader_2025_writers.yaml`. Always finish **all** QA for an experiment
+Repeat `--run-index 1 … 7` for experiment 2 (8 cells) and experiment 3 (8 writer cells), using
+`configs/experiments/2025_readers_openai_deepseek.yaml` and
+`configs/experiments/mem0_reader_2025_writers_openai_deepseek.yaml`. Always finish **all** QA for an experiment
 before starting its autorater; the judge fail-fasts on a missing QA `_SUCCESS` rather than scoring a
 partial answer set.
 
 Confirm which index is which cell at any time:
 
 ```bash
-python -m src.memorybench write-manifest configs/experiments/2025_readers_full_context.yaml
+python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek.yaml
 ```
 
 ### Option B — Cloud Run
 
-Use the `_gcs.yaml` overlays, which change only the storage block. Full operator detail, including
-the deploy script, log helpers, per-cell index tables, and a failure-mode table, is in
-[`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md). One-time GCP bootstrap is in
-[`docs/agent/GCP_RUNBOOK.md`](agent/GCP_RUNBOOK.md).
+Use the `_gcs.yaml` overlays, which change only the storage block. Full operator detail is in
+[`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md). Parked three-family
+operator notes: [`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md). One-time GCP bootstrap is in
+[`docs/agent/GCP_RUNBOOK.md`](agent/GCP_RUNBOOK.md). The 2026 Terra vs DeepSeek-V4 campaign uses the same
+waves with [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md).
 
 The shape per experiment, three sequential waves:
 
 ```powershell
-$env:EXPERIMENT_YAML = "configs/experiments/2025_readers_full_context_smoke_gcs.yaml"
+$env:EXPERIMENT_YAML = "configs/experiments/2025_readers_openai_deepseek_smoke_gcs.yaml"
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
 
-gcloud.cmd run jobs execute memorybench-qa         --region=us-central1 --tasks=3 --async
-# wait for 3 _SUCCESS under experiments/<name>/runs/**/_SUCCESS
-gcloud.cmd run jobs execute memorybench-autorater  --region=us-central1 --tasks=3 --async
-# wait for 3 autorater/_SUCCESS
+gcloud.cmd run jobs execute memorybench-qa         --region=us-central1 --tasks=4 --async
+# wait for 4 _SUCCESS under experiments/<name>/runs/**/_SUCCESS
+gcloud.cmd run jobs execute memorybench-autorater  --region=us-central1 --tasks=4 --async
+# wait for 4 autorater/_SUCCESS
 gcloud.cmd run jobs execute memorybench-aggregate  --region=us-central1 --tasks=1 --async
 ```
 
@@ -243,14 +250,14 @@ Three rules that cause most operator errors:
    `gcloud.cmd run jobs describe memorybench-qa --region=us-central1 --format="value(spec.template.spec.template.spec.containers[0].args)"`.
 2. **`--parallelism` is not an `execute` flag.** It is set at deploy time (`3` here). Passing it to
    `execute` fails.
-3. **Set `--tasks` to the cell count**: 3 for the smoke, 6 for experiments 2 and 3, and 1 for the
+3. **Set `--tasks` to the cell count**: 4 for the smoke, 8 for experiments 2 and 3, and 1 for the
    collector.
 
 Pull each aggregate locally when its wave finishes:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path experiments\locomo-2025-readers-full-context-smoke | Out-Null
-gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-2025-readers-full-context-smoke/aggregate" experiments/locomo-2025-readers-full-context-smoke/
+New-Item -ItemType Directory -Force -Path experiments\locomo-2025-readers-openai-deepseek-smoke | Out-Null
+gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-2025-readers-openai-deepseek-smoke/aggregate" experiments/locomo-2025-readers-openai-deepseek-smoke/
 ```
 
 For deep audit — the full `memory/` and `reader/` dumps rather than the thin catalog — run
@@ -265,10 +272,10 @@ and never calls an API.
 
 ```bash
 # One experiment
-python -m src.memorybench report configs/analysis/campaign_2025_live.yaml --experiment smoke
+python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml --experiment smoke
 
 # Every experiment plus the cross-experiment campaign concat
-python -m src.memorybench report configs/analysis/campaign_2025_live.yaml
+python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml
 ```
 
 Outputs:
@@ -277,7 +284,7 @@ Outputs:
 experiments/<experiment-name>/analysis/tables/*.csv
 experiments/<experiment-name>/analysis/plots/*.png
 experiments/<experiment-name>/analysis/SUMMARY.md
-experiments/_campaign/2025_live/analysis/...
+experiments/_campaign/2025_openai_deepseek/analysis/...
 ```
 
 Missing packs are listed and skipped, so this works before every experiment has landed.
@@ -291,7 +298,7 @@ because notebooks accumulate local paths, cloud ids, and executed output; only t
 a specific reported result are force-added. See `notebooks/README.md` for the naming convention and
 the per-study index, and write your own wrapper the same way if you want one.
 
-To add a comparison, edit `configs/analysis/campaign_2025_live.yaml` and re-run `report`. Do not fork
+To add a comparison, edit `configs/analysis/campaign_2025_openai_deepseek.yaml` and re-run `report`. Do not fork
 the plotting code; the engine is shared on purpose, which is why category axes read
 `1 multi-hop` / `2 temporal` / `3 open-domain` and legends sit outside the bars everywhere without
 per-campaign styling.

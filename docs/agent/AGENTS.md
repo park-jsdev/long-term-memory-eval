@@ -42,6 +42,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `configs/layouts/` | Answer prompt + message layout |
 | `configs/autoraters/` | Judge configs (QA does not include these) |
 | `configs/models/generation_catalog.yaml` | Fillable `api_model_id` / `model_snapshot` table |
+| `configs/models/pricing.yaml` | List-price pins for campaign cost estimates (not invoices) |
 | `prompts/` | Role folders matching configs: `readers/`, `writers/`, `teachers/`, `autoraters/` — see `prompts/README.md` |
 | `prompts/readers/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
 | `prompts/readers/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
@@ -75,8 +76,14 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate — **local only** |
 | `infra/gcp/README.md` | Exact GCP resources to create |
 | `docs/agent/GCP_RUNBOOK.md` | PowerShell: infra, deploy, four-wave execute, pull from GCS |
-| `docs/agent/RUNBOOK_2025_LIVE.md` | This campaign: 2025 readers smoke + `{full_context, rag}` + writers |
-| `configs/analysis/campaign_2025_live.yaml` | Campaign vs experiment analysis plane (tables/plots, no LLM) |
+| `docs/agent/RUNBOOK_2025_LIVE.md` | Parked three-family 2025 campaign (includes Claude) |
+| `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md` | Budget 2025 campaign: GPT-5 vs DeepSeek-V3 |
+| `docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md` | 2026 campaign: GPT-5.6 Terra vs DeepSeek-V4 |
+| `configs/analysis/campaign_2025_live.yaml` | Three-family analysis plane (tables/plots, no LLM) |
+| `configs/analysis/campaign_2025_openai_deepseek.yaml` | OpenAI vs DeepSeek packs + thinking on/off recipes |
+| `configs/analysis/openai_deepseek_thinking_axis.yaml` | Shared thinking-axis tables (reasoning tokens vs latency) |
+| `configs/analysis/campaign_year_family.yaml` | 2024 vs 2025 family comparison (paper/local pins + live; 2026-ready) |
+| `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same recipes, 2026 Terra vs V4 packs |
 | `notebooks/` | `NN_<frozen>_<variable>[_protocol|_analysis].ipynb` — gitignored; see `notebooks/README.md` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
 | `README.md` | Architecture: recipe / engine / experiment / campaign / job / audit / test layers |
@@ -127,7 +134,7 @@ Purpose-named files (no generic `run.py` / `config.py`). Wraps locomo_eval; does
 | `hashed_run_id.py` | Deterministic `<experiment>-<8 hex>` |
 | `execute_qa_run.py` | One cell → locomo_eval QA + Parquet + `_SUCCESS` |
 | `execute_autorater_run.py` | Separate judge job on stored predictions |
-| `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*` |
+| `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*`; cost from `analysis/cost.py` |
 | `aggregate_successful_runs.py` | Third wave: collect all cells → `experiments/<name>/aggregate/` |
 | `completed_run_skip.py` | Skip if `_SUCCESS` unless `--force` |
 | `open_configured_store.py` / `local_object_store.py` / `gcs_object_store.py` / `gcs_run_workspace.py` | Portable storage; GCS download/upload for Cloud Run (dataset + `shared/<index_run_id>/`) |
@@ -149,10 +156,12 @@ python -m src.memorybench execute-autorater configs/experiments/poc.yaml --run-i
 python -m src.memorybench aggregate configs/experiments/poc.yaml
 python -m src.memorybench collect-full configs/experiments/poc.yaml
 python -m src.memorybench status configs/experiments/poc.yaml
-python -m src.memorybench report configs/analysis/campaign_2025_live.yaml --experiment smoke
+python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml --experiment smoke
 
 # Cloud Run PoC (GCS). Operator steps: docs/agent/GCP_RUNBOOK.md
-# Live 2025 campaign (smoke / baseline RAG / writers): docs/agent/RUNBOOK_2025_LIVE.md
+# Live 2025 campaign, OpenAI vs DeepSeek (budget): docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md
+# Live 2026 campaign, Terra vs DeepSeek-V4: docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md
+# Parked three-family (includes Claude): docs/agent/RUNBOOK_2025_LIVE.md
 
 # Offline smoke (no API key)
 python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
@@ -200,9 +209,9 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -228,7 +237,7 @@ python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml
 python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_teachers
 python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
 # Override fusion without a new YAML: --fusion resolve_first
-# Teacher thinking on by default (write path only). Frozen GPT-5.6 reader stays reasoning_effort=none; gpt-5 uses minimal.
+# Teacher thinking on by default (write path) except GPT-5.x / GPT-6 catalog teacher: overlays (off + 8192) when matrix.thinking is absent. OpenAI vs DeepSeek campaigns set matrix.thinking on/off. Frozen GPT-5.6 sandwich reader stays reasoning_effort=none unless --reader-thinking on; gpt-5 off-cells use minimal.
 python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --thinking off --reader mock --teacher mock --max-questions 3 --run-id smoke_thinking_off
 
 # Live teachers (needs OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY). Do not pass --teacher mock.
@@ -282,7 +291,7 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 ## Design rules for agents
 
-1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). Do not mix a reader sweep into a sandwich claim. GPT-5.6 readers stay `reasoning_effort=none`. Hosted `gpt-5` readers use `minimal` (API rejects `none`). Teacher thinking is write-path only.
+1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). Do not mix a reader sweep into a sandwich claim. GPT-5.6 frozen sandwich readers stay `reasoning_effort=none`; hosted `gpt-5` off-cells use `minimal` (API rejects `none`). OpenAI vs DeepSeek campaigns set `matrix.thinking: [off, on]` for **both** families as readers (sweep) and writers (sandwich). DeepSeek on/off always sends `extra_body.thinking` `{type: enabled|disabled}` (`deepseek-chat` defaults off; `deepseek-v4-flash` defaults on). Headroom: reader 256/8192, teacher 8192/32768 (overrides catalog `teacher:`). `--reader-thinking` is the reader-sweep flag; `--thinking` remains write-path. Parked three-family YAML omits the axis; catalog GPT-5/5.6/6 `teacher:` stays off + 8192 there. Overall analysis F1/J drop LoCoMo category 5; category plots keep it. Reasoning tokens (`agent_reasoning_tokens` / `teacher_reasoning_tokens`) are first-class campaign metrics next to latency.
 2. **Orchestrator is software**, not one giant LLM call (`TeacherOrchestrator` + `fusion.py`). The **harness** (`memorybench`) only expands matrices and launches one locomo_eval cell per task.
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.

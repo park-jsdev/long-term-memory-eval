@@ -6,11 +6,18 @@ Category ids use official LoCoMo JSON names (1=multi-hop), not paper §4.1.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import yaml
 
 from src.metrics.locomo_qa import CATEGORY_NAMES
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_GENERATION_LOOKUP: dict[str, str] | None = None
+GENERATION_AXIS = ("2024", "2025", "2026")
+_RESULT_SOURCE_ORDER = {"paper": 0, "local_clone": 1, "live": 2}
 
 
 def annotate_model_family(df: pd.DataFrame, family_from: str = "reader") -> pd.DataFrame:
@@ -31,6 +38,86 @@ def annotate_model_family(df: pd.DataFrame, family_from: str = "reader") -> pd.D
         return out
     out["model_family"] = src.map(_family_label)
     return out
+
+
+def annotate_generation(df: pd.DataFrame, family_from: str = "reader") -> pd.DataFrame:
+    """Add ``generation`` (2024 / 2025 / 2026) from catalog or parquet."""
+    out = df.copy()
+    if family_from == "writer" and "writer_model" in out.columns:
+        out["generation"] = out["writer_model"].map(_generation_year)
+        return out
+    if "reader_generation" in out.columns:
+        out["generation"] = out["reader_generation"].map(_year_token)
+        return out
+    if "reader_model" in out.columns:
+        out["generation"] = out["reader_model"].map(_generation_year)
+        return out
+    out["generation"] = "unknown"
+    return out
+
+
+def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Stable 2024 → 2025 → 2026, then family / method / source."""
+    if table.empty or "generation" not in table.columns:
+        return table
+    out = table.copy()
+    sort_cols: list[str] = []
+    if "generation" in out.columns:
+        order = {year: i for i, year in enumerate(GENERATION_AXIS)}
+        out["_gen_ord"] = out["generation"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_gen_ord")
+    if "model_family" in out.columns:
+        sort_cols.append("model_family")
+    if "memory_method" in out.columns:
+        sort_cols.append("memory_method")
+    if "thinking" in out.columns:
+        think_order = {"off": 0, "on": 1}
+        out["_think_ord"] = out["thinking"].map(
+            lambda v: think_order.get(str(v).strip().lower(), 9)
+        )
+        sort_cols.append("_think_ord")
+    if "result_source" in out.columns:
+        out["_src_ord"] = out["result_source"].map(
+            lambda v: _RESULT_SOURCE_ORDER.get(str(v), 9)
+        )
+        sort_cols.append("_src_ord")
+    if not sort_cols:
+        return out
+    out = out.sort_values(sort_cols, kind="mergesort").reset_index(drop=True)
+    return out.drop(columns=[c for c in ("_gen_ord", "_src_ord", "_think_ord") if c in out.columns])
+
+
+def _year_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 4 and text[:4].isdigit():
+        return text[:4]
+    return text or "unknown"
+
+
+def _generation_year(value: Any) -> str:
+    key = str(value or "").strip().lower()
+    lookup = _generation_lookup()
+    if key in lookup:
+        return lookup[key]
+    return _year_token(value)
+
+
+def _generation_lookup() -> dict[str, str]:
+    global _GENERATION_LOOKUP
+    if _GENERATION_LOOKUP is not None:
+        return _GENERATION_LOOKUP
+    path = _REPO_ROOT / "configs" / "models" / "generation_catalog.yaml"
+    mapping: dict[str, str] = {}
+    if path.is_file():
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for model_id, block in (raw.get("models") or {}).items():
+            year = _year_token((block or {}).get("generation"))
+            mapping[str(model_id).lower()] = year
+            api = str((block or {}).get("api_model_id") or "").strip().lower()
+            if api and api != "to_confirm":
+                mapping[api] = year
+    _GENERATION_LOOKUP = mapping
+    return mapping
 
 
 def _family_label(value: Any) -> str:

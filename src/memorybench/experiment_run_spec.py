@@ -22,6 +22,8 @@ class ReaderModelRef:
     model_snapshot: str | None = None
     catalog_id: str | None = None
     status: str = "runnable"
+    thinking: bool | None = None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,8 @@ class WriterModelRef:
     api_model_id: str
     catalog_id: str | None = None
     status: str = "runnable"
+    thinking: bool | None = None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -71,11 +75,16 @@ class ExperimentRunSpec:
         row["reader_family"] = self.reader.family
         row["reader_generation"] = self.reader.generation
         row["writer_model"] = self.writer.api_model_id if self.writer else None
+        row["thinking"] = self.thinking_label()
+        row["reader_thinking"] = self.reader.thinking
+        row["reader_max_tokens"] = self.reader.max_tokens
+        row["teacher_thinking"] = self.writer.thinking if self.writer else None
+        row["teacher_max_tokens"] = self.writer.max_tokens if self.writer else None
         return row
 
     def qa_identity(self) -> dict[str, Any]:
         """Fields that define the hashed run id (QA, not judge, not timestamps)."""
-        return {
+        identity = {
             "benchmark": self.benchmark,
             "experiment_name": self.experiment_name,
             "max_questions": self.max_questions,
@@ -91,3 +100,23 @@ class ExperimentRunSpec:
             "seed": self.seed,
             "writer_model": self.writer.api_model_id if self.writer else None,
         }
+        if self.reader.thinking is not None:
+            identity["reader_thinking"] = self.reader.thinking
+        if self.reader.max_tokens is not None:
+            identity["reader_max_tokens"] = self.reader.max_tokens
+        if self.writer is not None and self.writer.thinking is not None:
+            identity["teacher_thinking"] = self.writer.thinking
+        if self.writer is not None and self.writer.max_tokens is not None:
+            identity["teacher_max_tokens"] = self.writer.max_tokens
+        return identity
+
+    def thinking_label(self) -> str | None:
+        """Campaign axis value: ``on`` / ``off``, or None when the YAML omitted thinking."""
+        flag = None
+        if self.writer is not None and self.writer.thinking is not None:
+            flag = self.writer.thinking
+        elif self.reader.thinking is not None:
+            flag = self.reader.thinking
+        if flag is None:
+            return None
+        return "on" if flag else "off"

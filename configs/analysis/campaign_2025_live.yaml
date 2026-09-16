@@ -11,9 +11,16 @@
 campaign:
   id: 2025_live
   title: 2025 live campaign
+  notebook: notebooks/06_2025_live_campaign_analysis.ipynb
   freeze_note: >
     Frozen answer prompt qa_mem0_v1 and judge gpt-4o-mini.
-    Do not claim Mem0 paper Table 1–2 J. Smoke is 5 questions.
+    Overall locomo_f1 / judge_score drop LoCoMo category 5 (Mem0 J).
+    Category plots keep all five types. Do not claim Mem0 paper Table 1–2 J.
+    Smoke is 5 questions.
+
+cost:
+  pricing: configs/models/pricing.yaml
+  scenario: off_peak
 
 defaults:
   source: examples
@@ -63,6 +70,14 @@ experiments:
     role: reader_sweep
     family_from: reader
     subset: 1 conversation / 5 questions
+    pretest:
+      n_cells: 3
+      n_questions: 5
+      scientific_claim: false
+      hypotheses:
+        - "All reader APIs return 5 predictions."
+        - "Token spend is a small fraction of the full LoCoMo full_context cell."
+        - "Not a quality claim — inspect traces before the baseline."
     analyses:
       - id: by_reader
         title: Per-reader cell means
@@ -92,6 +107,13 @@ experiments:
     notebook: notebooks/04_2025_readers_full_context_analysis.ipynb
     role: reader_sweep
     family_from: reader
+    pretest:
+      n_cells: 6
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "full_context token volume dominates the bill; RAG is cheap."
+        - "Judge (gpt-4o-mini) is small relative to full_context readers."
     analyses:
       - id: by_reader_memory
         title: Reader × {full_context, rag}
@@ -99,13 +121,12 @@ experiments:
         plots:
           - kind: metrics_grouped_bar
       - id: by_category
-        title: Memory method × category
-        group_by: [memory_method, question_category]
+        title: Reader × memory method × category
+        group_by: [reader_display_name, memory_method, question_category]
         metrics: [locomo_f1, judge_score]
         plots:
           - kind: grouped_bar
             x: question_category
-            hue: memory_method
             y: locomo_f1
       - id: latency
         title: Reader × memory latency
@@ -121,6 +142,13 @@ experiments:
     notebook: notebooks/05_mem0_reader_2025_writers_analysis.ipynb
     role: writer_sweep
     family_from: writer
+    pretest:
+      n_cells: 6
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "Frozen gpt-4o-mini reader spend is small next to a full_context reader cell."
+        - "Teacher calls are 272 sessions; writer output is not the campaign driver."
     analyses:
       - id: by_writer_memory
         title: Writer × {teacher_session_summaries, teacher_graph}
@@ -128,13 +156,12 @@ experiments:
         plots:
           - kind: metrics_grouped_bar
       - id: by_category
-        title: Memory method × category
-        group_by: [memory_method, question_category]
+        title: Writer × memory method × category
+        group_by: [writer_model, memory_method, question_category]
         metrics: [locomo_f1, judge_score]
         plots:
           - kind: grouped_bar
             x: question_category
-            hue: memory_method
             y: locomo_f1
       - id: latency
         title: Writer × memory latency

@@ -10,15 +10,27 @@ NN_<frozen-axis>_<variable-axis>[_protocol|_analysis].ipynb
 |------|------------|------|
 | `01_results_analysis.ipynb` | — | Generic aggregate loader |
 | `02_mem0_reader_2024_writers_*` | retired | Claude 3.5 404; do not launch |
-| `03_2025_readers_full_context_*` | **1 smoke** | 2025 readers × `full_context`, 1 conversation |
-| `04_2025_readers_full_context_*` | **2 baseline** | Same readers × `{full_context, rag}` (Mem0-paper RAG), full LoCoMo |
-| `05_mem0_reader_2025_writers_*` | **3 writers** | Frozen `gpt-4o-mini` × 2025 `{summaries, graph}` teachers |
-| `06_2025_live_campaign_analysis.ipynb` | campaign concat | Family tables across available packs |
+| `03_2025_readers_full_context_*` | parked 1 smoke | 3-family readers × `full_context` (includes Claude) |
+| `04_2025_readers_full_context_*` | parked 2 baseline | 3-family readers × `{full_context, rag}` |
+| `05_mem0_reader_2025_writers_*` | parked 3 writers | Frozen `gpt-4o-mini` × 3-family teachers |
+| `06_2025_live_campaign_analysis.ipynb` | parked concat | `campaign_2025_live.yaml` |
+| `07_2025_readers_openai_deepseek_smoke_*` | **1 smoke** | GPT-5 vs DeepSeek-V3 × `full_context`, 1 conversation |
+| `08_2025_readers_openai_deepseek_*` | **2 baseline** | Same readers × `{full_context, rag}` |
+| `09_mem0_reader_2025_writers_openai_deepseek_*` | **3 writers** | Frozen `gpt-4o-mini` × `{GPT-5, DeepSeek-V3}` teachers |
+| `10_2025_openai_deepseek_campaign_analysis.ipynb` | campaign concat | Family tables across OpenAI vs DeepSeek packs |
+| `11_2026_readers_openai_deepseek_smoke_*` | 2026 smoke | GPT-5.6 Terra vs DeepSeek-V4 × `full_context`, 1 conversation |
+| `12_2026_readers_openai_deepseek_*` | 2026 baseline | Same readers × `{full_context, rag}` |
+| `13_mem0_reader_2026_writers_openai_deepseek_*` | 2026 writers | Frozen `gpt-4o-mini` × `{Terra, DeepSeek-V4}` teachers |
+| `14_2026_openai_deepseek_campaign_analysis.ipynb` | 2026 concat | Family tables across 2026 OpenAI vs DeepSeek packs |
 
-Analysis YAML: `configs/analysis/campaign_2025_live.yaml` (recipes only). Engines: `scripts/analysis/campaign_tables.py` + `campaign_plots.py`. After pulling aggregate:
+Year comparison: `python -m src.memorybench report configs/analysis/campaign_year_family.yaml` writes `experiments/_campaign/year_family/analysis/` (2024 vs 2025 family bars; 2026 appears when those packs are listed). Paper Table 2 and gpt-4o-mini clone scores are YAML `pins:`.
+
+Analysis notebooks are YAML wrappers with a **pre-test** (declared cells, hypotheses, priced volume estimate) and a **post-test** (finished-pack metrics + expected vs actual USD). Helpers: `notebook_pretest` / `notebook_posttest`. Do not put matplotlib or groupby in the notebook.
+
+Active analysis YAML: `configs/analysis/campaign_2025_openai_deepseek.yaml` (completed 2025). Next campaign: `configs/analysis/campaign_2026_openai_deepseek.yaml`. Same plot recipes as the parked `campaign_2025_live.yaml`. Cost pins: `configs/models/pricing.yaml`. Engines: `scripts/analysis/campaign_tables.py` + `campaign_plots.py` + `src/memorybench/analysis/cost.py`. After pulling aggregate:
 
 ```bash
-python -m src.memorybench report configs/analysis/campaign_2025_live.yaml
+python -m src.memorybench report configs/analysis/campaign_2026_openai_deepseek.yaml
 ```
 
-Operator copy-paste for 1→2→3: `docs/agent/RUNBOOK_2025_LIVE.md`.
+Operator copy-paste: `docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`. Completed 2025: `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`. Parked three-family: `docs/agent/RUNBOOK_2025_LIVE.md`.

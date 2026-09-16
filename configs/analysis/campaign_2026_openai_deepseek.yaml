@@ -1,0 +1,72 @@
+# Analysis plane for the 2026 budget campaign: GPT-5.6 Terra vs DeepSeek-V4.
+# Thinking-axis recipes: configs/analysis/openai_deepseek_thinking_axis.yaml
+#
+#   python -m src.memorybench report configs/analysis/campaign_2026_openai_deepseek.yaml
+#   python -m src.memorybench report configs/analysis/campaign_2026_openai_deepseek.yaml --experiment smoke
+includes:
+  - configs/analysis/campaign_2025_live.yaml
+  - configs/analysis/openai_deepseek_thinking_axis.yaml
+
+campaign:
+  id: 2026_openai_deepseek
+  title: 2026 OpenAI vs DeepSeek
+  notebook: notebooks/14_2026_openai_deepseek_campaign_analysis.ipynb
+  freeze_note: >
+    Same sandwich as 2025_openai_deepseek with 2026 readers/writers
+    (GPT-5.6 Terra, DeepSeek-V4) and matched thinking on/off. Frozen
+    answer prompt qa_mem0_v1 and judge gpt-4o-mini. Anthropic (Claude
+    Fable 5.1) is not in this matrix. Do not claim Mem0 paper Table 1–2 J.
+    Smoke is 5 questions.
+
+cost:
+  volume_from:
+    baseline: experiments/locomo-2025-readers-openai-deepseek
+    writers: experiments/locomo-mem0-reader-2025-writers-openai-deepseek
+  map_models:
+    gpt-5: gpt-5.6-terra
+    deepseek-chat: deepseek-v4-flash
+  scale:
+    smoke:
+      from_experiment: baseline
+      memory_methods: [full_context]
+  parked:
+    - id: claude_fable
+      display_name: Claude Fable 5.1
+      api_model_id: claude-fable-5-1
+      copy_from: gpt-5.6-terra
+
+experiments:
+  smoke:
+    name: locomo-2026-readers-openai-deepseek-smoke
+    pack: experiments/locomo-2026-readers-openai-deepseek-smoke
+    notebook: notebooks/11_2026_readers_openai_deepseek_smoke_analysis.ipynb
+    pretest:
+      n_cells: 4
+      n_questions: 5
+      scientific_claim: false
+      hypotheses:
+        - "Terra and DeepSeek-V4 each return 5 predictions at thinking off and on."
+        - "Smoke cost is well under $1 (2025 full_context volumes × 5/1986)."
+        - "Not a quality claim."
+  baseline:
+    name: locomo-2026-readers-openai-deepseek
+    pack: experiments/locomo-2026-readers-openai-deepseek
+    notebook: notebooks/12_2026_readers_openai_deepseek_analysis.ipynb
+    pretest:
+      n_cells: 8
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "Terra × full_context dominates (~$111 at pinned short-context rates; thinking-on is extra)."
+        - "DeepSeek-V4 Flash full_context stays on the order of $10 off-peak."
+  writers:
+    name: locomo-mem0-reader-2026-writers-openai-deepseek
+    pack: experiments/locomo-mem0-reader-2026-writers-openai-deepseek
+    notebook: notebooks/13_mem0_reader_2026_writers_openai_deepseek_analysis.ipynb
+    pretest:
+      n_cells: 8
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "Eight writer cells stay near the previous four-cell teacher spend × thinking; frozen mini reader is still small."
+        - "Fable 5.1 is parked: same volumes at $10/$50 would add ~$611."

@@ -250,9 +250,14 @@ def _teacher_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None)
     if thinking is None:
         thinking = _as_bool(tcfg.get("thinking"), DEFAULT_TEACHER_THINKING)
     budget = tcfg.get("thinking_budget_tokens", 1024)
+    max_tokens = int(tcfg.get("max_tokens", 512))
+    if overrides is not None:
+        teacher_max = getattr(overrides, "teacher_max_tokens", None)
+        if teacher_max is not None:
+            max_tokens = int(teacher_max)
     return {
         "temperature": float(tcfg.get("temperature", 0.0)),
-        "max_tokens": int(tcfg.get("max_tokens", 512)),
+        "max_tokens": max_tokens,
         "max_retries": int(tcfg.get("max_retries", 8)),
         "min_request_interval_s": float(tcfg.get("min_request_interval_s", 0.5)),
         "max_wait_s": float(tcfg.get("max_wait_s", 3600.0)),
@@ -572,6 +577,12 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         or "default_system_user"
     )
     reader_model = "mock" if reader_name.lower() == "mock" else model
+    reader_thinking = None
+    thinking_flag = getattr(overrides, "reader_thinking", None)
+    if thinking_flag == "on":
+        reader_thinking = True
+    elif thinking_flag == "off":
+        reader_thinking = False
     reader = get_reader(
         reader_name,
         model=reader_model,
@@ -581,6 +592,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
         max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
         message_layout=reader_message_layout,
+        thinking=reader_thinking,
     )
 
     conversations = load_conversations(data_path)
@@ -901,6 +913,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
     p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
     p.add_argument(
+        "--reader-thinking",
+        default=None,
+        choices=("on", "off"),
+        help="Answer-model thinking/reasoning (reader sweep). Frozen sandwich readers omit this.",
+    )
+    p.add_argument(
         "--message-layout",
         choices=("default_system_user", "mem0_system_only"),
         default=None,
@@ -933,6 +951,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=("on", "off"),
         help="Teacher thinking/reasoning (default: on). Frozen reader is unchanged.",
+    )
+    p.add_argument(
+        "--teacher-max-tokens",
+        type=int,
+        default=None,
+        help="Override teacher completion-token limit (not the frozen reader).",
     )
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)

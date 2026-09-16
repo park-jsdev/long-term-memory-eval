@@ -17,7 +17,13 @@ from scripts.analysis.campaign_plots import (
     write_grouped_bar,
     write_metrics_grouped_bar,
 )
-from scripts.analysis.campaign_tables import annotate_model_family, mean_table
+from scripts.analysis.campaign_tables import (
+    annotate_generation,
+    annotate_model_family,
+    mean_table,
+    sort_year_family_table,
+)
+from src.memorybench.analysis.cost import CostReport, render_cost
 from src.memorybench.analysis.load_campaign import (
     AnalysisSpec,
     CampaignConfig,
@@ -44,6 +50,7 @@ class ReportResult:
     out_dir: Path
     results: list[AnalysisResult]
     missing_packs: list[str] = field(default_factory=list)
+    cost: CostReport | None = None
 
 
 def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.DataFrame] | None:
@@ -57,6 +64,14 @@ def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.
     runs = pd.read_parquet(runs_path) if runs_path.is_file() else pd.DataFrame()
     examples = annotate_model_family(examples, ref.family_from)
     runs = annotate_model_family(runs, ref.family_from)
+    examples = annotate_generation(examples, ref.family_from)
+    runs = annotate_generation(runs, ref.family_from)
+    if not examples.empty and "result_source" not in examples.columns:
+        examples = examples.copy()
+        examples["result_source"] = "live"
+    if not runs.empty and "result_source" not in runs.columns:
+        runs = runs.copy()
+        runs["result_source"] = "live"
     return runs, examples
 
 
@@ -64,8 +79,20 @@ def render_analysis(
     spec: AnalysisSpec,
     df: pd.DataFrame,
     out_dir: Path,
+    pins: tuple[dict, ...] | list[dict] | None = None,
 ) -> AnalysisResult:
-    table = mean_table(df, list(spec.group_by), list(spec.metrics))
+    work = _prepare_frame(spec, df)
+    table = mean_table(work, list(spec.group_by), list(spec.metrics))
+    if spec.include_pins and pins:
+        pin_table = _pins_as_table(spec, pins)
+        if not pin_table.empty:
+            table = (
+                pd.concat([table, pin_table], ignore_index=True)
+                if not table.empty
+                else pin_table
+            )
+    if not table.empty:
+        table = sort_year_family_table(table)
     if table.empty:
         return AnalysisResult(spec=spec, table=table, skipped="empty table")
     tables_dir = out_dir / "tables"
@@ -115,16 +142,27 @@ def _write_plot(
         )
     if kind == "grouped_bar":
         x_col = plot.x if plot.x in table.columns else (groups[-1] if groups else None)
-        hue_col = plot.hue if plot.hue in table.columns else (groups[0] if groups else None)
         y = plot.y if plot.y in metrics else (metrics[0] if metrics else None)
         if not x_col or not y:
             return None
-        if not hue_col or hue_col == x_col:
+        hue_parts = [g for g in groups if g != x_col]
+        if plot.hue and plot.hue in table.columns and plot.hue != x_col:
+            hue_parts = [plot.hue] + [g for g in hue_parts if g != plot.hue]
+        if not hue_parts:
             return write_bar(
                 table, x_col=x_col, metric=y, path=dest, title=spec.title
             )
+        plot_table = table
+        if len(hue_parts) == 1:
+            hue_col = hue_parts[0]
+        else:
+            hue_col = "_series"
+            plot_table = table.copy()
+            plot_table[hue_col] = (
+                plot_table[hue_parts].astype(str).agg(" × ".join, axis=1)
+            )
         return write_grouped_bar(
-            table,
+            plot_table,
             x_col=x_col,
             hue_col=hue_col,
             metric=y,
@@ -153,26 +191,49 @@ def render_experiment(
         ref.pack / cfg.output_subdir
     )
     if loaded is None:
+        cost = render_cost(cfg, out_dir, root=root, experiment_id=experiment_id)
+        if cost is not None:
+            _write_summary(
+                out_dir, cfg, f"experiment {experiment_id} ({ref.name})", []
+            )
+            _append_cost_summary(out_dir / "SUMMARY.md", cost)
         return ReportResult(
             scope=f"experiment:{experiment_id}",
             out_dir=out_dir,
             results=[],
             missing_packs=[ref.name],
+            cost=cost,
         )
     _runs, examples = loaded
     results = [
-        render_analysis(spec, _source_frame(spec, _runs, examples), out_dir)
+        render_analysis(
+            spec,
+            _source_frame(spec, _runs, examples),
+            out_dir,
+            pins=cfg.pins if spec.include_pins else None,
+        )
         for spec in ref.analyses
     ]
     for spec in cfg.campaign_analyses:
         if experiment_id not in spec.experiments:
             continue
         results.append(
-            render_analysis(spec, _source_frame(spec, _runs, examples), out_dir)
+            render_analysis(
+                spec,
+                _source_frame(spec, _runs, examples),
+                out_dir,
+                pins=cfg.pins if spec.include_pins else None,
+            )
         )
     _write_summary(out_dir, cfg, f"experiment {experiment_id} ({ref.name})", results)
+    cost = render_cost(cfg, out_dir, root=root, experiment_id=experiment_id)
+    if cost is not None:
+        _append_cost_summary(out_dir / "SUMMARY.md", cost)
     return ReportResult(
-        scope=f"experiment:{experiment_id}", out_dir=out_dir, results=results
+        scope=f"experiment:{experiment_id}",
+        out_dir=out_dir,
+        results=results,
+        cost=cost,
     )
 
 
@@ -197,19 +258,27 @@ def render_campaign(
     results: list[AnalysisResult] = []
     for spec in cfg.campaign_analyses:
         parts = [frames[eid] for eid in spec.experiments if eid in frames]
-        if not parts:
+        df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        if df.empty and not (spec.include_pins and cfg.pins):
             results.append(
                 AnalysisResult(spec=spec, table=pd.DataFrame(), skipped="no packs")
             )
             continue
-        df = pd.concat(parts, ignore_index=True)
-        results.append(render_analysis(spec, df, out_dir))
+        results.append(
+            render_analysis(
+                spec, df, out_dir, pins=cfg.pins if spec.include_pins else None
+            )
+        )
     _write_summary(out_dir, cfg, f"campaign {cfg.id}", results, missing=missing)
+    cost = render_cost(cfg, out_dir, root=root, experiment_id=None)
+    if cost is not None:
+        _append_cost_summary(out_dir / "SUMMARY.md", cost)
     return ReportResult(
         scope=f"campaign:{cfg.id}",
         out_dir=out_dir,
         results=results,
         missing_packs=missing,
+        cost=cost,
     )
 
 
@@ -265,6 +334,56 @@ def _source_frame(
     return examples
 
 
+def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
+    """Apply category exclusion and YAML ``where`` before grouping."""
+    if df.empty:
+        return df
+    out = df
+    drop = _categories_to_drop(spec)
+    if drop and "question_category" in out.columns:
+        category = pd.to_numeric(out["question_category"], errors="coerce")
+        out = out[~category.isin(set(drop))]
+    return _apply_where(out, spec.where)
+
+
+def _categories_to_drop(spec: AnalysisSpec) -> tuple[int, ...]:
+    """Mem0 J / paper clone overalls skip category 5; category plots keep it."""
+    if "question_category" in spec.group_by:
+        return spec.exclude_question_categories
+    return spec.exclude_question_categories or (5,)
+
+
+def _apply_where(
+    df: pd.DataFrame, where: tuple[tuple[str, tuple[str, ...]], ...]
+) -> pd.DataFrame:
+    out = df
+    for col, values in where:
+        if col not in out.columns:
+            continue
+        out = out[out[col].astype(str).isin(values)]
+    return out
+
+
+def _pins_as_table(
+    spec: AnalysisSpec, pins: tuple[dict, ...] | list[dict]
+) -> pd.DataFrame:
+    frame = pd.DataFrame(list(pins))
+    if frame.empty:
+        return frame
+    frame = _apply_where(frame, spec.where)
+    groups = [c for c in spec.group_by if c in frame.columns]
+    metrics = [m for m in spec.metrics if m in frame.columns]
+    if frame.empty or not groups or not metrics:
+        return pd.DataFrame()
+    keep = list(groups) + list(metrics)
+    if "n" in frame.columns:
+        keep.append("n")
+    out = frame[keep].copy()
+    if "n" not in out.columns:
+        out["n"] = 1
+    return out
+
+
 def _write_summary(
     out_dir: Path,
     cfg: CampaignConfig,
@@ -301,3 +420,17 @@ def _write_summary(
     dest = out_dir / "SUMMARY.md"
     dest.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return dest
+
+
+def _append_cost_summary(summary_path: Path, cost: CostReport) -> None:
+    lines = ["", "## cost", ""]
+    for path in cost.csv_paths:
+        lines.append(f"table: `{path.as_posix()}`")
+    for path in cost.plot_paths:
+        lines.append(f"plot: `{path.as_posix()}`")
+    lines.append("")
+    if not cost.by_stage.empty:
+        lines.append(cost.by_stage.to_string(index=False))
+        lines.append("")
+    existing = summary_path.read_text(encoding="utf-8") if summary_path.is_file() else ""
+    summary_path.write_text(existing.rstrip() + "\n" + "\n".join(lines), encoding="utf-8")

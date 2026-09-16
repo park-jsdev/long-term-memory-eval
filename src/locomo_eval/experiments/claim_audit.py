@@ -17,16 +17,17 @@ from collections import defaultdict
 from typing import Any
 
 from ..fusion import relation_key
+from ..pricing import add_costs, estimate_usd
+from ..pricing import default_pricing
 
 PREVIEW_CHARS = 200
 
 # USD per 1M tokens. Rollup pins, not invoices. Unknown models stay token-only.
-PRICING_AS_OF = "2026-09-10"
-USD_PER_MILLION: dict[str, tuple[float, float]] = {
-    "gpt-4o-mini": (0.15, 0.60),
-    "gpt-4o": (2.50, 10.00),
-    "text-embedding-3-small": (0.02, 0.0),
-}
+# Source of truth: configs/models/pricing.yaml
+try:
+    PRICING_AS_OF = default_pricing().as_of
+except FileNotFoundError:
+    PRICING_AS_OF = "unknown"
 
 
 def sha256_text(text: str) -> str:
@@ -51,26 +52,16 @@ def _usage_tokens(usage: dict[str, Any] | None) -> tuple[int, int, int]:
     return prompt, completion, total
 
 
-def estimate_usd(model: str | None, prompt_tokens: int, completion_tokens: int) -> float | None:
-    """Pinned list-price USD for known OpenAI ids; ``None`` if the model is unpriced."""
-    if not model:
-        return None
-    rates = USD_PER_MILLION.get(str(model).strip())
-    if rates is None:
-        return None
-    prompt_rate, completion_rate = rates
-    return round(
-        (prompt_tokens * prompt_rate + completion_tokens * completion_rate) / 1_000_000.0,
-        6,
-    )
-
-
-def add_costs(*values: float | None) -> float | None:
-    """Sum known USD pins; ``None`` if every input was unpriced (not $0)."""
-    known = [v for v in values if v is not None]
-    if not known:
-        return None
-    return round(sum(known), 6)
+def _reasoning_tokens(usage: dict[str, Any] | None, *, fallback: Any = None) -> int:
+    """Thinking tokens from usage, else a call-level ``reasoning_tokens`` field."""
+    usage = usage or {}
+    raw = usage.get("reasoning_tokens")
+    if raw is None:
+        raw = fallback
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _session_id_key(session_id: Any) -> str:
@@ -153,6 +144,7 @@ def teacher_quality_stats(
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
+                "reasoning_tokens": 0,
                 "usd": None,
             },
         )
@@ -174,6 +166,9 @@ def teacher_quality_stats(
         rec["prompt_tokens"] += prompt
         rec["completion_tokens"] += completion
         rec["total_tokens"] += total
+        rec["reasoning_tokens"] += _reasoning_tokens(
+            call.get("usage"), fallback=call.get("reasoning_tokens")
+        )
 
     kept_by_teacher: dict[str, int] = defaultdict(int)
     n_proposed = 0
@@ -236,16 +231,18 @@ def cost_rollup(
 
     def _bucket(rows: list[dict[str, Any]], role: str) -> dict[str, Any]:
         """One cost bucket (reader / teacher / other) with per-model split."""
-        prompt = completion = total = 0
+        prompt = completion = total = reasoning = 0
         usd: float | None = 0.0
         any_priced = False
         by_model: dict[str, dict[str, Any]] = {}
         for row in rows:
             model = str(row.get("model") or "")
             p, c, t = _usage_tokens(row.get("usage"))
+            r = _reasoning_tokens(row.get("usage"), fallback=row.get("reasoning_tokens"))
             prompt += p
             completion += c
             total += t
+            reasoning += r
             rec = by_model.setdefault(
                 model or "(unknown)",
                 {
@@ -255,6 +252,7 @@ def cost_rollup(
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "total_tokens": 0,
+                    "reasoning_tokens": 0,
                     "usd": None,
                 },
             )
@@ -262,6 +260,7 @@ def cost_rollup(
             rec["prompt_tokens"] += p
             rec["completion_tokens"] += c
             rec["total_tokens"] += t
+            rec["reasoning_tokens"] += r
             priced = estimate_usd(model, p, c)
             if priced is not None:
                 any_priced = True
@@ -277,6 +276,7 @@ def cost_rollup(
             "prompt_tokens": prompt,
             "completion_tokens": completion,
             "total_tokens": total,
+            "reasoning_tokens": reasoning,
             "usd": usd,
             "by_model": by_model,
         }
@@ -293,7 +293,7 @@ def cost_rollup(
     return {
         "pricing_as_of": PRICING_AS_OF,
         "pricing_note": (
-            "USD uses pinned list prices for known OpenAI ids only. "
+            "USD uses pinned list prices from configs/models/pricing.yaml. "
             "Unknown models contribute tokens but usd=null. Not an invoice."
         ),
         "reader": reader,
@@ -305,6 +305,9 @@ def cost_rollup(
                 reader["completion_tokens"] + teacher["completion_tokens"] + extra["completion_tokens"]
             ),
             "total_tokens": reader["total_tokens"] + teacher["total_tokens"] + extra["total_tokens"],
+            "reasoning_tokens": (
+                reader["reasoning_tokens"] + teacher["reasoning_tokens"] + extra["reasoning_tokens"]
+            ),
             "usd": total_usd,
         },
     }
@@ -1125,10 +1128,13 @@ def render_summary_md(
         "## Cost rollup",
         "",
         f"- reader tokens: {cost.get('reader', {}).get('total_tokens')} "
-        f"(usd={cost.get('reader', {}).get('usd')})",
+        f"(usd={cost.get('reader', {}).get('usd')}; "
+        f"reasoning={cost.get('reader', {}).get('reasoning_tokens')})",
         f"- teacher tokens: {cost.get('teacher', {}).get('total_tokens')} "
-        f"(usd={cost.get('teacher', {}).get('usd')})",
-        f"- **total tokens:** {total.get('total_tokens')} · **usd:** {total.get('usd')}",
+        f"(usd={cost.get('teacher', {}).get('usd')}; "
+        f"reasoning={cost.get('teacher', {}).get('reasoning_tokens')})",
+        f"- **total tokens:** {total.get('total_tokens')} · **usd:** {total.get('usd')} "
+        f"· reasoning={total.get('reasoning_tokens')}",
         f"- pricing pins as of {cost.get('pricing_as_of')}; unknown models are token-only",
         "",
         ]
