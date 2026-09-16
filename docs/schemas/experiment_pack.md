@@ -41,6 +41,7 @@ audit_loader  →  compare / autorater / paper-vs-local
 |---------------|------|----------------|
 | `experiments/audit_layout.py` | Folder/file names only. No I/O. | dump and analysis |
 | `experiments/claim_audit.py` | Lineage, ranks, teacher quality, cost, attribution (call → role → claims), SUMMARY text | `audit_writer` |
+| `experiments/prompt_bundle.py` | Snapshot `prompts/` + `TRACE.md` (config → prompt → jsonl) | `run.py`, autorater CLI |
 | `experiments/audit_writer.py` | Create reader / teachers / graph / claim files | `run.py`, `memory_log.py`, autorater CLI |
 | `experiments/audit_loader.py` | Read a finished sandwich audit. No LLM. | `scripts/compare_full_runs.py`, `scripts/analysis/` |
 
@@ -59,12 +60,19 @@ path small.
 
 ```text
 experiments/<run_id>/
+  TRACE.md                     config → prompt → jsonl map
   SUMMARY.md                    human claim-audit report
   ATTRIBUTION.md                LLM call → role → claims (human)
   attribution.jsonl             same join (machine)
-  config.source.yaml            copy of the YAML file used
-  config.resolved.yaml          YAML + CLI overrides that actually ran
+  config.source.yaml            copy of the CLI `--config` file
+  config.resolved.yaml          loaded YAML + CLI overrides that actually ran
   cost.json                     token totals + pinned-USD rollup
+  prompts/                     snapshot copies (same tree as repo `prompts/`)
+    index.json
+    readers/
+    writers/
+    teachers/
+    autoraters/
   run_meta.json                 pins + audit_layout paths
   metrics.json                  overall string metrics
   predictions.jsonl             QA rows (compat copy at run root)
@@ -111,13 +119,14 @@ no teacher calls). `SUMMARY.md` and `cost.json` are written for every QA run.
 ## How to audit one claim
 
 1. `SUMMARY.md` — sandwich pins, cost, teacher quality, pointers.
-2. `ATTRIBUTION.md` / `attribution.jsonl` — each LLM call, its role, and claims it made.
-3. `memory/lineage.jsonl` — for a `question_id`, which items were injected and
+2. `TRACE.md` / `prompts/` — config include chain and snapshot prompts used.
+3. `ATTRIBUTION.md` / `attribution.jsonl` — each LLM call, its role, and claims it made.
+4. `memory/lineage.jsonl` — for a `question_id`, which items were injected and
    which teacher proposed them.
-4. `memory/teachers/sessions/` — the session text that teacher saw.
-5. `memory/teachers/fusion.jsonl` — `proposed_by` / `kept` for that triple.
-6. `memory/graph/ingest.jsonl` — MERGE / invalidate / skip_dup after fusion.
-7. `memory/retrieve_ranks.jsonl` — candidates that lost to the injected winners.
+5. `memory/teachers/sessions/` — the session text that teacher saw.
+6. `memory/teachers/fusion.jsonl` — `proposed_by` / `kept` for that triple.
+7. `memory/graph/ingest.jsonl` — MERGE / invalidate / skip_dup after fusion.
+8. `memory/retrieve_ranks.jsonl` — candidates that lost to the injected winners.
 
 ## Attribution helpers
 

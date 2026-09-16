@@ -482,9 +482,9 @@ class TestLiveTeacherRosterWiring(unittest.TestCase):
         from src.config import load_config
         from src.locomo_eval.run import _build_orchestrator, build_parser
 
-        cfg = load_config(ROOT / "configs" / "pooled_teacher_graph.yaml")
+        cfg = load_config(ROOT / "configs" / "writers" / "pooled_teacher_graph.yaml")
         args = build_parser().parse_args(
-            ["--config", str(ROOT / "configs" / "pooled_teacher_graph.yaml")]
+            ["--config", str(ROOT / "configs" / "writers" / "pooled_teacher_graph.yaml")]
         )
         seen = []
 
@@ -502,11 +502,11 @@ class TestLiveTeacherRosterWiring(unittest.TestCase):
         from src.config import load_config
         from src.locomo_eval.run import _build_orchestrator, build_parser
 
-        cfg = load_config(ROOT / "configs" / "fused_teacher_graph_resolve_top_voted.yaml")
+        cfg = load_config(ROOT / "configs" / "writers" / "fused_teacher_graph_resolve_top_voted.yaml")
         args = build_parser().parse_args(
             [
                 "--config",
-                str(ROOT / "configs" / "fused_teacher_graph_resolve_top_voted.yaml"),
+                str(ROOT / "configs" / "writers" / "fused_teacher_graph_resolve_top_voted.yaml"),
             ]
         )
         seen = []
@@ -524,11 +524,11 @@ class TestLiveTeacherRosterWiring(unittest.TestCase):
         from src.config import load_config
         from src.locomo_eval.run import _build_orchestrator, build_parser
 
-        cfg = load_config(ROOT / "configs" / "pooled_teacher_graph.yaml")
+        cfg = load_config(ROOT / "configs" / "writers" / "pooled_teacher_graph.yaml")
         args = build_parser().parse_args(
             [
                 "--config",
-                str(ROOT / "configs" / "pooled_teacher_graph.yaml"),
+                str(ROOT / "configs" / "writers" / "pooled_teacher_graph.yaml"),
                 "--reader",
                 "mock",
             ]
@@ -652,7 +652,7 @@ class TestMockPipelineTeacherGraphWritesAuditPack(unittest.TestCase):
             out = Path(tmp) / "experiments"
             argv = [
                 "--config",
-                str(ROOT / "configs" / "teacher_graph.yaml"),
+                str(ROOT / "configs" / "writers" / "teacher_graph.yaml"),
                 "--reader",
                 "mock",
                 "--teacher",

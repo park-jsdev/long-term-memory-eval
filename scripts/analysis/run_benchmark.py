@@ -8,7 +8,7 @@ Inputs are the same JSONL rows the LoCoMo scorer already uses. Outputs are
 table reports, histogram / box-whisker plots, latency plots, and a literature
 comparison against Chhikara et al. arXiv:2504.19413 Tables 1–2.
 
-    python -m src.locomo_eval.run --config configs/session_summaries.yaml --run-id my_run
+    python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --run-id my_run
     python -m scripts.analysis.run_benchmark --run experiments/my_run --autorater mock
     python -m scripts.analysis.run_benchmark --run experiments/my_run --model gpt-4o
 """
@@ -59,6 +59,10 @@ from src.locomo_eval.mem0_baselines import (
     table2_by_method,
 )
 from src.locomo_eval.experiments.audit_writer import write_autorater_traces
+from src.locomo_eval.experiments.prompt_bundle import (
+    find_run_dir_for_autorater,
+    write_prompt_bundle,
+)
 from src.locomo_eval.mem0_metrics import score_mem0_lexical, summarize_latencies
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.models import DEFAULT_AUTORATER_MODEL, resolve_model
@@ -882,7 +886,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--out", default=None, help="Output directory (default: <run>/autorater)")
     p.add_argument(
         "--config",
-        default="configs/autorater.yaml",
+        default="configs/autoraters/mem0_gpt-4o-mini.yaml",
         help="Autorater YAML (model, prompt, skip_category)",
     )
     p.add_argument("--autorater", default=None, help="openai | mock (overrides YAML provider)")
@@ -939,6 +943,13 @@ def main(argv: list[str] | None = None) -> None:
         our_label=args.label,
         prompt_version=Path(str(prompt_path or "autorater_mem0_v1")).stem,
     )
+    run_pack = find_run_dir_for_autorater(out_dir)
+    if run_pack is not None:
+        write_prompt_bundle(
+            run_pack,
+            {"autorater": {"prompt_path": str(prompt_path or "prompts/autoraters/autorater_mem0_v1.txt")}},
+            merge=True,
+        )
     metrics = result["summary"]["metrics"]
     print("Wrote", result["out_dir"])
     score_name = "mock sanity (not J)" if provider == "mock" else "J"

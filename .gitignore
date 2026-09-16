@@ -2,6 +2,12 @@
 .env
 .env.*
 !.env.example
+# Service-account keys / certs, in case one is ever downloaded into the tree
+*.pem
+*.p12
+*-key.json
+service-account*.json
+gcloud-*.json
 
 # --- Python / env ---
 __pycache__/
@@ -39,12 +45,33 @@ outputs/
 # LLM response-hash cache was removed; keep the name ignored if a leftover appears
 experiments/cache/
 
-# Optional local notebooks outputs (keep .ipynb source if intentionally tracked)
+# --- Third-party literature (copyright: cite, do not redistribute) ---
+papers/
+
+# --- Local development history (not needed to reproduce the setup) ---
+# Per-change snapshots of AGENTS/HUMANS; useful locally, noise in a shared repo
+docs/agent/traces/
+# Working specs and the planning matrix; README + docs/REPRODUCE.md are the
+# published contracts, and these drift from them between releases
+docs/agent/SPEC_*.md
+docs/agent/EXPERIMENT_MATRIX_v1.md
+docs/agent/HUMANS.md
+docs/reflections/
+# Point-in-time status of an in-flight campaign, not a reproduction input
+docs/reports/claim_audit_status.md
+
+# --- Notebooks ---
+# Notebooks carry local paths, cloud ids, and executed output. Keep them local
+# by default; force-add the specific ones backing a reported result:
+#   git add -f notebooks/06_2025_live_campaign_analysis.ipynb
+notebooks/*
+!notebooks/README.md
 .ipynb_checkpoints/
 
 # --- IDE / OS ---
 .idea/
 .vscode/
+.cursor/
 *.swp
 *~
 .DS_Store

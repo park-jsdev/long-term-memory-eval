@@ -1,0 +1,60 @@
+# List prices for campaign cost analysis (not an invoice).
+# USD per 1M tokens. Unknown API ids stay token-only (usd=null).
+# Peak rates apply only when cost.scenario: peak.
+#
+# Sources (as of pricing_as_of):
+#   OpenAI: https://developers.openai.com/api/docs/pricing
+#   DeepSeek: https://api-docs.deepseek.com/quick_start/pricing
+#   Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
+
+pricing_as_of: "2026-09-16"
+note: >
+  Standard short-context list prices, cache-miss, no Batch/Flex.
+  DeepSeek peak is weekday UTC windows; off-peak is half.
+
+models:
+  gpt-4o-mini:
+    input: 0.15
+    output: 0.60
+  gpt-4o:
+    input: 2.50
+    output: 10.00
+  gpt-5:
+    input: 1.25
+    output: 10.00
+  gpt-5.6-terra:
+    input: 2.00
+    output: 12.00
+  gpt-5.6-sol:
+    input: 4.00
+    output: 20.00
+  gpt-5.6-luna:
+    input: 0.20
+    output: 1.20
+  text-embedding-3-small:
+    input: 0.02
+    output: 0.0
+  deepseek-chat:
+    input: 0.27
+    output: 1.10
+    notes: "2025 V3-era pin for deepseek-chat cells. Hosted alias later moved."
+  deepseek-v4-flash:
+    input: 0.15
+    output: 0.60
+    peak_input: 0.30
+    peak_output: 1.20
+  deepseek-v4:
+    input: 0.15
+    output: 0.60
+    peak_input: 0.30
+    peak_output: 1.20
+  claude-sonnet-4-5:
+    input: 3.00
+    output: 15.00
+  claude-sonnet-4-5-20250929:
+    input: 3.00
+    output: 15.00
+  claude-fable-5-1:
+    input: 10.00
+    output: 50.00
+    notes: "Parked 2026 third family. Adaptive thinking always on."

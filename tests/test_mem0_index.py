@@ -446,19 +446,19 @@ class TestDefaultYamlPinsMem0ReaderAndPrompt(unittest.TestCase):
         from src.config import load_config
 
         for rel in (
-            "configs/mem0_baseline.yaml",
-            "configs/raw_chunks.yaml",
-            "configs/session_summaries.yaml",
-            "configs/mem0.yaml",
-            "configs/mem0g.yaml",
-            "configs/teacher_graph.yaml",
-            "configs/pooled_teacher_graph.yaml",
-            "configs/fused_teacher_graph.yaml",
+            "configs/presets/mem0_baseline.yaml",
+            "configs/writers/raw_chunks.yaml",
+            "configs/writers/session_summaries.yaml",
+            "configs/writers/mem0.yaml",
+            "configs/writers/mem0g.yaml",
+            "configs/writers/teacher_graph.yaml",
+            "configs/writers/pooled_teacher_graph.yaml",
+            "configs/writers/fused_teacher_graph.yaml",
         ):
             cfg = load_config(ROOT / rel)
             self.assertEqual(cfg["reader"]["model"], "gpt-4o-mini", rel)
-            self.assertEqual(cfg["pipeline"]["prompt_path"], "prompts/qa_mem0_v1.txt", rel)
-        mem0 = load_config(ROOT / "configs/mem0.yaml")
+            self.assertEqual(cfg["pipeline"]["prompt_path"], "prompts/readers/qa_mem0_v1.txt", rel)
+        mem0 = load_config(ROOT / "configs/writers/mem0.yaml")
         self.assertEqual(mem0["mem0"]["extract"]["model"], "gpt-4o-mini")
         self.assertEqual(int(mem0["mem0"]["top_k"]), 30)
 

@@ -1,0 +1,10 @@
+# Cloud Run overlay for 2025 readers × {full_context, rag} (full LoCoMo, 6 cells).
+#   $env:EXPERIMENT_YAML = "configs/experiments/2025_readers_full_context_gcs.yaml"
+includes:
+  - configs/experiments/2025_readers_full_context.yaml
+
+storage:
+  backend: gcs
+  # Bucket comes from $MEMORYBENCH_BUCKET so this config stays account-agnostic.
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

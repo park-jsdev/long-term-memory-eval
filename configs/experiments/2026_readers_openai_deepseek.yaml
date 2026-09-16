@@ -1,0 +1,19 @@
+# 2026 readers: GPT-5.6 Terra vs DeepSeek-V4 (Flash API id).
+# Same sandwich as 2025_readers_openai_deepseek.yaml (inherits thinking on/off).
+# Cartesian: 2 readers × {full_context, rag} × {off, on} = 8 cells.
+#
+#   python -m src.memorybench write-manifest configs/experiments/2026_readers_openai_deepseek.yaml
+# Cloud: configs/experiments/2026_readers_openai_deepseek_gcs.yaml
+# Smoke: configs/experiments/2026_readers_openai_deepseek_smoke.yaml
+# Analysis: configs/analysis/campaign_2026_openai_deepseek.yaml
+# Operator: docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md
+includes:
+  - configs/experiments/2025_readers_openai_deepseek.yaml
+
+experiment:
+  name: locomo-2026-readers-openai-deepseek
+
+matrix:
+  reader:
+    - catalog: gpt-5.6-terra
+    - catalog: deepseek-v4

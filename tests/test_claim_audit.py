@@ -205,6 +205,35 @@ class TestTeacherQualityAndCost(unittest.TestCase):
         self.assertEqual(cost["reader"]["usd"], 0.15)
         self.assertEqual(cost["total"]["usd"], 0.15)
 
+    def test_cost_rollup_sums_reasoning_tokens_from_usage(self):
+        cost = cost_rollup(
+            reader_traces=[
+                {
+                    "model": "gpt-5",
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 20,
+                        "total_tokens": 30,
+                        "reasoning_tokens": 8,
+                    },
+                }
+            ],
+            teacher_calls=[
+                {
+                    "model": "gpt-5",
+                    "reasoning_tokens": 40,
+                    "usage": {
+                        "prompt_tokens": 5,
+                        "completion_tokens": 50,
+                        "total_tokens": 55,
+                    },
+                }
+            ],
+        )
+        self.assertEqual(cost["reader"]["reasoning_tokens"], 8)
+        self.assertEqual(cost["teacher"]["reasoning_tokens"], 40)
+        self.assertEqual(cost["total"]["reasoning_tokens"], 48)
+
     def test_ranked_candidates_sets_rank_and_selected(self):
         rows = ranked_candidates(
             [{"item_id": "a", "score": 0.9}, {"item_id": "b", "score": 0.1}],

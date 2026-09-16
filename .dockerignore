@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+experiments
+data/raw
+data/processed
+**/__pycache__
+.pytest_cache
+.venv
+*.egg-info
+docs/agent/traces
+notebooks

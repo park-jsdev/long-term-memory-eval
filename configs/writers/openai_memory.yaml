@@ -1,0 +1,19 @@
+# Privileged extract-all / retrieve-all (paper OpenAI-memory protocol clone).
+#   python -m src.locomo_eval.openai_memory.run_index --config configs/writers/openai_memory.yaml --run-id openai_memory_locomo10
+includes:
+  - configs/stacks/qa_default.yaml
+
+pipeline:
+  memory: openai_memory
+
+openai_memory:
+  index_run_id: openai_memory_locomo10
+  extract:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.0
+    max_tokens: 2048
+    max_retries: 8
+    min_request_interval_s: 0.5
+    max_wait_s: 3600
+    prompt_path: prompts/writers/openai_memory_extract_v1.txt

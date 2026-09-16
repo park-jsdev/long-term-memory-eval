@@ -1,0 +1,12 @@
+# Deterministic HLD (i) write-index (no LLM).
+#   python -m src.locomo_eval.preprocess.run_index --config configs/writers/preprocess.yaml --run-id locomo_preprocess
+includes:
+  - configs/data/locomo10.yaml
+  - configs/run/local_experiments.yaml
+
+preprocess:
+  index_run_id: locomo_preprocess
+  top_k: null
+
+run:
+  run_id: locomo_preprocess

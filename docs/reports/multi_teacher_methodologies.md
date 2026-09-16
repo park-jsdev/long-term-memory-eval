@@ -10,7 +10,7 @@ One-page overview of how teachers, pooling, and fusion fit in the LoCoMo sandwic
 |-------|-------------------|------------|
 | **Top** | Fixed | LoCoMo conversations + questions (`data/raw/locomo10.json`) |
 | **Middle** | **Variable** | How memory text is built (condition id in YAML) |
-| **Bottom** | Fixed (for fair memory comparisons) | Answer prompt (`prompts/qa_mem0_v1.txt`), reader (`gpt-4o-mini`), string metrics + Mem0 autorater |
+| **Bottom** | Fixed (for fair memory comparisons) | Answer prompt (`prompts/readers/qa_mem0_v1.txt`), reader (`gpt-4o-mini`), string metrics + Mem0 autorater |
 
 Change only one middle variable per experimental claim. Reader-model or prompt swaps are a **separate** axis (`compare_cross_model.py`).
 
@@ -80,7 +80,7 @@ TeacherOrchestrator._propose()
 
 **Thinking default:** on for teachers (`teacher.thinking: true`). Ping forces off. Reader stays unchanged.
 
-**Prompts:** `prompts/teacher_graph_v1.txt` (graph), `prompts/teacher_session_v1.txt` (summaries).
+**Prompts:** `prompts/teachers/teacher_graph_v1.txt` (graph), `prompts/teachers/teacher_session_v1.txt` (summaries).
 
 ### Read path (frozen for memory comparisons)
 
@@ -127,12 +127,12 @@ Per-relation `confidence` in teacher JSON is optional; default weight = 1.0.
 
 **Runnable configs** (each uses `memory: fused_teacher_graph` with a different `orchestrator.fusion`):
 
-- `configs/fused_teacher_graph.yaml` — `majority_vote` (baseline)
-- `configs/fused_teacher_graph_resolve_top_voted.yaml`
-- `configs/fused_teacher_graph_resolve_first.yaml`
-- `configs/fused_teacher_graph_resolve_random.yaml`
-- `configs/fused_teacher_graph_resolve_round_robin.yaml`
-- `configs/fused_teacher_graph_resolve_confidence.yaml`
+- `configs/writers/fused_teacher_graph.yaml` — `majority_vote` (baseline)
+- `configs/writers/fused_teacher_graph_resolve_top_voted.yaml`
+- `configs/writers/fused_teacher_graph_resolve_first.yaml`
+- `configs/writers/fused_teacher_graph_resolve_random.yaml`
+- `configs/writers/fused_teacher_graph_resolve_round_robin.yaml`
+- `configs/writers/fused_teacher_graph_resolve_confidence.yaml`
 
 ---
 
@@ -180,20 +180,20 @@ pip install -r requirements.txt
 python scripts/fetch_locomo.py
 
 # Mock smoke (no API)
-python -m src.locomo_eval.run --config configs/teacher_graph.yaml \
+python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml \
   --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml \
+python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml \
   --reader mock --teacher mock --max-questions 3 --run-id smoke_pooled
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml \
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml \
   --reader mock --teacher mock --max-questions 3 --run-id smoke_fused
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_voted.yaml \
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml \
   --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
 
 # Provider plumbing (live keys in .env)
 python -m src.locomo_eval.ping_teachers
 
 # Live run (costly) — example
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_first.yaml \
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_first.yaml \
   --run-id fused_resolve_first_locomo10
 
 # Unit tests

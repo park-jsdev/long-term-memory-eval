@@ -11,19 +11,23 @@ removed (OSS Cypher DELETE).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Callable
 
-from ..prompts import load_prompt_template
+from ..prompts import (
+    MEM0G_CONFLICT_V1,
+    MEM0G_ENTITIES_V1,
+    MEM0G_RELATIONS_V1,
+    ROOT,
+    load_prompt_template,
+)
 from ..readers import OpenAIChatCaller
 from .embeddings import Embedder, cosine_similarity
 from .json_util import parse_json_object
 from .schemas import GraphEdge, GraphNode
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_ENTITIES_PROMPT = ROOT / "prompts" / "mem0g_entities_v1.txt"
-DEFAULT_RELATIONS_PROMPT = ROOT / "prompts" / "mem0g_relations_v1.txt"
-DEFAULT_CONFLICT_PROMPT = ROOT / "prompts" / "mem0g_conflict_v1.txt"
+DEFAULT_ENTITIES_PROMPT = ROOT / MEM0G_ENTITIES_V1
+DEFAULT_RELATIONS_PROMPT = ROOT / MEM0G_RELATIONS_V1
+DEFAULT_CONFLICT_PROMPT = ROOT / MEM0G_CONFLICT_V1
 
 EntityExtractor = Callable[[str, str], list[dict[str, str]]]
 RelationExtractor = Callable[[str, list[dict[str, str]], str], list[dict[str, str]]]

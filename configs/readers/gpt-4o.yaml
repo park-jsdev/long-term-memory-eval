@@ -1,0 +1,8 @@
+reader:
+  provider: openai
+  model: gpt-4o
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600

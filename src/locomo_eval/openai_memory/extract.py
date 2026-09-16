@@ -12,14 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from ..models import resolve_model
-from ..prompts import load_prompt_template
+from ..prompts import OPENAI_MEMORY_EXTRACT_V1, ROOT, load_prompt_template
 from ..readers import OpenAIChatCaller
 from ..schemas import Conversation
 
 SCHEMA_VERSION = "openai_memory_index.v1"
 
-ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_EXTRACT_PROMPT = ROOT / "prompts" / "openai_memory_extract_v1.txt"
+DEFAULT_EXTRACT_PROMPT = ROOT / OPENAI_MEMORY_EXTRACT_V1
 
 
 @dataclass
@@ -90,7 +89,7 @@ class MockOpenAIMemoryExtractor(OpenAIMemoryExtractor):
 
 
 class LiveOpenAIMemoryExtractor(OpenAIMemoryExtractor):
-    """Chat Completions extract using prompts/openai_memory_extract_v1.txt."""
+    """Chat Completions extract using prompts/writers/openai_memory_extract_v1.txt."""
 
     provider = "openai"
 

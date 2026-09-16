@@ -10,8 +10,8 @@ overall LoCoMo F1 bars (colors = conditions), boxplot, and histograms.
 ``--a`` / ``--b`` may be a run directory or a ``predictions.jsonl`` path.
 Paths are resolved from cwd and the repo root.
 
-    python -m src.locomo_eval.run --config configs/raw_chunks.yaml --reader mock --max-questions 5 --run-id cmp_raw_chunks
-    python -m src.locomo_eval.run --config configs/session_summaries.yaml --reader mock --max-questions 5 --run-id cmp_session_summaries
+    python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --reader mock --max-questions 5 --run-id cmp_raw_chunks
+    python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --reader mock --max-questions 5 --run-id cmp_session_summaries
     python -m scripts.analysis.compare_predictions --a cmp_raw_chunks --b cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
 """
 

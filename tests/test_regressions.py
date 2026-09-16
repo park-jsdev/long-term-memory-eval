@@ -55,18 +55,18 @@ class TestMem0ParityBaselineConfig(unittest.TestCase):
     def test_cli_default_selects_mem0_baseline_config(self):
         self.assertEqual(
             build_parser().parse_args([]).config,
-            "configs/mem0_baseline.yaml",
+            "configs/presets/mem0_baseline.yaml",
         )
 
     def test_baseline_pins_released_mem0_reader_prompt_and_message_layout(self):
-        cfg = load_config(ROOT / "configs" / "mem0_baseline.yaml")
+        cfg = load_config(ROOT / "configs" / "presets" / "mem0_baseline.yaml")
         self.assertEqual(cfg["reader"]["model"], "gpt-4o-mini")
         self.assertEqual(cfg["reader"]["temperature"], 0.0)
         self.assertIsNone(cfg["reader"]["max_tokens"])
         self.assertEqual(
             cfg["reader"]["message_layout"], READER_MESSAGE_LAYOUT_MEM0
         )
-        self.assertEqual(cfg["pipeline"]["prompt_path"], "prompts/qa_mem0_v1.txt")
+        self.assertEqual(cfg["pipeline"]["prompt_path"], "prompts/readers/qa_mem0_v1.txt")
         prompt = (ROOT / cfg["pipeline"]["prompt_path"]).read_text(encoding="utf-8")
         self.assertEqual(
             hashlib.sha256(prompt.replace("\r\n", "\n").encode("utf-8")).hexdigest(),
@@ -81,7 +81,7 @@ class TestMem0ParityBaselineConfig(unittest.TestCase):
         )
 
     def test_autorater_config_pins_released_mem0_judge(self):
-        cfg = load_config(ROOT / "configs" / "autorater.yaml")
+        cfg = load_config(ROOT / "configs" / "autoraters" / "mem0_gpt-4o-mini.yaml")
         self.assertEqual(cfg["autorater"]["model"], "gpt-4o-mini")
         self.assertEqual(cfg["autorater"]["temperature"], 0.0)
         self.assertIsNone(cfg["autorater"]["max_tokens"])
@@ -98,7 +98,7 @@ class TestMem0ParityBaselineConfig(unittest.TestCase):
             args = build_parser().parse_args(
                 [
                     "--config",
-                    str(ROOT / "configs" / "mem0_baseline.yaml"),
+                    str(ROOT / "configs" / "presets" / "mem0_baseline.yaml"),
                     "--data",
                     str(data_path),
                     "--reader",
@@ -106,7 +106,7 @@ class TestMem0ParityBaselineConfig(unittest.TestCase):
                     "--model",
                     "gpt-4.1-mini",
                     "--prompt",
-                    str(ROOT / "prompts" / "qa_v1.txt"),
+                    str(ROOT / "prompts" / "readers" / "qa_v1.txt"),
                     "--temperature",
                     "0.25",
                     "--max-tokens",
@@ -131,24 +131,24 @@ class TestMem0ParityBaselineConfig(unittest.TestCase):
             self.assertEqual(meta["max_tokens"], 17)
             self.assertEqual(meta["message_layout"], "default_system_user")
 
-            unchanged = load_config(ROOT / "configs" / "mem0_baseline.yaml")
+            unchanged = load_config(ROOT / "configs" / "presets" / "mem0_baseline.yaml")
             self.assertEqual(unchanged["reader"]["model"], "gpt-4o-mini")
-            self.assertEqual(unchanged["pipeline"]["prompt_path"], "prompts/qa_mem0_v1.txt")
+            self.assertEqual(unchanged["pipeline"]["prompt_path"], "prompts/readers/qa_mem0_v1.txt")
 
     def test_compare_infers_mem0_prompt_from_run_metadata(self):
         packs = [
-            {"meta": {"prompt_path": "prompts/qa_mem0_v1.txt"}},
-            {"meta": {"prompt_path": "prompts/qa_mem0_v1.txt"}},
+            {"meta": {"prompt_path": "prompts/readers/qa_mem0_v1.txt"}},
+            {"meta": {"prompt_path": "prompts/readers/qa_mem0_v1.txt"}},
         ]
         self.assertEqual(
             resolve_prompt_path(packs),
-            Path("prompts/qa_mem0_v1.txt"),
+            Path("prompts/readers/qa_mem0_v1.txt"),
         )
 
     def test_compare_rejects_runs_with_different_prompt_paths(self):
         packs = [
-            {"meta": {"prompt_path": "prompts/qa_mem0_v1.txt"}},
-            {"meta": {"prompt_path": "prompts/qa_v1.txt"}},
+            {"meta": {"prompt_path": "prompts/readers/qa_mem0_v1.txt"}},
+            {"meta": {"prompt_path": "prompts/readers/qa_v1.txt"}},
         ]
         with self.assertRaisesRegex(ValueError, "different prompt paths"):
             resolve_prompt_path(packs)
@@ -216,7 +216,7 @@ def _cfg(*, data_path: Path, memory: str) -> dict:
         "data": {"raw_path": str(data_path), "locomo_commit": "regression-lock"},
         "pipeline": {
             "memory": memory,
-            "prompt_path": str(ROOT / "prompts" / "qa_v1.txt"),
+            "prompt_path": str(ROOT / "prompts" / "readers" / "qa_v1.txt"),
             "max_questions": None,
         },
         "reader": {
@@ -480,7 +480,7 @@ class TestCompareAndOfflineEvaluateAfterTwoPipelineRuns(unittest.TestCase):
             raw = _run_one(root / "raw", run_id="raw", memory="raw_chunks")
             summ = _run_one(root / "summaries", run_id="summaries", memory="session_summaries")
             packs = [load_pack(raw), load_pack(summ)]
-            paired = pair_analysis(packs, ROOT / "prompts" / "qa_v1.txt")
+            paired = pair_analysis(packs, ROOT / "prompts" / "readers" / "qa_v1.txt")
             self.assertEqual(paired["n_common"], 1)
             self.assertEqual(paired["fraction_same_memory_text"], 0.0)
             self.assertNotIn("fraction_same_llm_request_hash", paired)

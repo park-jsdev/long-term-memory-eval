@@ -1,0 +1,188 @@
+# Pinned model identities for the longitudinal matrix.
+# Fill model_snapshot before claiming a live cell is reproducible.
+# API aliases (gpt-5.6, deepseek-chat, claude-*-latest) must not be the only pin.
+
+models:
+  gpt-4o:
+    display_name: GPT-4o
+    provider: openai
+    family: openai
+    generation: 2024
+    api_model_id: gpt-4o-2024-08-06
+    model_snapshot: gpt-4o-2024-08-06
+    status: runnable
+
+  gpt-5:
+    display_name: GPT-5
+    provider: openai
+    family: openai
+    generation: 2025
+    api_model_id: gpt-5
+    model_snapshot: TO_CONFIRM
+    notes: >
+      Hosted gpt-5 rejects reasoning_effort=none; locomo_eval sends minimal.
+      Catalog teacher: is the default when matrix.thinking is absent (parked
+      three-family). OpenAI vs DeepSeek campaigns set matrix.thinking and
+      override these knobs (off 8192 / on 32768).
+    status: runnable
+    teacher:
+      thinking: false
+      max_tokens: 8192
+
+  gpt-5.6-sol:
+    display_name: GPT-5.6 Sol
+    provider: openai
+    family: openai
+    generation: 2026
+    api_model_id: gpt-5.6-sol
+    model_snapshot: TO_CONFIRM
+    status: runnable
+    teacher:
+      thinking: false
+      max_tokens: 8192
+
+  gpt-5.6-terra:
+    display_name: GPT-5.6 Terra
+    provider: openai
+    family: openai
+    generation: 2026
+    api_model_id: gpt-5.6-terra
+    model_snapshot: TO_CONFIRM
+    notes: "Frozen reader uses reasoning_effort=none (accepted on 5.6). List price 2026-07-30: $2 / $12 per 1M (short context)."
+    status: runnable
+    teacher:
+      thinking: false
+      max_tokens: 8192
+
+  gpt-4o-mini:
+    display_name: GPT-4o mini
+    provider: openai
+    family: openai
+    generation: 2024
+    api_model_id: gpt-4o-mini
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  claude-3-5-sonnet:
+    display_name: Claude 3.5 Sonnet
+    provider: anthropic
+    family: anthropic
+    generation: 2024
+    api_model_id: claude-3-5-sonnet-20241022
+    model_snapshot: claude-3-5-sonnet-20241022
+    notes: "Retired from the Anthropic API on 2025-10-28 (404 not_found). Do not launch."
+    status: to_confirm
+
+  claude-sonnet-4:
+    display_name: Claude Sonnet 4
+    provider: anthropic
+    family: anthropic
+    generation: 2025
+    api_model_id: claude-sonnet-4-5
+    model_snapshot: TO_CONFIRM
+    notes: "Using Sonnet 4.5 as the 2025 pin until a dated Sonnet 4 snapshot is chosen."
+    status: to_confirm
+
+  claude-sonnet-4-5:
+    display_name: Claude Sonnet 4.5
+    provider: anthropic
+    family: anthropic
+    generation: 2025
+    api_model_id: claude-sonnet-4-5-20250929
+    model_snapshot: claude-sonnet-4-5-20250929
+    status: runnable
+
+  claude-sonnet-5:
+    display_name: Claude Sonnet 5
+    provider: anthropic
+    family: anthropic
+    generation: 2026
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  deepseek-v2.5:
+    display_name: DeepSeek-V2.5
+    provider: deepseek
+    family: deepseek
+    generation: 2024
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    notes: "Hosted DeepSeek no longer serves V2.5; deepseek-chat is a moving alias (now V3/V4). Do not launch this cell until a dated V2.5 id exists."
+    status: to_confirm
+
+  deepseek-v3:
+    display_name: DeepSeek-V3
+    provider: deepseek
+    family: deepseek
+    generation: 2025
+    api_model_id: deepseek-chat
+    model_snapshot: TO_CONFIRM
+    notes: >
+      Hosted alias historically V3. After 2026-07-24 it routes to flash with
+      thinking off unless extra_body.thinking type=enabled. If 404, swap to a
+      current DeepSeek chat id before relaunch.
+    status: runnable
+
+  deepseek-v4:
+    display_name: DeepSeek-V4
+    provider: deepseek
+    family: deepseek
+    generation: 2026
+    api_model_id: deepseek-v4-flash
+    model_snapshot: TO_CONFIRM
+    notes: >
+      2026 chat pin. Hosted id deepseek-v4-flash is still accepted and served
+      as DeepSeek-V4.1-Flash at Flash list prices. deepseek-chat is retired.
+    status: runnable
+
+  deepseek-v4-pro:
+    display_name: DeepSeek-V4 Pro
+    provider: deepseek
+    family: deepseek
+    generation: 2026
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+
+  deepseek-v4-flash:
+    display_name: DeepSeek V4 Flash
+    provider: deepseek
+    family: deepseek
+    generation: 2026
+    api_model_id: deepseek-v4-flash
+    model_snapshot: TO_CONFIRM
+    status: runnable
+
+  gpt-6-astra:
+    display_name: GPT-6 Astra
+    provider: openai
+    family: openai
+    generation: 2026-frontier
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm
+    teacher:
+      thinking: false
+      max_tokens: 8192
+
+  claude-fable:
+    display_name: Claude Fable 5.1
+    provider: anthropic
+    family: anthropic
+    generation: 2026-frontier
+    api_model_id: claude-fable-5-1
+    model_snapshot: TO_CONFIRM
+    notes: >
+      List $10 / $50 per 1M (cache read $0.25). Adaptive thinking always on.
+      Not in the 2026 OpenAI vs DeepSeek matrix; costed only as a parked third family.
+    status: to_confirm
+
+  claude-opus-5:
+    display_name: Claude Opus 5
+    provider: anthropic
+    family: anthropic
+    generation: 2026-frontier
+    api_model_id: TO_CONFIRM
+    model_snapshot: TO_CONFIRM
+    status: to_confirm

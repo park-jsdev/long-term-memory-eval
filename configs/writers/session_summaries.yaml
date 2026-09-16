@@ -1,0 +1,7 @@
+# LoCoMo-provided session summaries.
+#   python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --run-id ...
+includes:
+  - configs/stacks/qa_default.yaml
+
+pipeline:
+  memory: session_summaries

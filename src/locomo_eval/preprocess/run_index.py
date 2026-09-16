@@ -40,8 +40,8 @@ from src.locomo_eval.preprocess.session_documents import build_session_documents
 
 
 DEFAULT_EVAL_CONFIGS = (
-    "configs/raw_chunks.yaml",
-    "configs/session_summaries.yaml",
+    "configs/writers/raw_chunks.yaml",
+    "configs/writers/session_summaries.yaml",
 )
 
 
@@ -186,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional --eval-questions runs dump-backed sanity memories."
         )
     )
-    p.add_argument("--config", default="configs/preprocess.yaml")
+    p.add_argument("--config", default="configs/writers/preprocess.yaml")
     p.add_argument("--data", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)

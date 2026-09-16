@@ -100,7 +100,7 @@ def resolve_predictions_jsonl(path: str | Path, *, repo_root: Path | None = None
     raise FileNotFoundError(
         f"No predictions found for {path!s}. Tried: {tried}. "
         f"Create a run pack first, for example:\n"
-        f"  python -m src.locomo_eval.run --config configs/raw_chunks.yaml "
+        f"  python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml "
         f"--reader mock --max-questions 5 --run-id {hint_id}"
     )
 

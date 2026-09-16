@@ -48,7 +48,7 @@ def _args(tmp: Path, **kwargs) -> Namespace:
     data.write_text(json.dumps([MINI]), encoding="utf-8")
     defaults = dict(
         method="full_context",
-        config=str(ROOT / "configs" / "full_context.yaml"),
+        config=str(ROOT / "configs" / "writers" / "full_context.yaml"),
         data=str(data),
         memory=None,
         reader="mock",
@@ -58,7 +58,7 @@ def _args(tmp: Path, **kwargs) -> Namespace:
         message_layout=None,
         teacher=None,
         teacher_model=None,
-        prompt=str(ROOT / "prompts" / "qa_mem0_v1.txt"),
+        prompt=str(ROOT / "prompts" / "readers" / "qa_mem0_v1.txt"),
         output_dir=str(Path(tmp) / "experiments"),
         run_id="smoke_eval",
         max_questions=1,
@@ -102,7 +102,7 @@ class TestEvalPipelineFullContextMock(unittest.TestCase):
             args = _args(
                 tmp,
                 method="rag",
-                config=str(ROOT / "configs" / "rag.yaml"),
+                config=str(ROOT / "configs" / "writers" / "rag.yaml"),
                 run_id="smoke_rag",
                 index_run_id="smoke_rag_idx",
                 n_judge_runs=1,
@@ -171,7 +171,7 @@ class TestEvalIndexSampleScope(unittest.TestCase):
             args = _args(
                 tmp,
                 method="rag",
-                config=str(ROOT / "configs" / "rag.yaml"),
+                config=str(ROOT / "configs" / "writers" / "rag.yaml"),
                 run_id="smoke_rag",
                 index_run_id=None,
                 max_samples=1,

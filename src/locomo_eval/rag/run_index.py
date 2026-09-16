@@ -1,7 +1,7 @@
 """CLI: offline RAG chunk+embed index over LoCoMo (no QA).
 
-    python -m src.locomo_eval.rag.run_index --config configs/rag.yaml --run-id rag_locomo10
-    python -m src.locomo_eval.rag.run_index --config configs/rag.yaml --embedder mock --max-samples 1 --run-id smoke_rag_index
+    python -m src.locomo_eval.rag.run_index --config configs/writers/rag.yaml --run-id rag_locomo10
+    python -m src.locomo_eval.rag.run_index --config configs/writers/rag.yaml --embedder mock --max-samples 1 --run-id smoke_rag_index
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Build a RAG chunk+embed dump (no LoCoMo QA)."
     )
-    p.add_argument("--config", default="configs/rag.yaml")
+    p.add_argument("--config", default="configs/writers/rag.yaml")
     p.add_argument("--data", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)

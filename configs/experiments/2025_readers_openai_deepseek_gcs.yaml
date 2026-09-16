@@ -1,0 +1,10 @@
+# Cloud Run overlay for GPT-5 vs DeepSeek-V3 × {full_context, rag} × thinking (8 cells).
+#   $env:EXPERIMENT_YAML = "configs/experiments/2025_readers_openai_deepseek_gcs.yaml"
+includes:
+  - configs/experiments/2025_readers_openai_deepseek.yaml
+
+storage:
+  backend: gcs
+  # Bucket comes from $MEMORYBENCH_BUCKET so this config stays account-agnostic.
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

@@ -10,7 +10,7 @@
 
 Research pipeline for long-term conversational memory on **LoCoMo**, eventually multi-teacher memory construction with a **sandwich design** (fixed data + fixed answer/eval; variable middle = memory method).
 
-**Current phase:** evaluation pipeline that locally reproduces Mem0 paper *methods* (RAG, full-context, OpenAI-memory protocol clone, Mem0/Mem0g architecture clone) plus HLD (ii) **TeacherOrchestrator** (single teacher, naive pool, majority-vote + slot-resolve fusion) writing the **locked Mem0 graph**. Read path includes `raw_chunks` / `session_summaries` / `teacher_session_summaries` / `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` / `rag` / `full_context` / `openai_memory` / `mem0` / `mem0g`, plus a Mem0-style **LLM autorater**. Do **not** claim paper Table 1–2 J from the OSS clones.
+**Current phase:** evaluation pipeline that locally reproduces Mem0 paper *methods* plus a thin **`memorybench` harness** (matrix → hashed run ids → one Cloud Run task per cell). Scientific code stays in `locomo_eval`. Sandwich is **one** experiment type; sweeps and ablations are others. Do **not** claim paper Table 1–2 J from the OSS clones.
 
 See `docs/reports/engineering_notebook.md` for freeze/extend rules; `docs/reports/multi_teacher_methodologies.md` for teacher/fusion methodology.
 
@@ -27,7 +27,7 @@ Read:  question → retrieval → fixed answer LLM → LoCoMo evaluator
 
 Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summaries`, `teacher_graph`, `pooled_teacher_graph`, `fused_teacher_graph`, `mem0`, `mem0g`, later `top1_teacher`, `whole_memory_aggregation`, `claim_fusion`. Use these ids in logs — do not number conditions C0, C1, …
 
-**Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/qa_mem0_v1.txt`) for paper-method and sandwich memory conditions. Orchestrate paper methods with `python -m src.locomo_eval.eval_pipeline --method …` (`rag`, `full_context`, `openai_memory`, `mem0` / `mem0g`). Cheap **teacher plumbing** models: `gpt-4o-mini`, `claude-haiku-4-5`, `deepseek-v4-flash`. `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` write locked Mem0g via the orchestrator. Reader-model or `qa_v1` swaps remain a **separate** robustness axis.
+**Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/readers/qa_mem0_v1.txt`) for paper-method and sandwich memory conditions. Orchestrate paper methods with `python -m src.locomo_eval.eval_pipeline --method …` (`rag`, `full_context`, `openai_memory`, `mem0` / `mem0g`). Cheap **teacher plumbing** models: `gpt-4o-mini`, `claude-haiku-4-5`, `deepseek-v4-flash`. `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` write locked Mem0g via the orchestrator. Reader-model or `qa_v1` swaps remain a **separate** robustness axis.
 
 ---
 
@@ -35,31 +35,25 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 
 | Path | Role |
 |------|------|
-| `configs/mem0_baseline.yaml` | CLI default; Mem0-parity reader controls over `session_summaries` memory |
-| `configs/raw_chunks.yaml` | Raw dialog memory (`raw_chunks`) |
-| `configs/session_summaries.yaml` | LoCoMo session-summary memory with original QA controls |
-| `configs/session_summaries_reader_gpt56_luna.yaml` | `session_summaries` memory + GPT-5.6 Luna answer model |
-| `configs/teacher_session_summaries.yaml` | Live single-teacher session summaries (`teacher_session_summaries`) |
-| `configs/teacher_graph.yaml` | Single interchangeable teacher → locked Mem0 graph |
-| `configs/pooled_teacher_graph.yaml` | K cheap teachers, naive pool (`equal_weight` / `random` / `round_robin`) |
-| `configs/fused_teacher_graph.yaml` | K teachers, majority-vote fusion skeleton |
-| `configs/fused_teacher_graph_resolve_*.yaml` | K teachers, slot-disagreement baselines (`resolve_top_voted`, `resolve_first`, …) |
-| `configs/preprocess.yaml` | Deterministic HLD (i) write-index (no LLM) |
-| `configs/rag.yaml` | Mem0-paper RAG (chunk+embed dump + top-k) |
-| `configs/full_context.yaml` | Entire timestamped dialog, no retrieve |
-| `configs/openai_memory.yaml` | Privileged extract-all OpenAI-memory protocol clone |
-| `configs/mem0.yaml` | Mem0 vector write-index + load/retrieve seam |
-| `configs/mem0g.yaml` | Mem0 vector + in-memory graph (`mem0g`) |
-| `prompts/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
-| `prompts/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
-| `prompts/teacher_session_v1.txt` | Teacher session-summary prompt |
-| `prompts/teacher_graph_v1.txt` | Teacher → entity/relation JSON (Mem0g-shaped) |
-| `prompts/autorater_mem0_v1.txt` | Mem0 LLM-as-a-Judge prompt |
-| `prompts/mem0_extract_v1.txt` / `mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
-| `prompts/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
+| `configs/` | Composable YAML: `writers/`, `readers/`, `layouts/`, `autoraters/`, `teachers/`, `stacks/`, `presets/`, `experiments/` — see `configs/README.md` |
+| `configs/presets/mem0_baseline.yaml` | CLI default: Mem0-parity reader + `session_summaries` writer |
+| `configs/writers/` | Memory methods (`raw_chunks`, `mem0`, `teacher_graph`, …) |
+| `configs/readers/` | Answer LLM request controls |
+| `configs/layouts/` | Answer prompt + message layout |
+| `configs/autoraters/` | Judge configs (QA does not include these) |
+| `configs/models/generation_catalog.yaml` | Fillable `api_model_id` / `model_snapshot` table |
+| `configs/models/pricing.yaml` | List-price pins for campaign cost estimates (not invoices) |
+| `prompts/` | Role folders matching configs: `readers/`, `writers/`, `teachers/`, `autoraters/` — see `prompts/README.md` |
+| `prompts/readers/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
+| `prompts/readers/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
+| `prompts/teachers/teacher_session_v1.txt` | Teacher session-summary prompt |
+| `prompts/teachers/teacher_graph_v1.txt` | Teacher → entity/relation JSON (Mem0g-shaped) |
+| `prompts/autoraters/autorater_mem0_v1.txt` | Mem0 LLM-as-a-Judge prompt |
+| `prompts/writers/mem0_extract_v1.txt` / `prompts/writers/mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
+| `prompts/writers/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/reports/multi_teacher_methodologies.md` | Researcher guide: teacher methods, LLMs, fusion, reproduce |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
-| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) |
+| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) — **local only** |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
 | `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v2` claim audit) |
@@ -69,15 +63,34 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `src/locomo_eval/` | Baseline package |
 | `scripts/compare_full_runs.py` | Sandwich report for finished run packs; infers frozen prompt from run metadata |
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
+| `scripts/analysis/campaign_tables.py` / `campaign_plots.py` | YAML-driven campaign/experiment means + bars (legend outside; category names) |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
 | `scripts/analysis/compare_to_paper.py` | Offline paper Table 2 J vs best local autorater J (grouped bars) |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
-| `docs/agent/SPEC_v1.md` | Phase 1 requirements |
-| `docs/agent/HUMANS.md` | Human-facing brief |
-| `docs/agent/traces/` | Doc version history |
+| `configs/experiments/*.yaml` | Harness matrices (`poc`, `mem0_reader_2024_writers`, sandwich, longitudinal, ablation) |
+| `src/memorybench/` | Thin orchestrator: expand matrix, hashed ids, QA then autorater, Parquet |
+| `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements — **local only** |
+| `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate — **local only** |
+| `infra/gcp/README.md` | Exact GCP resources to create |
+| `docs/agent/GCP_RUNBOOK.md` | PowerShell: infra, deploy, four-wave execute, pull from GCS |
+| `docs/agent/RUNBOOK_2025_LIVE.md` | Parked three-family 2025 campaign (includes Claude) |
+| `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md` | Budget 2025 campaign: GPT-5 vs DeepSeek-V3 |
+| `docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md` | 2026 campaign: GPT-5.6 Terra vs DeepSeek-V4 |
+| `configs/analysis/campaign_2025_live.yaml` | Three-family analysis plane (tables/plots, no LLM) |
+| `configs/analysis/campaign_2025_openai_deepseek.yaml` | OpenAI vs DeepSeek packs + thinking on/off recipes |
+| `configs/analysis/openai_deepseek_thinking_axis.yaml` | Shared thinking-axis tables (reasoning tokens vs latency) |
+| `configs/analysis/campaign_year_family.yaml` | 2024 vs 2025 family comparison (paper/local pins + live; 2026-ready) |
+| `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same recipes, 2026 Terra vs V4 packs |
+| `notebooks/` | `NN_<frozen>_<variable>[_protocol|_analysis].ipynb` — gitignored; see `notebooks/README.md` |
+| `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
+| `README.md` | Architecture: recipe / engine / experiment / campaign / job / audit / test layers |
+| `docs/REPRODUCE.md` | Staged reproduction runbook (offline stages 0–3, paid stages 4–7) |
+| `LICENSE` / `NOTICE.md` | MIT code license + LoCoMo (CC BY-NC) and Mem0 (Apache-2.0) terms |
+| `docs/agent/HUMANS.md` | Human-facing brief — **local only** |
+| `docs/agent/traces/` | Doc version history — **local only** |
 
 ### Package modules (`src/locomo_eval/`)
 
@@ -107,9 +120,25 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` |
+| `experiments/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) |
 | `audit_pack.py` | Compat shim re-exporting `audit_writer` / `audit_layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
+
+### Package modules (`src/memorybench/`)
+
+Purpose-named files (no generic `run.py` / `config.py`). Wraps locomo_eval; does not reimplement metrics or memory.
+
+| File | Responsibility |
+|------|----------------|
+| `expand_run_matrix.py` | YAML → ordered `ExperimentRunSpec` list |
+| `hashed_run_id.py` | Deterministic `<experiment>-<8 hex>` |
+| `execute_qa_run.py` | One cell → locomo_eval QA + Parquet + `_SUCCESS` |
+| `execute_autorater_run.py` | Separate judge job on stored predictions |
+| `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*`; cost from `analysis/cost.py` |
+| `aggregate_successful_runs.py` | Third wave: collect all cells → `experiments/<name>/aggregate/` |
+| `completed_run_skip.py` | Skip if `_SUCCESS` unless `--force` |
+| `open_configured_store.py` / `local_object_store.py` / `gcs_object_store.py` / `gcs_run_workspace.py` | Portable storage; GCS download/upload for Cloud Run (dataset + `shared/<index_run_id>/`) |
+| `experiment_cli.py` | `write-manifest`, `execute-qa`, `execute-autorater`, `aggregate`, `collect-full`, `report`, `status` |
 
 ---
 
@@ -120,14 +149,28 @@ conda activate distillation
 pip install -r requirements.txt
 python scripts/fetch_locomo.py
 
+# Experiment harness (matrix → one cell). Mock PoC, no API:
+python -m src.memorybench write-manifest configs/experiments/poc.yaml
+python -m src.memorybench execute-qa configs/experiments/poc.yaml --run-index 0
+python -m src.memorybench execute-autorater configs/experiments/poc.yaml --run-index 0
+python -m src.memorybench aggregate configs/experiments/poc.yaml
+python -m src.memorybench collect-full configs/experiments/poc.yaml
+python -m src.memorybench status configs/experiments/poc.yaml
+python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml --experiment smoke
+
+# Cloud Run PoC (GCS). Operator steps: docs/agent/GCP_RUNBOOK.md
+# Live 2025 campaign, OpenAI vs DeepSeek (budget): docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md
+# Live 2026 campaign, Terra vs DeepSeek-V4: docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md
+# Parked three-family (includes Claude): docs/agent/RUNBOOK_2025_LIVE.md
+
 # Offline smoke (no API key)
-python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
+python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
 
 # Live OpenAI (needs OPENAI_API_KEY in repo-root .env or shell)
-python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --max-questions 3 --run-id smoke_openai
+python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --max-questions 3 --run-id smoke_openai
 
 # Full baseline (costly)
-python -m src.locomo_eval.run --config configs/mem0_baseline.yaml --run-id mem0_baseline_session_summary
+python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --run-id mem0_baseline_session_summary
 
 # Offline rescore (string metrics only; not an LLM autorater)
 python -m src.locomo_eval.offline_evaluate --predictions experiments/<run_id>/predictions.jsonl
@@ -146,12 +189,12 @@ python -m src.locomo_eval.eval_pipeline --method rag --reader mock --embedder mo
 python -m src.locomo_eval.eval_pipeline --method openai_memory --reader mock --extractor mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_openai_memory
 
 # RAG / full-context / OpenAI-memory as separate index then QA (same as eval_pipeline steps)
-python -m src.locomo_eval.rag.run_index --config configs/rag.yaml --embedder mock --max-samples 1 --run-id smoke_rag_index
+python -m src.locomo_eval.rag.run_index --config configs/writers/rag.yaml --embedder mock --max-samples 1 --run-id smoke_rag_index
 python -m src.locomo_eval.openai_memory.run_index --extractor mock --max-samples 1 --run-id smoke_openai_memory_index
 
 # Mem0 / Mem0g write-index (no QA). Mock smoke; live gpt-4o-mini is costly.
-python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --extractor mock --embedder mock --max-samples 1 --run-id smoke_mem0_index
-python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
+python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml --extractor mock --embedder mock --max-samples 1 --run-id smoke_mem0_index
+python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0g.yaml --run-id mem0g_locomo10
 
 # Multi-seed J aggregate (no API; packs already judged)
 python -m scripts.analysis.aggregate_seeds --packs experiments/<run>/autorater_seeds/seed_00 experiments/<run>/autorater_seeds/seed_01 --out experiments/<run>/autorater
@@ -166,9 +209,9 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -189,19 +232,19 @@ python -m src.locomo_eval.ping_teachers --mock
 python -m src.locomo_eval.ping_teachers --providers openai,anthropic,deepseek
 
 # Mock teacher-graph / pool / fusion (no API)
-python -m src.locomo_eval.run --config configs/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_pooled_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_voted.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
+python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
+python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_pooled_teachers
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused_teachers
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
 # Override fusion without a new YAML: --fusion resolve_first
-# Teacher thinking on by default (write path only). Frozen reader stays reasoning_effort=none.
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --thinking off --reader mock --teacher mock --max-questions 3 --run-id smoke_thinking_off
+# Teacher thinking on by default (write path) except GPT-5.x / GPT-6 catalog teacher: overlays (off + 8192) when matrix.thinking is absent. OpenAI vs DeepSeek campaigns set matrix.thinking on/off. Frozen GPT-5.6 sandwich reader stays reasoning_effort=none unless --reader-thinking on; gpt-5 off-cells use minimal.
+python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --thinking off --reader mock --teacher mock --max-questions 3 --run-id smoke_thinking_off
 
 # Live teachers (needs OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY). Do not pass --teacher mock.
-python -m src.locomo_eval.run --config configs/teacher_graph.yaml --max-questions 3 --run-id live_teacher_graph
-python -m src.locomo_eval.run --config configs/pooled_teacher_graph.yaml --max-questions 3 --run-id live_pooled_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph.yaml --max-questions 3 --run-id live_fused_teachers
-python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_voted.yaml --max-questions 3 --run-id live_fused_resolve_top_voted
+python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml --max-questions 3 --run-id live_teacher_graph
+python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --max-questions 3 --run-id live_pooled_teachers
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --max-questions 3 --run-id live_fused_teachers
+python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml --max-questions 3 --run-id live_fused_resolve_top_voted
 
 ---
 
@@ -209,12 +252,14 @@ python -m src.locomo_eval.run --config configs/fused_teacher_graph_resolve_top_v
 
 Each run under `experiments/<run_id>/` must include:
 
+- `TRACE.md` — config include chain → prompt files → jsonl outputs
+- `prompts/` — snapshot copies of every `*_prompt_path` in that YAML
 - `predictions.jsonl` — one row per question (incl. memory text); also copied to `reader/`
 - `predictions.csv` — spreadsheet-friendly + scores + memory preview
 - `metrics.json` — overall + by-category
 - `metrics_by_category.csv`
 - `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp, `audit_layout`
-- `config.source.yaml` / `config.resolved.yaml` — frozen YAML + CLI overrides
+- `config.source.yaml` / `config.resolved.yaml` — source YAML copy + loaded YAML with CLI overrides
 - `cost.json` — reader/teacher token totals and pinned-USD rollup
 - `SUMMARY.md` — human claim-audit report (lineage pointers, teacher quality, ingest)
 - `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → sandwich role → claims made
@@ -246,21 +291,19 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 ## Design rules for agents
 
-1. **Sandwich:** only change one middle variable per experimental claim. Default reader (`gpt-4o-mini` + `qa_mem0_v1`) and mem0 writer (`gpt-4o-mini` extract/update) stay frozen for graph/store RQs. GPT-5.6 readers stay `reasoning_effort=none`. Teacher thinking (`teacher.thinking` / `--thinking`) is a **write-path** knob, not a reader swap. Reader-model or `qa_v1` swaps are a **different** axis (`compare_cross_model.py` / prompt override).
-2. **Orchestrator is software**, not one giant LLM call (`TeacherOrchestrator` + `fusion.py`).
+1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). Do not mix a reader sweep into a sandwich claim. GPT-5.6 frozen sandwich readers stay `reasoning_effort=none`; hosted `gpt-5` off-cells use `minimal` (API rejects `none`). OpenAI vs DeepSeek campaigns set `matrix.thinking: [off, on]` for **both** families as readers (sweep) and writers (sandwich). DeepSeek on/off always sends `extra_body.thinking` `{type: enabled|disabled}` (`deepseek-chat` defaults off; `deepseek-v4-flash` defaults on). Headroom: reader 256/8192, teacher 8192/32768 (overrides catalog `teacher:`). `--reader-thinking` is the reader-sweep flag; `--thinking` remains write-path. Parked three-family YAML omits the axis; catalog GPT-5/5.6/6 `teacher:` stays off + 8192 there. Overall analysis F1/J drop LoCoMo category 5; category plots keep it. Reasoning tokens (`agent_reasoning_tokens` / `teacher_reasoning_tokens`) are first-class campaign metrics next to latency.
+2. **Orchestrator is software**, not one giant LLM call (`TeacherOrchestrator` + `fusion.py`). The **harness** (`memorybench`) only expands matrices and launches one locomo_eval cell per task.
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
    Autorater reports additionally use Mem0 F1/BLEU-1/J and must label these
    separately; Mem0 category 5 is excluded from J.
    Mock autorater output is plumbing-only (`mock_sanity_not_llm_judge`), must
    not occupy the literature J column, and must never log a live model id.
-5. **Runs are self-contained.** Every pipeline invocation (QA, autorater, Mem0
-   index, preprocess index) clears its generated output and regenerates.
-   `predictions.jsonl` is an audit artifact, not a checkpoint. Do not add
-   response stores, JSONL skip, or per-sample index skip.
-6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B required. Each config file is standalone; `pipeline.memory` is a builder id, not another YAML.
-7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files.
+5. **Runs are self-contained.** A bare `locomo_eval.run` invocation still clears and regenerates. **`memorybench execute-qa` skips** when `_SUCCESS` exists (Cloud Run retries). `--force` regenerates. Do not add response stores or per-question resume. Shared Mem0/RAG indexes (`mem0_locomo10`, `rag_locomo10`) are built once and reused across reader cells.
+6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B. Components live under `configs/{writers,readers,layouts,autoraters,teachers}/` and compose with `includes:` (later keys win). `pipeline.memory` is still a builder id, not a path to another YAML.
+7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files. Traces stay local (gitignored); keep writing them anyway.
 8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
+9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them except for a notebook backing a reported result. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
 
 ---
 
@@ -280,7 +323,7 @@ From review. Follow these when adding or renaming code.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
 - Claim-audit joins: lock sample/session isolation, retrieve-loser exclusion, and **optional** fields/filters (`None` = no restriction; missing layers = empty, not invented teachers). See `tests/test_claim_audit.py`, `tests/test_experiment_pack.py`, and `tests/test_regressions.py`.
 
-**Experiments.** One YAML per `run_locomo_pipeline_with_memory_config` call (`python -m src.locomo_eval.run`). Compare `raw_chunks` vs `session_summaries` with two runs, then `scripts/compare_full_runs.py` or `python -m scripts.analysis.compare_predictions` (no API). Full/cross-model comparisons infer the answer prompt from `run_meta.json` and reject mismatched prompts unless an explicit `--prompt` is supplied. Do not fold A vs B into `run.py`. Compare reader or teacher **models** with `scripts/compare_cross_model.py` (also no API); that is a different axis fed into the same two-pack compare.
+**Experiments.** One locomo_eval YAML per `run_locomo_pipeline_with_memory_config` call. The harness (`configs/experiments/*.yaml`) expands many cells and calls that once per `--run-index`. QA and autorater are separate jobs. Compare packs with `scripts/compare_full_runs.py` as before.
 
 ---
 
@@ -305,13 +348,14 @@ Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone
 - [ ] `tests/test_compare_to_paper.py` stays green (offline paper vs local J; no API)
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
 - [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, `tests/test_teacher_orchestrator.py`, and `tests/test_claim_audit.py` stay green (mock only; no API)
+- [ ] `tests/test_memorybench_matrix.py`, `tests/test_memorybench_execute_qa.py`, and `tests/test_memorybench_aggregate.py` stay green (mock only)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---
 
 ## Traceability
 
-- Spec: `docs/agent/SPEC_v1.md`  
+- Spec: `docs/agent/SPEC_v1.md`, `docs/agent/SPEC_v2.md`  
 - LoCoMo pin: `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`  
 - Paper: Maharana et al., arXiv:2402.17753  
 - Mem0 protocol: Chhikara et al., arXiv:2504.19413 (architecture clone; not Platform v2 numbers)

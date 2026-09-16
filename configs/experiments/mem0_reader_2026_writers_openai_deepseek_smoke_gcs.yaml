@@ -1,0 +1,10 @@
+# Paid 1-conversation check of the 8 writer cells (different run ids from full).
+#   $env:EXPERIMENT_YAML = "configs/experiments/mem0_reader_2026_writers_openai_deepseek_smoke_gcs.yaml"
+includes:
+  - configs/experiments/mem0_reader_2026_writers_openai_deepseek_smoke.yaml
+
+storage:
+  backend: gcs
+  # Bucket comes from $MEMORYBENCH_BUCKET so this config stays account-agnostic.
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

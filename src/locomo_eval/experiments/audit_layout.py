@@ -24,6 +24,8 @@ MEMORY = "memory"
 TEACHERS = "memory/teachers"
 GRAPH = "memory/graph"
 AUTORATER = "autorater"
+PROMPTS = "prompts"
+TRACE = "TRACE.md"
 # Run-root copies so older compare scripts need not know about reader/ / teachers/.
 COMPAT_PREDICTIONS = "predictions.jsonl"
 COMPAT_TEACHER_CALLS = "memory/teacher_calls.jsonl"
@@ -53,6 +55,8 @@ def audit_layout_meta() -> dict[str, str]:
         "teachers": f"{TEACHERS}/",
         "graph": f"{GRAPH}/",
         "autorater": f"{AUTORATER}/",
+        "prompts": f"{PROMPTS}/",
+        "trace": TRACE,
         "compat_predictions": COMPAT_PREDICTIONS,
         "lineage": LINEAGE,
         "retrieve_ranks": RETRIEVE_RANKS,
@@ -106,6 +110,9 @@ class AuditPaths:
     autorater_dir: Path
     autorater_verdicts: Path
     autorater_traces: Path
+    prompts_dir: Path
+    prompt_index: Path
+    trace: Path
     cost: Path
     summary: Path
     attribution: Path  # machine call → role → claims
@@ -124,6 +131,7 @@ class AuditPaths:
         teachers = root / TEACHERS
         graph = root / GRAPH
         autorater = root / AUTORATER
+        prompts = root / PROMPTS
         return cls(
             run_dir=root,
             run_meta=root / "run_meta.json",
@@ -149,6 +157,9 @@ class AuditPaths:
             autorater_dir=autorater,
             autorater_verdicts=autorater / "autorater_verdicts.jsonl",
             autorater_traces=autorater / "traces.jsonl",
+            prompts_dir=prompts,
+            prompt_index=prompts / "index.json",
+            trace=root / TRACE,
             cost=root / COST,
             summary=root / SUMMARY,
             attribution=root / ATTRIBUTION,

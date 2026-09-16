@@ -27,11 +27,10 @@ from typing import Any
 
 from .mem0_baselines import ADVERSARIAL_CATEGORY
 from .models import DEFAULT_AUTORATER_MODEL
-from .prompts import load_prompt_template, render_autorater_prompt
+from .prompts import AUTORATER_MEM0_V1, ROOT, load_prompt_template, render_autorater_prompt
 from .readers import OpenAIChatCaller
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_AUTORATER_PROMPT = ROOT / "prompts" / "autorater_mem0_v1.txt"
+DEFAULT_AUTORATER_PROMPT = ROOT / AUTORATER_MEM0_V1
 
 # Released Mem0 judge does not set a completion-token limit.
 DEFAULT_AUTORATER_MAX_TOKENS: int | None = None

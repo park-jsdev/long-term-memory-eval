@@ -1,0 +1,3 @@
+# Mem0 released Chat Completions layout: filled answer prompt as the only system message.
+reader:
+  message_layout: mem0_system_only

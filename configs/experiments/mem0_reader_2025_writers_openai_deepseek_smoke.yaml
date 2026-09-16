@@ -1,0 +1,12 @@
+# Paid 1-conversation check of the 8 writer cells (different run ids from full).
+# Cloud: configs/experiments/mem0_reader_2025_writers_openai_deepseek_smoke_gcs.yaml
+# Cloud: configs/experiments/mem0_reader_2025_writers_openai_deepseek_smoke_gcs.yaml
+includes:
+  - configs/experiments/mem0_reader_2025_writers_openai_deepseek.yaml
+
+experiment:
+  name: locomo-mem0-reader-2025-writers-openai-deepseek-smoke
+
+subset:
+  max_samples: 1
+  max_questions: 5

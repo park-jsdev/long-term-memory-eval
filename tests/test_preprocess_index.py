@@ -192,7 +192,7 @@ class TestDumpBackedEvalSmoke(unittest.TestCase):
                 "data": {"raw_path": str(data_path), "locomo_commit": "test"},
                 "pipeline": {
                     "memory": "session_summaries",
-                    "prompt_path": str(ROOT / "prompts" / "qa_mem0_v1.txt"),
+                    "prompt_path": str(ROOT / "prompts" / "readers" / "qa_mem0_v1.txt"),
                     "max_questions": 1,
                 },
                 "reader": {
@@ -246,7 +246,7 @@ class TestDumpBackedEvalSmoke(unittest.TestCase):
             root = Path(tmp)
             data_path = _write_mini(root / "locomo.json")
             out = root / "experiments"
-            prompt = ROOT / "prompts" / "qa_mem0_v1.txt"
+            prompt = ROOT / "prompts" / "readers" / "qa_mem0_v1.txt"
             yamls = []
             for memory in ("raw_chunks", "session_summaries"):
                 yml = root / f"{memory}.yaml"

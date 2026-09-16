@@ -1,8 +1,8 @@
 """CLI: offline Mem0 / Mem0g write-index over LoCoMo (no QA).
 
-    python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --run-id mem0_locomo10
-    python -m src.locomo_eval.mem0.run_index --config configs/mem0g.yaml --run-id mem0g_locomo10
-    python -m src.locomo_eval.mem0.run_index --config configs/mem0.yaml --extractor mock --embedder mock --max-samples 1 --run-id smoke_mem0_index
+    python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml --run-id mem0_locomo10
+    python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0g.yaml --run-id mem0g_locomo10
+    python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml --extractor mock --embedder mock --max-samples 1 --run-id smoke_mem0_index
 """
 
 from __future__ import annotations
@@ -254,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Build a Mem0 / Mem0g write-index dump (no LoCoMo QA)."
     )
-    p.add_argument("--config", default="configs/mem0.yaml")
+    p.add_argument("--config", default="configs/writers/mem0.yaml")
     p.add_argument("--data", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)

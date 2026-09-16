@@ -35,6 +35,7 @@ from src.locomo_eval.models import (
     GPT56_TERRA,
     TEACHER_THINKING_EFFORT,
     TEACHER_THINKING_MIN_OUTPUT_TOKENS,
+    apply_deepseek_thinking,
     apply_openai_thinking,
     chat_create_kwargs,
     models_in_family,
@@ -122,7 +123,7 @@ def _session_summaries_memory_text() -> str:
 
 
 def _qa_template() -> str:
-    _, text = load_prompt_template(ROOT / "prompts" / "qa_v1.txt")
+    _, text = load_prompt_template(ROOT / "prompts" / "readers" / "qa_v1.txt")
     return text
 
 
@@ -198,6 +199,43 @@ class TestModelCatalog(unittest.TestCase):
         out = apply_openai_thinking(spec, kwargs, None)
         self.assertEqual(out.get("reasoning_effort"), "none")
 
+    def test_chat_create_kwargs_for_gpt5_uses_minimal_not_none(self):
+        spec = resolve_model("gpt-5")
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        self.assertEqual(kwargs.get("reasoning_effort"), "minimal")
+        self.assertNotIn("temperature", kwargs)
+        self.assertIn("max_completion_tokens", kwargs)
+
+    def test_apply_openai_thinking_false_maps_gpt5_none_to_minimal(self):
+        spec = resolve_model("gpt-5")
+        kwargs = chat_create_kwargs(
+            spec,
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=64,
+        )
+        out = apply_openai_thinking(spec, kwargs, False)
+        self.assertEqual(out.get("reasoning_effort"), "minimal")
+
+    def test_anthropic_messages_kwargs_moves_temperature_to_extra_body(self):
+        from src.locomo_eval.models import anthropic_messages_kwargs
+
+        out = anthropic_messages_kwargs(
+            {
+                "model": "claude-sonnet-4-5-20250929",
+                "temperature": 0.0,
+                "max_tokens": 64,
+            }
+        )
+        self.assertNotIn("temperature", out)
+        self.assertEqual(out["extra_body"]["temperature"], 0.0)
+        self.assertEqual(out["max_tokens"], 64)
+
     def test_apply_openai_thinking_true_sets_luna_teacher_effort_high(self):
         spec = resolve_model(GPT56_LUNA)
         kwargs = chat_create_kwargs(
@@ -211,6 +249,14 @@ class TestModelCatalog(unittest.TestCase):
         self.assertGreaterEqual(
             out["max_completion_tokens"], TEACHER_THINKING_MIN_OUTPUT_TOKENS
         )
+
+    def test_apply_deepseek_thinking_true_sends_type_enabled(self):
+        out = apply_deepseek_thinking({"model": "deepseek-chat"}, True)
+        self.assertEqual(out["extra_body"]["thinking"], {"type": "enabled"})
+
+    def test_apply_deepseek_thinking_false_sends_type_disabled(self):
+        out = apply_deepseek_thinking({"model": "deepseek-chat"}, False)
+        self.assertEqual(out["extra_body"]["thinking"], {"type": "disabled"})
 
     def test_apply_openai_thinking_true_is_noop_for_gpt4o_mini(self):
         spec = resolve_model(BASELINE_READER_MODEL)

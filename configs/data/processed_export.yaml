@@ -1,0 +1,13 @@
+# Flatten/export helpers (scripts/prepare_data.py, src/eval_locomo_qa.py).
+seed: 0
+
+data:
+  raw_path: data/raw/locomo10.json
+  processed_dir: data/processed
+  holdout_sample_ids: []
+
+eval:
+  predictions_path: null
+  prediction_key: prediction
+  log_csv: logs/eval_qa.csv
+  output_dir: experiments

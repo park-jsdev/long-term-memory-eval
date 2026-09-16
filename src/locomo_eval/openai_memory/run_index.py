@@ -1,6 +1,6 @@
 """CLI: offline OpenAI-memory extract dump over LoCoMo (no QA).
 
-    python -m src.locomo_eval.openai_memory.run_index --config configs/openai_memory.yaml --run-id openai_memory_locomo10
+    python -m src.locomo_eval.openai_memory.run_index --config configs/writers/openai_memory.yaml --run-id openai_memory_locomo10
     python -m src.locomo_eval.openai_memory.run_index --extractor mock --max-samples 1 --run-id smoke_openai_memory_index
 """
 
@@ -138,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Build an OpenAI-memory extract dump (privileged retrieve-all, no QA)."
     )
-    p.add_argument("--config", default="configs/openai_memory.yaml")
+    p.add_argument("--config", default="configs/writers/openai_memory.yaml")
     p.add_argument("--data", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)

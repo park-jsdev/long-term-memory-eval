@@ -26,15 +26,18 @@ from src.locomo_eval.memory import resolve_memory_name
 from src.locomo_eval.run import run_locomo_pipeline_with_memory_config
 
 METHOD_CONFIGS: dict[str, str] = {
-    "rag": "configs/rag.yaml",
-    "full_context": "configs/full_context.yaml",
-    "openai_memory": "configs/openai_memory.yaml",
-    "mem0": "configs/mem0.yaml",
-    "mem0g": "configs/mem0g.yaml",
-    "raw_chunks": "configs/raw_chunks.yaml",
-    "session_summaries": "configs/session_summaries.yaml",
-    "teacher_session_summaries": "configs/teacher_session_summaries.yaml",
-    "mem0_baseline": "configs/mem0_baseline.yaml",
+    "rag": "configs/writers/rag.yaml",
+    "full_context": "configs/writers/full_context.yaml",
+    "openai_memory": "configs/writers/openai_memory.yaml",
+    "mem0": "configs/writers/mem0.yaml",
+    "mem0g": "configs/writers/mem0g.yaml",
+    "raw_chunks": "configs/writers/raw_chunks.yaml",
+    "session_summaries": "configs/writers/session_summaries.yaml",
+    "teacher_session_summaries": "configs/writers/teacher_session_summaries.yaml",
+    "teacher_graph": "configs/writers/teacher_graph.yaml",
+    "pooled_teacher_graph": "configs/writers/pooled_teacher_graph.yaml",
+    "fused_teacher_graph": "configs/writers/fused_teacher_graph.yaml",
+    "mem0_baseline": "configs/presets/mem0_baseline.yaml",
 }
 
 INDEX_METHODS = {

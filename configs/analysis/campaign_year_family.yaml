@@ -1,0 +1,210 @@
+# 2024 vs 2025 (2026 slot ready) by model family.
+# Live packs + literature/local-clone pins. J excludes LoCoMo category 5
+# (Mem0 judge protocol). Do not claim paper Table 1–2 J from OSS clones.
+#
+#   python -m src.memorybench report configs/analysis/campaign_year_family.yaml
+# Add 2026 by appending live packs under experiments: and optional pins.
+# Schema: docs/schemas/analysis_campaign.md
+
+campaign:
+  id: year_family
+  title: 2024 vs 2025 vs 2026 by model family
+  freeze_note: >
+    Judge score is Mem0 J (category 5 excluded). Paper rows are Table 2
+    literature pins (gpt-4o-class, 2024). local_clone is this repo's
+    gpt-4o-mini architecture clone. live 2025/2026 readers are GPT-5 /
+    GPT-5.6 Terra / DeepSeek answering over frozen full_context or rag
+    with matched thinking on/off. live writers freeze gpt-4o-mini as the
+    reader and vary the teacher × thinking. teacher_session_summaries /
+    teacher_graph are not Mem0 extract/update. Do not average on/off
+    cells. Prior GPT-5 writer packs that collapsed under high thinking +
+    1024 tokens are historical, not in this matrix.
+
+defaults:
+  source: examples
+  metrics:
+    - locomo_f1
+    - judge_score
+  output_subdir: analysis
+
+# Frozen overall scores (already aggregated). n=1540 is the judged subset.
+pins:
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: full_context
+    result_source: paper
+    judge_score: 0.7290
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Full-context
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: rag
+    result_source: paper
+    judge_score: 0.6097
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 RAG k=2 256
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0
+    result_source: paper
+    judge_score: 0.6688
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Mem0
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0g
+    result_source: paper
+    judge_score: 0.6844
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Mem0g
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: full_context
+    result_source: local_clone
+    judge_score: 0.7468
+    locomo_f1: 0.534
+    n: 1540
+    note: experiments/full_context_qa gpt-4o-mini
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: rag
+    result_source: local_clone
+    judge_score: 0.5799
+    locomo_f1: 0.4225
+    n: 1540
+    note: experiments/rag_k2_256_qa best live-judge seed
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0
+    result_source: local_clone
+    judge_score: 0.4838
+    locomo_f1: 0.3502
+    n: 1540
+    note: experiments/mem0_qa OSS extract/update clone
+
+campaign_analyses:
+  - id: year_family_overview
+    title: Year × family × method (J and LoCoMo F1)
+    experiments: [readers, writers, readers_2026, writers_2026]
+    include_pins: true
+    exclude_question_categories: [5]
+    group_by: [generation, model_family, memory_method, result_source, thinking]
+    plots:
+      - kind: grouped_bar
+        x: generation
+        y: judge_score
+      - kind: grouped_bar
+        x: generation
+        y: locomo_f1
+  - id: j_full_context_by_year_family
+    title: Full-context J by generation and family
+    experiments: [readers, readers_2026]
+    include_pins: true
+    exclude_question_categories: [5]
+    where:
+      memory_method: [full_context]
+    group_by: [generation, model_family, result_source]
+    metrics: [judge_score]
+    plots:
+      - kind: grouped_bar
+        x: generation
+        y: judge_score
+  - id: j_rag_by_year_family
+    title: RAG J by generation and family
+    experiments: [readers, readers_2026]
+    include_pins: true
+    exclude_question_categories: [5]
+    where:
+      memory_method: [rag]
+    group_by: [generation, model_family, result_source]
+    metrics: [judge_score]
+    plots:
+      - kind: grouped_bar
+        x: generation
+        y: judge_score
+  - id: j_memory_write_by_year_family
+    title: Memory-construction J (paper Mem0 vs teacher writers)
+    experiments: [writers, writers_2026]
+    include_pins: true
+    exclude_question_categories: [5]
+    where:
+      memory_method:
+        - mem0
+        - mem0g
+        - teacher_session_summaries
+        - teacher_graph
+    group_by: [generation, model_family, memory_method, result_source]
+    metrics: [judge_score]
+    plots:
+      - kind: grouped_bar
+        x: memory_method
+        y: judge_score
+  - id: year_family_by_thinking
+    title: Year × family × thinking (J; live only)
+    experiments: [readers, writers, readers_2026, writers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics: [judge_score, locomo_f1]
+    plots:
+      - kind: grouped_bar
+        x: thinking
+        hue: model_family
+        y: judge_score
+  - id: thinking_tokens_by_year_family
+    title: Reader reasoning tokens vs latency by year and family
+    experiments: [readers, readers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics: [agent_reasoning_tokens, agent_latency_seconds]
+    plots:
+      - kind: grouped_bar
+        x: thinking
+        hue: model_family
+        y: agent_reasoning_tokens
+      - kind: grouped_bar
+        x: thinking
+        hue: model_family
+        y: agent_latency_seconds
+  - id: writer_thinking_tokens_by_year_family
+    title: Writer reasoning tokens vs latency by year and family
+    experiments: [writers, writers_2026]
+    source: runs
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics: [teacher_reasoning_tokens, teacher_latency_seconds]
+    plots:
+      - kind: grouped_bar
+        x: thinking
+        hue: model_family
+        y: teacher_reasoning_tokens
+      - kind: grouped_bar
+        x: thinking
+        hue: model_family
+        y: teacher_latency_seconds
+
+experiments:
+  readers:
+    name: locomo-2025-readers-openai-deepseek
+    pack: experiments/locomo-2025-readers-openai-deepseek
+    role: reader_sweep
+    family_from: reader
+    analyses: []
+  writers:
+    name: locomo-mem0-reader-2025-writers-openai-deepseek
+    pack: experiments/locomo-mem0-reader-2025-writers-openai-deepseek
+    role: sandwich
+    family_from: writer
+    analyses: []
+  readers_2026:
+    name: locomo-2026-readers-openai-deepseek
+    pack: experiments/locomo-2026-readers-openai-deepseek
+    role: reader_sweep
+    family_from: reader
+    analyses: []
+  writers_2026:
+    name: locomo-mem0-reader-2026-writers-openai-deepseek
+    pack: experiments/locomo-mem0-reader-2026-writers-openai-deepseek
+    role: sandwich
+    family_from: writer
+    analyses: []

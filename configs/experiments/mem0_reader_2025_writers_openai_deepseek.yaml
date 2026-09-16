@@ -1,0 +1,27 @@
+# Budget overlay of mem0_reader_2025_writers.yaml: GPT-5 vs DeepSeek-V3 teachers.
+# Frozen Mem0-parity reader (gpt-4o-mini + qa_mem0_v1). Claude writer parked.
+# Matched thinking on/off for both families. Cartesian:
+# 2 memory × 2 writers × {off, on} = 8 cells.
+# Headroom: off 8192 completion tokens, on 32768 (overrides catalog teacher:).
+# Graph+thinking-on smoke hit the old 8192 cap; V4 graph-off truncated at 4096.
+# Prior DeepSeek writer packs (no thinking in the hash) are not in this matrix;
+# do not --force them.
+#
+#   python -m src.memorybench write-manifest configs/experiments/mem0_reader_2025_writers_openai_deepseek.yaml
+# Cloud: configs/experiments/mem0_reader_2025_writers_openai_deepseek_gcs.yaml
+# Smoke: configs/experiments/mem0_reader_2025_writers_openai_deepseek_smoke_gcs.yaml
+# Analysis: configs/analysis/campaign_2025_openai_deepseek.yaml
+# Operator: docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md
+includes:
+  - configs/experiments/mem0_reader_2025_writers.yaml
+
+experiment:
+  name: locomo-mem0-reader-2025-writers-openai-deepseek
+
+matrix:
+  writer:
+    - catalog: gpt-5
+    - catalog: deepseek-v3
+  thinking:
+    - off
+    - on

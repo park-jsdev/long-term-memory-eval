@@ -362,7 +362,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
         "| | **raw_chunks** | **session_summaries** |",
         "|--|--------------------|---------------------------|",
         "| **memory_type** | `raw_chunks` | `session_summaries` |",
-        "| **Config** | `configs/raw_chunks.yaml` | `configs/session_summaries.yaml` |",
+        "| **Config** | `configs/writers/raw_chunks.yaml` | `configs/writers/session_summaries.yaml` |",
         "| **Builder class** | `RawConversationMemoryBuilder` | `SessionSummaryMemoryBuilder` |",
         "| **Code** | `src/locomo_eval/memory.py` | same file |",
         "| **Source fields** | `conversation.session_*` turns + dates | `session_summary.session_*_summary` from LoCoMo release |",

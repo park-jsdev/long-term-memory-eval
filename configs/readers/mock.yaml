@@ -1,0 +1,6 @@
+# Plumbing only. CLI ``--reader mock`` still overrides a live reader YAML.
+reader:
+  provider: mock
+  model: gpt-4o-mini
+  temperature: 0.0
+  max_tokens: 64

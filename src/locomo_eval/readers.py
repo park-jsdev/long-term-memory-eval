@@ -19,6 +19,8 @@ from typing import Any
 from .env import load_env
 from .models import (
     TEACHER_THINKING_MIN_OUTPUT_TOKENS,
+    anthropic_messages_kwargs,
+    apply_deepseek_thinking,
     apply_openai_thinking,
     chat_create_kwargs,
     resolve_model,
@@ -28,6 +30,9 @@ from .prompts import render_qa_prompt
 
 READER_MESSAGE_LAYOUT_DEFAULT = "default_system_user"
 READER_MESSAGE_LAYOUT_MEM0 = "mem0_system_only"
+# Thinking-on Chat Completions can exceed the default 60s HTTP timeout
+# (GPT-5 high effort on full_context). Teachers reuse this caller too.
+THINKING_HTTP_TIMEOUT_S = 600.0
 
 
 def build_reader_messages(prompt: str, message_layout: str) -> list[dict[str, str]]:
@@ -145,6 +150,8 @@ class OpenAIChatCaller:
         self.model_name = self.spec.model_id
         self.temperature = temperature
         self.max_tokens = max_tokens
+        if thinking is True:
+            timeout_s = max(float(timeout_s), THINKING_HTTP_TIMEOUT_S)
         self.timeout_s = timeout_s
         self.max_retries = max_retries
         self.min_request_interval_s = min_request_interval_s
@@ -202,20 +209,16 @@ class OpenAIChatCaller:
         )
         use_thinking = self.thinking if thinking is None else bool(thinking)
         if self._is_deepseek():
-            extra_body = dict(create_kwargs.get("extra_body") or {})
+            # None (non-teacher callers) and False (ping) both disable so
+            # small max_tokens still yield visible JSON/pong. On must send
+            # type=enabled: deepseek-chat aliases to flash with thinking off.
+            create_kwargs = apply_deepseek_thinking(
+                create_kwargs, bool(use_thinking)
+            )
             if use_thinking is True:
-                extra_body.pop("thinking", None)
                 field = self.spec.max_tokens_field
                 n = int(create_kwargs.get(field) or 16)
                 create_kwargs[field] = max(n, TEACHER_THINKING_MIN_OUTPUT_TOKENS)
-            else:
-                # None (non-teacher callers) and False (ping) both disable so
-                # small max_tokens still yield visible JSON/pong.
-                extra_body["thinking"] = {"type": "disabled"}
-            if extra_body:
-                create_kwargs["extra_body"] = extra_body
-            elif "extra_body" in create_kwargs:
-                del create_kwargs["extra_body"]
         else:
             create_kwargs = apply_openai_thinking(
                 self.spec, create_kwargs, use_thinking
@@ -294,6 +297,7 @@ class OpenAIReader(Reader):
         message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
         base_url: str | None = None,
         provider: str = "openai",
+        thinking: bool | None = None,
     ):
         build_reader_messages("", message_layout)
         self._chat = OpenAIChatCaller(
@@ -306,6 +310,7 @@ class OpenAIReader(Reader):
             min_request_interval_s=min_request_interval_s,
             max_wait_s=max_wait_s,
             base_url=base_url,
+            thinking=thinking,
         )
         self.model_name = self._chat.model_name
         self.temperature = temperature
@@ -388,7 +393,7 @@ class AnthropicReader(Reader):
                     kwargs["system"] = system
                 if self.spec.supports_temperature:
                     kwargs["temperature"] = float(self.temperature)
-                resp = self._client.messages.create(**kwargs)
+                resp = self._client.messages.create(**anthropic_messages_kwargs(kwargs))
                 self._last_request_t = time.time()
                 latency = time.time() - t0
                 text_parts = []
@@ -431,6 +436,7 @@ def get_reader(
     min_request_interval_s: float = 0.0,
     max_wait_s: float = 3600.0,
     message_layout: str = READER_MESSAGE_LAYOUT_DEFAULT,
+    thinking: bool | None = None,
 ) -> Reader:
     """Build a mock, OpenAI-compatible, or Anthropic reader."""
     name = name.lower()
@@ -451,6 +457,7 @@ def get_reader(
             message_layout=message_layout,
             base_url=spec.get("base_url"),
             provider=name,
+            thinking=thinking,
         )
     if name in ("anthropic", "claude"):
         return AnthropicReader(

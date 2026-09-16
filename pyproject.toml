@@ -1,0 +1,33 @@
+[project]
+name = "memorybench"
+version = "0.2.0"
+description = "Experiment harness around the LoCoMo locomo_eval sandwich pipeline"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+  "numpy>=1.24.0",
+  "nltk>=3.8.0",
+  "regex>=2023.0.0",
+  "tqdm>=4.66.0",
+  "requests>=2.31.0",
+  "openai>=1.30.0",
+  "anthropic>=0.40.0",
+  "tiktoken>=0.7.0",
+  "matplotlib>=3.8.0",
+  "python-dotenv>=1.0.0",
+  "pandas>=2.1.0",
+  "pyarrow>=14.0.0",
+  "google-cloud-storage>=2.14.0",
+]
+
+[project.optional-dependencies]
+gcp = ["google-cloud-storage>=2.14.0"]
+dev = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

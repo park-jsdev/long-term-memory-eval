@@ -1,0 +1,8 @@
+# Plumbing-only judge. Never log this as a literature J column.
+autorater:
+  provider: mock
+  model: mock
+  temperature: 0.0
+  max_tokens: null
+  prompt_path: prompts/autoraters/autorater_mem0_v1.txt
+  skip_category: 5

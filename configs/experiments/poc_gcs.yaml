@@ -1,0 +1,11 @@
+# Cloud Run PoC: same mock cell as poc.yaml, artifacts go to GCS.
+# Requires gs://<bucket>/data/locomo10.json (upload once).
+#   python -m src.memorybench execute-qa configs/experiments/poc_gcs.yaml --run-index 0
+includes:
+  - configs/experiments/poc.yaml
+
+storage:
+  backend: gcs
+  # Bucket comes from $MEMORYBENCH_BUCKET so this config stays account-agnostic.
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

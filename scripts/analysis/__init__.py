@@ -16,4 +16,8 @@ metrics + LLM autorater + literature/latency tables and plots.
 
 Paper vs local J (offline): finished autorater packs → ``compare_to_paper`` →
 grouped Table 2 bars using the best live seed per method.
+
+Campaign / experiment reports (offline): YAML in ``configs/analysis/`` names
+the table and plot; ``campaign_tables`` / ``campaign_plots`` draw them.
+``python -m src.memorybench report configs/analysis/<campaign>.yaml``.
 """
