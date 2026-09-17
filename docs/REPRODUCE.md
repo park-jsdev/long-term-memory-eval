@@ -248,7 +248,7 @@ Three rules that cause most operator errors:
 1. **Redeploy whenever you change `EXPERIMENT_YAML`.** Job arguments are baked into the job spec, so
    an un-redeployed job silently runs the previous experiment. Verify with
    `gcloud.cmd run jobs describe memorybench-qa --region=us-central1 --format="value(spec.template.spec.template.spec.containers[0].args)"`.
-2. **`--parallelism` is not an `execute` flag.** It is set at deploy time (`3` here). Passing it to
+2. **`--parallelism` is not an `execute` flag.** It is set at deploy time (`8` here). Passing it to
    `execute` fails.
 3. **Set `--tasks` to the cell count**: 4 for the smoke, 8 for experiments 2 and 3, and 1 for the
    collector.

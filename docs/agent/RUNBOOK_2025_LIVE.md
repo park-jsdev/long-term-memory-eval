@@ -16,7 +16,7 @@ Windows: repo root, PowerShell, `gcloud.cmd` (not `gcloud.ps1`). Never commit `.
 
 ## What this campaign is
 
-Three sequential Cloud Run experiments. Redeploy between them so job args point at the right YAML. Within an experiment: **all QA → then autorater → then aggregate**. Tasks inside a wave may run in parallel (job `--parallelism=3`); cells do not share artifacts.
+Three sequential Cloud Run experiments. Redeploy between them so job args point at the right YAML. Within an experiment: **all QA → then autorater → then aggregate**. Tasks inside a wave may run in parallel (job `--parallelism=8`); cells do not share artifacts.
 
 | # | Claim | Cloud YAML | Cells | `--tasks` | GCS experiment name | Notebooks |
 |---|--------|------------|-------|-----------|---------------------|-----------|
@@ -67,7 +67,7 @@ Experiment 3 **does not** run the Mem0 paper write path (`mem0_extract_v1` / `me
 | Frozen reader (exp 3) | catalog `gpt-4o-mini`, API `gpt-4o-mini` |
 | RAG | `configs/writers/rag.yaml`: chunk **256**, **k=2**, `cl100k_base`, `text-embedding-3-small` |
 | RAG dump | `experiments/rag_locomo10/rag_index/` uploaded to `gs://…/shared/rag_locomo10/` |
-| Job parallelism | `3` (set at deploy; **not** an `execute` flag) |
+| Job parallelism | `8` (set at deploy; **not** an `execute` flag) |
 | Task timeout | 12h; max retries 2; memory 4Gi |
 | Seed | 1 |
 
@@ -339,7 +339,7 @@ Durable output is the bucket. `/tmp/memorybench-experiments` on the VM is scratc
 | Job args still `poc_gcs.yaml` or the previous experiment | Forgot redeploy | Set `EXPERIMENT_YAML`, run `deploy_gcp.ps1`, `Show-QaArgs`. |
 | RAG task: missing `rag_index` / empty `shared/rag_locomo10` | Dump not uploaded or wrong prefix | `storage ls` the prefix; re-upload `experiments/rag_locomo10` under `shared/`. |
 | Autorater fails immediately | QA `_SUCCESS` missing for that `run_id` | Finish QA first; same YAML so hashed ids match. |
-| `execute --parallelism=…` unrecognized | Parallelism is a job update field | Ignore; deploy already sets `--parallelism=3`. |
+| `execute --parallelism=…` unrecognized | Parallelism is a job update field | Ignore; deploy already sets `--parallelism=8`. |
 | Logging filter syntax error in PowerShell | Split filter / `.ps1` parser | `gcloud.cmd logging read "resource.labels.job_name=memorybench-qa"` as one string. |
 | Dataset download fail | Missing `data/locomo10.json` in bucket | Upload once (see `GCP_RUNBOOK.md`). |
 | DeepSeek 404 | Hosted `deepseek-chat` alias moved | Pin a current id in `generation_catalog.yaml`, redeploy, new `run_id`s if API id changes. |

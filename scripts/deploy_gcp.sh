@@ -10,7 +10,8 @@ SA="${SA:-memorybench-runner}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/memorybench:${TAG}"
 JOB_MEMORY="${JOB_MEMORY:-4Gi}"
-JOB_PARALLELISM="${JOB_PARALLELISM:-3}"
+# 8 saturates current 4/8-cell waves. Override JOB_PARALLELISM if 429s appear.
+JOB_PARALLELISM="${JOB_PARALLELISM:-8}"
 EXP_YAML="${EXPERIMENT_YAML:-configs/experiments/poc_gcs.yaml}"
 
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet

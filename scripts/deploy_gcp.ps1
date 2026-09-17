@@ -17,7 +17,8 @@ $SA = if ($env:SA) { $env:SA } else { "memorybench-runner" }
 $BUCKET = if ($env:BUCKET) { $env:BUCKET } else { "$($env:PROJECT_ID)-memorybench" }
 $TAG = if ($env:TAG) { $env:TAG } else { (git rev-parse --short HEAD).Trim() }
 $JOB_MEMORY = if ($env:JOB_MEMORY) { $env:JOB_MEMORY } else { "4Gi" }
-$JOB_PARALLELISM = if ($env:JOB_PARALLELISM) { $env:JOB_PARALLELISM } else { "3" }
+# 8 saturates current 4/8-cell waves. Override with $env:JOB_PARALLELISM if 429s appear.
+$JOB_PARALLELISM = if ($env:JOB_PARALLELISM) { $env:JOB_PARALLELISM } else { "8" }
 $EXP_YAML = if ($env:EXPERIMENT_YAML) { $env:EXPERIMENT_YAML } else { "configs/experiments/poc_gcs.yaml" }
 $IMAGE = "${REGION}-docker.pkg.dev/$($env:PROJECT_ID)/${AR_REPO}/memorybench:${TAG}"
 $SA_EMAIL = "$SA@$($env:PROJECT_ID).iam.gserviceaccount.com"

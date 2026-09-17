@@ -89,7 +89,7 @@ Every cell hashes thinking and the matching max-token cap into `run_id`. Re-`wri
 
 ## Cloud Run sequence
 
-Redeploy whenever `EXPERIMENT_YAML` changes. `--tasks` equals the cell count (4 / 8 / 8). Parallelism stays `3` at deploy.
+Redeploy whenever `EXPERIMENT_YAML` changes. `--tasks` equals the cell count (4 / 8 / 8). Parallelism is `8` at deploy (not an `execute` flag).
 
 ```powershell
 $env:EXPERIMENT_YAML = "configs/experiments/2025_readers_openai_deepseek_smoke_gcs.yaml"
