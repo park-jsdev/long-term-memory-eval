@@ -21,6 +21,8 @@ from src.memorybench.analysis.load_campaign import (
 )
 from src.memorybench.analysis.plots import _place_legend_outside
 from src.memorybench.analysis.report import (
+    _plot_stem,
+    _plot_title,
     annotate_model_family,
     mean_table,
     render_analysis,
@@ -28,10 +30,15 @@ from src.memorybench.analysis.report import (
     render_experiment,
     run_report,
 )
-from scripts.analysis.campaign_tables import annotate_generation
+from scripts.analysis.campaign_tables import (
+    annotate_generation,
+    annotate_mem0_latency,
+    annotate_thinking,
+    join_search_latency,
+)
 
 CAMPAIGN = ROOT / "configs" / "analysis" / "campaign_2025_live.yaml"
-VALID_PLOT_KINDS = {"bar", "grouped_bar", "metrics_grouped_bar"}
+VALID_PLOT_KINDS = {"bar", "grouped_bar", "metrics_grouped_bar", "line"}
 VALID_SOURCES = {"examples", "runs"}
 
 
@@ -111,6 +118,13 @@ class TestLoadCampaignYaml(unittest.TestCase):
         self.assertEqual(cat.plots[0].x, "question_category")
         self.assertEqual(cat.plots[0].hue, "model_family")
         self.assertEqual(cat.plots[0].y, "locomo_f1")
+        writer_cat = [
+            a for a in cfg.campaign_analyses if a.id == "writer_family_by_category"
+        ][0]
+        self.assertEqual(writer_cat.experiments, ("writers",))
+        self.assertEqual(writer_cat.plots[0].x, "question_category")
+        self.assertEqual(writer_cat.plots[0].hue, "model_family")
+        self.assertEqual(writer_cat.plots[0].y, "locomo_f1")
 
     def test_2025_openai_deepseek_reuses_recipes_with_separate_packs(self):
         cfg = load_campaign_yaml(
@@ -133,6 +147,26 @@ class TestLoadCampaignYaml(unittest.TestCase):
         live = load_campaign_yaml(CAMPAIGN)
         self.assertIn("reader_thinking_tokens", [a.id for a in cfg.campaign_analyses])
         self.assertIn("writer_thinking_tokens", [a.id for a in cfg.campaign_analyses])
+        writer_cat = [
+            a for a in cfg.campaign_analyses if a.id == "writer_family_by_category"
+        ][0]
+        self.assertEqual(writer_cat.experiments, ("writers",))
+        self.assertIn("question_category", writer_cat.group_by)
+        self.assertIn("thinking", writer_cat.group_by)
+        self.assertEqual(writer_cat.plots[0].x, "question_category")
+        self.assertEqual(writer_cat.plots[0].hue, "thinking")
+        self.assertEqual(writer_cat.plots[0].y, "locomo_f1")
+        latency = [a for a in cfg.campaign_analyses if a.id == "reader_latency_mem0"][0]
+        self.assertIn("memory_method", latency.group_by)
+        self.assertEqual(
+            [p.y for p in latency.plots],
+            [
+                "total_latency_seconds_p50",
+                "total_latency_seconds_p95",
+                "search_latency_seconds_p50",
+                "search_latency_seconds_p95",
+            ],
+        )
         self.assertNotEqual(
             [a.id for a in cfg.campaign_analyses],
             [a.id for a in live.campaign_analyses],
@@ -153,6 +187,18 @@ class TestLoadCampaignYaml(unittest.TestCase):
         ][0]
         self.assertEqual(writer_tokens.source, "runs")
         self.assertIn("teacher_reasoning_tokens", writer_tokens.metrics)
+        within = [
+            a for a in cfg.experiments["baseline"].analyses if a.id == "thinking_within_reader"
+        ][0]
+        self.assertEqual(within.group_by, ("reader_display_name", "thinking"))
+        self.assertEqual(within.plots[0].x, "reader_display_name")
+        self.assertEqual(within.plots[0].hue, "thinking")
+        writer_within = [
+            a for a in cfg.experiments["writers"].analyses if a.id == "thinking_within_writer"
+        ][0]
+        self.assertEqual(writer_within.plots[0].x, "writer_model")
+        self.assertEqual(writer_within.plots[0].hue, "thinking")
+        self.assertEqual(baseline_cat.plots[0].hue, "thinking")
 
     def test_2026_openai_deepseek_reuses_recipes_with_separate_packs(self):
         cfg = load_campaign_yaml(
@@ -175,6 +221,26 @@ class TestLoadCampaignYaml(unittest.TestCase):
         live = load_campaign_yaml(CAMPAIGN)
         self.assertIn("reader_thinking_tokens", [a.id for a in cfg.campaign_analyses])
         self.assertIn("writer_thinking_tokens", [a.id for a in cfg.campaign_analyses])
+        writer_cat = [
+            a for a in cfg.campaign_analyses if a.id == "writer_family_by_category"
+        ][0]
+        self.assertEqual(writer_cat.experiments, ("writers",))
+        self.assertIn("question_category", writer_cat.group_by)
+        self.assertIn("thinking", writer_cat.group_by)
+        self.assertEqual(writer_cat.plots[0].x, "question_category")
+        self.assertEqual(writer_cat.plots[0].hue, "thinking")
+        self.assertEqual(writer_cat.plots[0].y, "locomo_f1")
+        latency = [a for a in cfg.campaign_analyses if a.id == "reader_latency_mem0"][0]
+        self.assertIn("memory_method", latency.group_by)
+        self.assertEqual(
+            [p.y for p in latency.plots],
+            [
+                "total_latency_seconds_p50",
+                "total_latency_seconds_p95",
+                "search_latency_seconds_p50",
+                "search_latency_seconds_p95",
+            ],
+        )
         self.assertNotEqual(
             [a.id for a in cfg.campaign_analyses],
             [a.id for a in live.campaign_analyses],
@@ -391,6 +457,30 @@ class TestAnalysisNotebookContract(unittest.TestCase):
         self.assertNotIn("matplotlib", code)
         self.assertNotIn("groupby(", code)
 
+    def test_openai_deepseek_notebooks_state_thinking_within_family(self):
+        names = (
+            "07_2025_readers_openai_deepseek_smoke_analysis.ipynb",
+            "08_2025_readers_openai_deepseek_analysis.ipynb",
+            "09_mem0_reader_2025_writers_openai_deepseek_analysis.ipynb",
+            "10_2025_openai_deepseek_campaign_analysis.ipynb",
+            "11_2026_readers_openai_deepseek_smoke_analysis.ipynb",
+            "12_2026_readers_openai_deepseek_analysis.ipynb",
+            "13_mem0_reader_2026_writers_openai_deepseek_analysis.ipynb",
+            "14_2026_openai_deepseek_campaign_analysis.ipynb",
+        )
+        for name in names:
+            notebook = ROOT / "notebooks" / name
+            with self.subTest(notebook=name):
+                self.assertTrue(notebook.is_file())
+                payload = json.loads(notebook.read_text(encoding="utf-8"))
+                md = "\n".join(
+                    "".join(cell.get("source") or [])
+                    for cell in payload.get("cells") or []
+                    if cell.get("cell_type") == "markdown"
+                )
+                self.assertIn("within", md.lower())
+                self.assertIn("hue=thinking", md.lower())
+
 
 class TestMeanTableAndFamily(unittest.TestCase):
     def test_mean_table_groups_reader_and_keeps_count(self):
@@ -445,6 +535,198 @@ class TestMeanTableAndFamily(unittest.TestCase):
             ["1 multi-hop", "2 temporal"],
         )
         self.assertAlmostEqual(float(table.iloc[0]["locomo_f1"]), 0.5)
+
+    def test_mean_table_p50_p95_use_source_latency_column(self):
+        df = pd.DataFrame(
+            {
+                "model_family": ["OpenAI"] * 4,
+                "agent_latency_seconds": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
+        table = mean_table(
+            df,
+            ["model_family"],
+            ["agent_latency_seconds", "agent_latency_seconds_p50", "agent_latency_seconds_p95"],
+        )
+        self.assertEqual(len(table), 1)
+        self.assertAlmostEqual(float(table.iloc[0]["agent_latency_seconds"]), 2.5)
+        self.assertAlmostEqual(float(table.iloc[0]["agent_latency_seconds_p50"]), 2.5)
+        self.assertGreaterEqual(float(table.iloc[0]["agent_latency_seconds_p95"]), 3.5)
+
+    def test_plot_title_uses_y_metric_not_analysis_section_title(self):
+        spec = AnalysisSpec(
+            id="reader_thinking_tokens",
+            title="Reader reasoning tokens vs latency",
+            group_by=("model_family",),
+            metrics=("agent_reasoning_tokens", "agent_latency_seconds"),
+            plots=(),
+            source="examples",
+        )
+        tokens = PlotSpec(kind="grouped_bar", y="agent_reasoning_tokens")
+        latency = PlotSpec(kind="grouped_bar", y="agent_latency_seconds")
+        search = PlotSpec(kind="grouped_bar", y="search_latency_seconds_p50")
+        total = PlotSpec(kind="grouped_bar", y="total_latency_seconds_p95")
+        self.assertEqual(
+            _plot_title(tokens, spec, "agent_reasoning_tokens"),
+            "Reader reasoning tokens",
+        )
+        self.assertEqual(
+            _plot_title(latency, spec, "agent_latency_seconds"),
+            "Reader generate latency (s)",
+        )
+        self.assertEqual(
+            _plot_title(search, spec, "search_latency_seconds_p50"),
+            "Search latency (s) p50",
+        )
+        self.assertEqual(
+            _plot_title(total, spec, "total_latency_seconds_p95"),
+            "Total latency (s) p95",
+        )
+
+    def test_annotate_mem0_latency_keeps_rag_search_missing_and_zeros_full_context(self):
+        df = pd.DataFrame(
+            {
+                "memory_method": ["full_context", "rag"],
+                "agent_latency_seconds": [1.0, 2.0],
+            }
+        )
+        out = annotate_mem0_latency(df)
+        self.assertEqual(float(out.loc[0, "search_latency_seconds"]), 0.0)
+        self.assertTrue(pd.isna(out.loc[1, "search_latency_seconds"]))
+        self.assertEqual(float(out.loc[0, "total_latency_seconds"]), 1.0)
+        self.assertEqual(float(out.loc[1, "total_latency_seconds"]), 2.0)
+
+    def test_join_search_latency_fills_rag_from_predictions_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pack = root / "exp"
+            pack.mkdir()
+            run_id = "cell-rag"
+            run_dir = root / run_id
+            run_dir.mkdir()
+            (run_dir / "predictions.jsonl").write_text(
+                json.dumps(
+                    {
+                        "question_id": "q1",
+                        "search_latency_s": 0.42,
+                        "latency_s": 1.5,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            df = pd.DataFrame(
+                {
+                    "run_id": [run_id],
+                    "question_id": ["q1"],
+                    "memory_method": ["rag"],
+                    "agent_latency_seconds": [1.5],
+                }
+            )
+            joined = join_search_latency(df, pack)
+            self.assertAlmostEqual(float(joined.iloc[0]["search_latency_seconds"]), 0.42)
+            out = annotate_mem0_latency(joined)
+            self.assertAlmostEqual(float(out.iloc[0]["total_latency_seconds"]), 1.92)
+
+    def test_annotate_thinking_reads_teacher_flag_from_catalog_run_meta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "exp"
+            meta_dir = pack / "aggregate" / "by_run" / "cell-on"
+            meta_dir.mkdir(parents=True)
+            (meta_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "cell-on", "teacher_thinking": True}),
+                encoding="utf-8",
+            )
+            off_dir = pack / "aggregate" / "by_run" / "cell-off"
+            off_dir.mkdir(parents=True)
+            (off_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "cell-off", "teacher_thinking": False}),
+                encoding="utf-8",
+            )
+            df = pd.DataFrame(
+                {
+                    "run_id": ["cell-on", "cell-off", "cell-on"],
+                    "model_family": ["OpenAI", "OpenAI", "OpenAI"],
+                    "locomo_f1": [1.0, 0.0, 0.5],
+                }
+            )
+            out = annotate_thinking(df, pack)
+            self.assertEqual(list(out["thinking"]), ["on", "off", "on"])
+            table = mean_table(out, ["model_family", "thinking"], ["locomo_f1"])
+            self.assertEqual(len(table), 2)
+            on = table[table["thinking"] == "on"].iloc[0]
+            off = table[table["thinking"] == "off"].iloc[0]
+            self.assertAlmostEqual(float(on["locomo_f1"]), 0.75)
+            self.assertAlmostEqual(float(off["locomo_f1"]), 0.0)
+
+    def test_thinking_within_family_plot_keeps_on_and_off_as_hue(self):
+        spec = AnalysisSpec(
+            id="thinking_within_reader",
+            title="Thinking on vs off within reader",
+            group_by=("model_family", "thinking"),
+            metrics=("locomo_f1",),
+            plots=(
+                PlotSpec(
+                    kind="grouped_bar",
+                    x="model_family",
+                    hue="thinking",
+                    y="locomo_f1",
+                ),
+            ),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            {
+                "model_family": ["OpenAI", "OpenAI", "DeepSeek", "DeepSeek"],
+                "thinking": ["off", "on", "off", "on"],
+                "locomo_f1": [0.2, 0.8, 0.3, 0.9],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+            self.assertIsNone(result.skipped)
+            self.assertEqual(len(result.table), 4)
+            openai = result.table[result.table["model_family"] == "OpenAI"]
+            self.assertEqual(set(openai["thinking"]), {"off", "on"})
+            self.assertAlmostEqual(
+                float(openai[openai["thinking"] == "off"]["locomo_f1"].iloc[0]), 0.2
+            )
+            self.assertAlmostEqual(
+                float(openai[openai["thinking"] == "on"]["locomo_f1"].iloc[0]), 0.8
+            )
+            self.assertTrue(result.plot_paths)
+            self.assertTrue(result.plot_paths[0].is_file())
+
+    def test_plot_stem_keeps_bar_and_line_filenames_distinct(self):
+        bar = PlotSpec(kind="grouped_bar", x="generation", y="locomo_f1")
+        line = PlotSpec(kind="line", x="generation", y="locomo_f1")
+        self.assertNotEqual(_plot_stem("reader_live", bar), _plot_stem("reader_live", line))
+        self.assertIn("line", _plot_stem("reader_live", line))
+
+    def test_line_plot_writes_year_series_png(self):
+        spec = AnalysisSpec(
+            id="reader_live_year_family",
+            title="Live readers",
+            group_by=("generation", "model_family", "memory_method", "thinking"),
+            metrics=("locomo_f1",),
+            plots=(PlotSpec(kind="line", x="generation", y="locomo_f1"),),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            {
+                "generation": ["2025", "2026", "2025", "2026"],
+                "model_family": ["OpenAI", "OpenAI", "OpenAI", "OpenAI"],
+                "memory_method": ["full_context", "full_context", "rag", "rag"],
+                "thinking": ["off", "off", "off", "off"],
+                "locomo_f1": [0.50, 0.62, 0.40, 0.41],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+            self.assertIsNone(result.skipped)
+            self.assertTrue(result.plot_paths)
+            self.assertTrue(result.plot_paths[0].is_file())
+            self.assertGreater(result.plot_paths[0].stat().st_size, 0)
 
 
 class TestRenderSkipsMissingPack(unittest.TestCase):
@@ -559,6 +841,18 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         self.assertGreaterEqual(leg_box.x0, ax_box.x1 - 2)
         plt.close(fig)
 
+    def test_reasoning_token_and_latency_metrics_are_not_score_scaled(self):
+        from src.memorybench.analysis.plots import unbounded_metric
+
+        self.assertTrue(unbounded_metric("agent_reasoning_tokens"))
+        self.assertTrue(unbounded_metric("total_latency_seconds_p95"))
+        self.assertTrue(unbounded_metric("search_latency_seconds"))
+        self.assertFalse(unbounded_metric("locomo_f1"))
+        self.assertFalse(unbounded_metric("token_f1"))
+        self.assertFalse(unbounded_metric("judge_score"))
+        self.assertTrue(unbounded_metric("judge_score_per_usd"))
+        self.assertTrue(unbounded_metric("locomo_f1_per_second"))
+
 
 class TestSmokeReportWhenPackPresent(unittest.TestCase):
     def test_smoke_report_writes_family_table_when_aggregate_exists(self):
@@ -598,6 +892,12 @@ class TestYearFamilyCampaign(unittest.TestCase):
         self.assertTrue(fc.include_pins)
         self.assertEqual(fc.exclude_question_categories, (5,))
         self.assertEqual(fc.where, (("memory_method", ("full_context",)),))
+        live = [a for a in cfg.campaign_analyses if a.id == "reader_live_year_family"][0]
+        line_plots = {(p.x, p.y) for p in live.plots if p.kind == "line"}
+        self.assertIn(("generation", "locomo_f1"), line_plots)
+        self.assertIn(("generation", "judge_score"), line_plots)
+        writer = [a for a in cfg.campaign_analyses if a.id == "writer_live_year_family"][0]
+        self.assertTrue(any(p.kind == "line" and p.x == "generation" for p in writer.plots))
 
     def test_annotate_generation_uses_catalog_year(self):
         df = pd.DataFrame(

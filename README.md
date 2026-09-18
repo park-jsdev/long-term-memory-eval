@@ -181,7 +181,7 @@ flowchart LR
 
   subgraph Analyse["analysis engine — scripts/analysis"]
     CT["campaign_tables.py<br/>mean_table, model_family, category names"]
-    CP["campaign_plots.py<br/>bar, grouped_bar, metrics_grouped_bar"]
+    CP["campaign_plots.py<br/>bar, grouped_bar, metrics_grouped_bar, line"]
   end
 
   TO --> FU --> GM --> MEM

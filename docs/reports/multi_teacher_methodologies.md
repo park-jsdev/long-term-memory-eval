@@ -159,7 +159,7 @@ python scripts/compare_full_runs.py \
   --out experiments/compare_a_b
 ```
 
-Cross-model reader comparisons: `scripts/compare_cross_model.py`.
+Cross-model reader comparisons: `scripts/compare_cross_model.py`. Year-family robustness (2024 pins vs 2025/2026 live, rank flips, category holes, year-on-x line charts): `configs/analysis/campaign_year_family.yaml` and `notebooks/15_year_family_robustness_analysis.ipynb`. Do not pool teachers if writer method rank flips across family or year.
 
 ### Autorater (online judge)
 

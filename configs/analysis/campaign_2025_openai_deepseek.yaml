@@ -41,6 +41,7 @@ experiments:
         - "GPT-5 and DeepSeek-V3 each return 5 predictions at thinking off and on."
         - "Smoke cost is well under $1."
         - "Not a quality claim."
+        - "Thinking on vs off is a within-family comparison (not averaged across families)."
   baseline:
     name: locomo-2025-readers-openai-deepseek
     pack: experiments/locomo-2025-readers-openai-deepseek
@@ -52,6 +53,7 @@ experiments:
       hypotheses:
         - "GPT-5 × full_context dominates the bill; thinking-on cells add reasoning tokens."
         - "RAG cells stay on the order of a few dollars."
+        - "Quality bars split thinking on vs off within each reader family."
   writers:
     name: locomo-mem0-reader-2025-writers-openai-deepseek
     pack: experiments/locomo-mem0-reader-2025-writers-openai-deepseek
@@ -63,3 +65,4 @@ experiments:
       hypotheses:
         - "Frozen gpt-4o-mini reader is a few dollars across eight cells."
         - "Teacher reasoning tokens are the writer-side thinking metric (not reader latency)."
+        - "Quality bars split thinking on vs off within each writer family."

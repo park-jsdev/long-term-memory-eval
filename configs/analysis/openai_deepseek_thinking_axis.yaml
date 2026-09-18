@@ -5,6 +5,14 @@
 # Reader thinking tokens come from examples.parquet (per question).
 # Writer thinking tokens come from runs.parquet (cost.json teacher rollup).
 
+defaults:
+  source: examples
+  metrics:
+    - locomo_f1
+    - token_f1
+    - exact_match
+    - judge_score
+
 campaign_analyses:
   - id: reader_family_metrics
     title: Reader family means (same metrics)
@@ -12,13 +20,24 @@ campaign_analyses:
     group_by: [model_family, thinking]
     plots:
       - kind: metrics_grouped_bar
-        hue: model_family
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: locomo_f1
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: judge_score
   - id: reader_family_by_memory
     title: Reader family × memory method × thinking
     experiments: [smoke, baseline]
     group_by: [model_family, memory_method, thinking]
     plots:
       - kind: metrics_grouped_bar
+      - kind: grouped_bar
+        x: memory_method
+        hue: thinking
+        y: locomo_f1
   - id: reader_family_by_category
     title: LoCoMo F1 by family, thinking, and question category
     experiments: [smoke, baseline]
@@ -27,7 +46,7 @@ campaign_analyses:
     plots:
       - kind: grouped_bar
         x: question_category
-        hue: model_family
+        hue: thinking
         y: locomo_f1
   - id: writer_family_by_memory
     title: Writer family × memory method × thinking
@@ -35,34 +54,78 @@ campaign_analyses:
     group_by: [model_family, memory_method, thinking]
     plots:
       - kind: metrics_grouped_bar
+      - kind: grouped_bar
+        x: memory_method
+        hue: thinking
+        y: locomo_f1
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: locomo_f1
+  - id: writer_family_by_category
+    title: Writer LoCoMo F1 by family, thinking, and question category
+    experiments: [writers]
+    group_by: [model_family, thinking, question_category]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: question_category
+        hue: thinking
+        y: locomo_f1
   - id: reader_thinking_tokens
-    title: Reader reasoning tokens vs latency
+    title: Reader thinking-axis (reasoning tokens and generate latency)
     experiments: [smoke, baseline]
     group_by: [model_family, memory_method, thinking]
     metrics: [agent_reasoning_tokens, agent_latency_seconds]
     plots:
       - kind: grouped_bar
-        x: thinking
-        hue: model_family
+        x: model_family
+        hue: thinking
         y: agent_reasoning_tokens
       - kind: grouped_bar
-        x: thinking
-        hue: model_family
+        x: model_family
+        hue: thinking
         y: agent_latency_seconds
+  - id: reader_latency_mem0
+    title: Mem0-style search and total latency (p50 / p95)
+    experiments: [smoke, baseline]
+    group_by: [model_family, memory_method, thinking]
+    metrics:
+      - total_latency_seconds_p50
+      - total_latency_seconds_p95
+      - search_latency_seconds_p50
+      - search_latency_seconds_p95
+    plots:
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: total_latency_seconds_p50
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: total_latency_seconds_p95
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: search_latency_seconds_p50
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: search_latency_seconds_p95
   - id: writer_thinking_tokens
-    title: Writer reasoning tokens vs latency
+    title: Writer thinking-axis (reasoning tokens and latency)
     experiments: [writers]
     source: runs
     group_by: [model_family, memory_method, thinking]
     metrics: [teacher_reasoning_tokens, teacher_latency_seconds]
     plots:
       - kind: grouped_bar
-        x: thinking
-        hue: model_family
+        x: model_family
+        hue: thinking
         y: teacher_reasoning_tokens
       - kind: grouped_bar
-        x: thinking
-        hue: model_family
+        x: model_family
+        hue: thinking
         y: teacher_latency_seconds
 
 experiments:
@@ -80,30 +143,64 @@ experiments:
         plots:
           - kind: grouped_bar
             x: question_category
-            hue: reader_display_name
+            hue: thinking
             y: locomo_f1
       - id: latency
-        title: Reader latency
+        title: Reader latency (Mem0 search/total p50–p95 + generate mean)
         group_by: [reader_display_name, thinking]
-        metrics: [agent_latency_seconds]
+        metrics:
+          - agent_latency_seconds
+          - search_latency_seconds_p50
+          - search_latency_seconds_p95
+          - total_latency_seconds_p50
+          - total_latency_seconds_p95
         plots:
           - kind: grouped_bar
-            x: thinking
-            hue: reader_display_name
+            x: reader_display_name
+            hue: thinking
+            y: total_latency_seconds_p50
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: total_latency_seconds_p95
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: search_latency_seconds_p50
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: search_latency_seconds_p95
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
             y: agent_latency_seconds
       - id: thinking_tokens
-        title: Reader reasoning tokens vs latency
+        title: Reader thinking-axis (reasoning tokens and generate latency)
         group_by: [reader_display_name, thinking]
         metrics: [agent_reasoning_tokens, agent_latency_seconds]
         plots:
           - kind: grouped_bar
-            x: thinking
-            hue: reader_display_name
+            x: reader_display_name
+            hue: thinking
             y: agent_reasoning_tokens
           - kind: grouped_bar
-            x: thinking
-            hue: reader_display_name
+            x: reader_display_name
+            hue: thinking
             y: agent_latency_seconds
+      - id: thinking_within_reader
+        title: Thinking on vs off within reader
+        group_by: [reader_display_name, thinking]
+        metrics: [locomo_f1, judge_score]
+        plots:
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: locomo_f1
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: judge_score
   baseline:
     analyses:
       - id: by_reader_memory
@@ -118,29 +215,64 @@ experiments:
         plots:
           - kind: grouped_bar
             x: question_category
+            hue: thinking
             y: locomo_f1
       - id: latency
-        title: Reader × memory × thinking latency
+        title: Reader × memory × thinking latency (Mem0 search/total p50–p95 + generate mean)
         group_by: [reader_display_name, memory_method, thinking]
-        metrics: [agent_latency_seconds]
+        metrics:
+          - agent_latency_seconds
+          - search_latency_seconds_p50
+          - search_latency_seconds_p95
+          - total_latency_seconds_p50
+          - total_latency_seconds_p95
         plots:
           - kind: grouped_bar
-            x: thinking
-            hue: reader_display_name
+            x: reader_display_name
+            hue: thinking
+            y: total_latency_seconds_p50
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: total_latency_seconds_p95
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: search_latency_seconds_p50
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: search_latency_seconds_p95
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
             y: agent_latency_seconds
       - id: thinking_tokens
-        title: Reader reasoning tokens vs latency
+        title: Reader thinking-axis (reasoning tokens and generate latency)
         group_by: [reader_display_name, memory_method, thinking]
         metrics: [agent_reasoning_tokens, agent_latency_seconds]
         plots:
           - kind: grouped_bar
-            x: thinking
-            hue: reader_display_name
+            x: reader_display_name
+            hue: thinking
             y: agent_reasoning_tokens
           - kind: grouped_bar
-            x: thinking
-            hue: reader_display_name
+            x: reader_display_name
+            hue: thinking
             y: agent_latency_seconds
+      - id: thinking_within_reader
+        title: Thinking on vs off within reader
+        group_by: [reader_display_name, thinking]
+        metrics: [locomo_f1, judge_score]
+        plots:
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: locomo_f1
+          - kind: grouped_bar
+            x: reader_display_name
+            hue: thinking
+            y: judge_score
   writers:
     analyses:
       - id: by_writer_memory
@@ -155,27 +287,53 @@ experiments:
         plots:
           - kind: grouped_bar
             x: question_category
+            hue: thinking
             y: locomo_f1
       - id: latency
-        title: Frozen-reader latency (not teacher think time)
+        title: Frozen-reader generate latency (not teacher think time)
         group_by: [writer_model, memory_method, thinking]
-        metrics: [agent_latency_seconds]
+        metrics:
+          - agent_latency_seconds
+          - search_latency_seconds_p50
+          - total_latency_seconds_p50
+          - total_latency_seconds_p95
         plots:
           - kind: grouped_bar
-            x: thinking
-            hue: writer_model
+            x: writer_model
+            hue: thinking
+            y: total_latency_seconds_p50
+          - kind: grouped_bar
+            x: writer_model
+            hue: thinking
+            y: total_latency_seconds_p95
+          - kind: grouped_bar
+            x: writer_model
+            hue: thinking
             y: agent_latency_seconds
       - id: thinking_tokens
-        title: Writer reasoning tokens vs latency
+        title: Writer thinking-axis (reasoning tokens and latency)
         source: runs
         group_by: [writer_model, memory_method, thinking]
         metrics: [teacher_reasoning_tokens, teacher_latency_seconds]
         plots:
           - kind: grouped_bar
-            x: thinking
-            hue: writer_model
+            x: writer_model
+            hue: thinking
             y: teacher_reasoning_tokens
           - kind: grouped_bar
-            x: thinking
-            hue: writer_model
+            x: writer_model
+            hue: thinking
             y: teacher_latency_seconds
+      - id: thinking_within_writer
+        title: Thinking on vs off within writer
+        group_by: [writer_model, thinking]
+        metrics: [locomo_f1, judge_score]
+        plots:
+          - kind: grouped_bar
+            x: writer_model
+            hue: thinking
+            y: locomo_f1
+          - kind: grouped_bar
+            x: writer_model
+            hue: thinking
+            y: judge_score

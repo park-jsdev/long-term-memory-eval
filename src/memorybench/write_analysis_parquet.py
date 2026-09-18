@@ -41,6 +41,8 @@ EXAMPLE_COLUMNS = (
     "agent_output_tokens",
     "agent_reasoning_tokens",
     "agent_latency_seconds",
+    "search_latency_seconds",
+    "total_latency_seconds",
     "thinking",
     "judge_input_tokens",
     "judge_output_tokens",
@@ -152,6 +154,10 @@ def _example_record(
             else row.get("reasoning_tokens")
         ),
         "agent_latency_seconds": _as_float(row.get("latency_s")),
+        "search_latency_seconds": _as_float(row.get("search_latency_s")),
+        "total_latency_seconds": _total_latency_seconds(
+            row.get("search_latency_s"), row.get("latency_s")
+        ),
         "thinking": spec.thinking_label(),
         "judge_input_tokens": _as_int(judge_usage.get("prompt_tokens")),
         "judge_output_tokens": _as_int(judge_usage.get("completion_tokens")),
@@ -241,6 +247,15 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _total_latency_seconds(search: Any, generate: Any) -> float | None:
+    """Mem0 Table 2 total = search + answer generate. Missing search counts as 0."""
+    gen = _as_float(generate)
+    if gen is None:
+        return None
+    found = _as_float(search)
+    return round(gen + (0.0 if found is None else found), 6)
 
 
 def _as_str(value: Any) -> str | None:

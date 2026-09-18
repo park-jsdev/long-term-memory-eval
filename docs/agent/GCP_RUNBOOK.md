@@ -179,12 +179,14 @@ gcloud.cmd run jobs list --region=us-central1
 
 `deploy_gcp.ps1` builds, pushes `us-central1-docker.pkg.dev/${env:PROJECT_ID}/memorybench/memorybench:<git-sha>`, and create/updates four jobs. On Windows use the `.ps1`, not `deploy_gcp.sh` (LF/`pipefail` breaks under Git Bash).
 
-| Job | Args | Tasks |
-|-----|------|--------|
-| `memorybench-qa` | `execute-qa configs/experiments/poc_gcs.yaml` | `N` = matrix size; PoC is **1** |
-| `memorybench-autorater` | `execute-autorater configs/experiments/poc_gcs.yaml` | same `N`, only after QA `_SUCCESS` |
-| `memorybench-aggregate` | `aggregate configs/experiments/poc_gcs.yaml` | **1**; default wave 3 |
-| `memorybench-collect-full` | `collect-full configs/experiments/poc_gcs.yaml` | **1**; on-demand wave 3 |
+| Job | Args | Tasks | Parallelism | CPU / RAM |
+|-----|------|--------|-------------|-----------|
+| `memorybench-qa` | `execute-qa configs/experiments/poc_gcs.yaml` | `N` = matrix size; PoC is **1** | 8 | 1 / 4Gi |
+| `memorybench-autorater` | `execute-autorater configs/experiments/poc_gcs.yaml` | same `N`, only after QA `_SUCCESS` | 8 | 1 / 4Gi |
+| `memorybench-aggregate` | `aggregate configs/experiments/poc_gcs.yaml` | **1**; default wave 3 | **1** | 1 / 4Gi |
+| `memorybench-collect-full` | `collect-full configs/experiments/poc_gcs.yaml` | **1**; on-demand wave 3 | **1** | 8 / 32Gi |
+
+us-central1 default Cloud Run quota is 20 vCPU / 40Gi. Collect-full must stay parallelism 1 or 8×32Gi is rejected (256Gi). Execute commands are unchanged (`--tasks=N` on QA/autorater only).
 
 Container args must be `poc_gcs.yaml`, not `poc.yaml`. If you still see `poc.yaml`, the image did not roll out.
 
