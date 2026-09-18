@@ -1,4 +1,4 @@
-"""Reusable campaign/experiment bar writers (offline, no LLM).
+"""Reusable campaign/experiment bar and line writers (offline, no LLM).
 
 YAML recipes choose kind / x / hue / y; this module draws the figure.
 Legend is always outside the axes. Do not fork this per campaign.
@@ -114,6 +114,8 @@ def unbounded_metric(metric: str) -> bool:
         return True
     if name.endswith("_tokens") or "reasoning_tokens" in name:
         return True
+    if "_per_" in name:
+        return True
     return False
 
 
@@ -220,6 +222,73 @@ def write_grouped_bar(
     _save(fig, path)
     plt.close(fig)
     return Path(path)
+
+
+def write_line(
+    table: pd.DataFrame,
+    *,
+    x_col: str,
+    hue_col: str,
+    metric: str,
+    path: Path,
+    title: str,
+) -> Path | None:
+    """Year (or other x) time series; one polyline per hue / joined condition."""
+    plt = _pyplot()
+    if plt is None or table.empty or metric not in table.columns:
+        return None
+    xs = [str(v) for v in table[x_col].drop_duplicates().tolist()]
+    if x_col == "generation":
+        known = [year for year in GENERATION_AXIS if year in xs]
+        xs = known + [year for year in xs if year not in GENERATION_AXIS]
+    hues = [str(v) for v in table[hue_col].drop_duplicates().tolist()]
+    pivot = table.pivot_table(index=x_col, columns=hue_col, values=metric, aggfunc="mean")
+    pivot = pivot.reindex(index=xs, columns=hues)
+    fig, ax = plt.subplots(figsize=(8.2, 4.4))
+    x = list(range(len(xs)))
+    markers = ("o", "s", "D", "^", "v", "P", "X", "*")
+    ys_flat: list[float] = []
+    for i, hue in enumerate(hues):
+        ys = [
+            float(v) if pd.notna(v) else float("nan")
+            for v in pivot[pivot.columns[i]].tolist()
+        ]
+        ys_flat.extend(v for v in ys if v == v)
+        ax.plot(
+            x,
+            ys,
+            color=_series_color(hue, i),
+            marker=markers[i % len(markers)],
+            linestyle=_line_style(hue),
+            linewidth=1.8,
+            markersize=6,
+            label=hue,
+        )
+    ax.set_xticks(x)
+    ax.set_xticklabels(xs, rotation=20, ha="right")
+    ax.set_xlabel(_axis_title(x_col))
+    _apply_ylim(ax, metric, ys_flat)
+    ax.set_ylabel(_axis_title(metric))
+    ax.set_title(title)
+    _place_legend_outside(ax)
+    _save(fig, path)
+    plt.close(fig)
+    return Path(path)
+
+
+def _series_color(label: str, index: int) -> str:
+    lower = str(label).lower()
+    for family, color in FAMILY_COLORS.items():
+        if family.lower() in lower:
+            return color
+    return FALLBACK_COLORS[index % len(FALLBACK_COLORS)]
+
+
+def _line_style(label: str) -> str:
+    key = str(label).strip().lower()
+    if key == "off" or key.endswith("off") or " × off" in key:
+        return "--"
+    return "-"
 
 
 def write_bar(

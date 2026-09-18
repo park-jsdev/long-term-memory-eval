@@ -16,6 +16,7 @@ from scripts.analysis.campaign_plots import (
     _axis_title,
     write_bar,
     write_grouped_bar,
+    write_line,
     write_metrics_grouped_bar,
 )
 from scripts.analysis.campaign_tables import (
@@ -152,7 +153,7 @@ def _write_plot(
             path=dest,
             title=_plot_title(plot, spec, mets[0] if len(mets) == 1 else None),
         )
-    if kind == "grouped_bar":
+    if kind in ("grouped_bar", "line"):
         x_col = plot.x if plot.x in table.columns else (groups[-1] if groups else None)
         y = plot.y if plot.y in metrics else (metrics[0] if metrics else None)
         if not x_col or not y:
@@ -161,6 +162,17 @@ def _write_plot(
         if plot.hue and plot.hue in table.columns and plot.hue != x_col:
             hue_parts = [plot.hue] + [g for g in hue_parts if g != plot.hue]
         if not hue_parts:
+            if kind == "line":
+                plot_table = table.copy()
+                plot_table["_series"] = "all"
+                return write_line(
+                    plot_table,
+                    x_col=x_col,
+                    hue_col="_series",
+                    metric=y,
+                    path=dest,
+                    title=_plot_title(plot, spec, y),
+                )
             return write_bar(
                 table,
                 x_col=x_col,
@@ -177,7 +189,8 @@ def _write_plot(
             plot_table[hue_col] = (
                 plot_table[hue_parts].astype(str).agg(" × ".join, axis=1)
             )
-        return write_grouped_bar(
+        writer = write_line if kind == "line" else write_grouped_bar
+        return writer(
             plot_table,
             x_col=x_col,
             hue_col=hue_col,
@@ -209,7 +222,7 @@ def _plot_title(plot: PlotSpec, spec: AnalysisSpec, metric: str | None) -> str:
 
 def _plot_stem(analysis_id: str, plot: PlotSpec) -> str:
     parts = [analysis_id]
-    for bit in (plot.x, plot.hue, plot.y or plot.kind):
+    for bit in (plot.x, plot.hue, plot.y, plot.kind):
         if bit:
             parts.append(str(bit))
     return "_".join(parts)

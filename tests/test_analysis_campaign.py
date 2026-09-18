@@ -21,6 +21,7 @@ from src.memorybench.analysis.load_campaign import (
 )
 from src.memorybench.analysis.plots import _place_legend_outside
 from src.memorybench.analysis.report import (
+    _plot_stem,
     _plot_title,
     annotate_model_family,
     mean_table,
@@ -37,7 +38,7 @@ from scripts.analysis.campaign_tables import (
 )
 
 CAMPAIGN = ROOT / "configs" / "analysis" / "campaign_2025_live.yaml"
-VALID_PLOT_KINDS = {"bar", "grouped_bar", "metrics_grouped_bar"}
+VALID_PLOT_KINDS = {"bar", "grouped_bar", "metrics_grouped_bar", "line"}
 VALID_SOURCES = {"examples", "runs"}
 
 
@@ -696,6 +697,37 @@ class TestMeanTableAndFamily(unittest.TestCase):
             self.assertTrue(result.plot_paths)
             self.assertTrue(result.plot_paths[0].is_file())
 
+    def test_plot_stem_keeps_bar_and_line_filenames_distinct(self):
+        bar = PlotSpec(kind="grouped_bar", x="generation", y="locomo_f1")
+        line = PlotSpec(kind="line", x="generation", y="locomo_f1")
+        self.assertNotEqual(_plot_stem("reader_live", bar), _plot_stem("reader_live", line))
+        self.assertIn("line", _plot_stem("reader_live", line))
+
+    def test_line_plot_writes_year_series_png(self):
+        spec = AnalysisSpec(
+            id="reader_live_year_family",
+            title="Live readers",
+            group_by=("generation", "model_family", "memory_method", "thinking"),
+            metrics=("locomo_f1",),
+            plots=(PlotSpec(kind="line", x="generation", y="locomo_f1"),),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            {
+                "generation": ["2025", "2026", "2025", "2026"],
+                "model_family": ["OpenAI", "OpenAI", "OpenAI", "OpenAI"],
+                "memory_method": ["full_context", "full_context", "rag", "rag"],
+                "thinking": ["off", "off", "off", "off"],
+                "locomo_f1": [0.50, 0.62, 0.40, 0.41],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+            self.assertIsNone(result.skipped)
+            self.assertTrue(result.plot_paths)
+            self.assertTrue(result.plot_paths[0].is_file())
+            self.assertGreater(result.plot_paths[0].stat().st_size, 0)
+
 
 class TestRenderSkipsMissingPack(unittest.TestCase):
     def test_render_experiment_records_missing_pack_without_raising(self):
@@ -818,6 +850,8 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         self.assertFalse(unbounded_metric("locomo_f1"))
         self.assertFalse(unbounded_metric("token_f1"))
         self.assertFalse(unbounded_metric("judge_score"))
+        self.assertTrue(unbounded_metric("judge_score_per_usd"))
+        self.assertTrue(unbounded_metric("locomo_f1_per_second"))
 
 
 class TestSmokeReportWhenPackPresent(unittest.TestCase):
@@ -858,6 +892,12 @@ class TestYearFamilyCampaign(unittest.TestCase):
         self.assertTrue(fc.include_pins)
         self.assertEqual(fc.exclude_question_categories, (5,))
         self.assertEqual(fc.where, (("memory_method", ("full_context",)),))
+        live = [a for a in cfg.campaign_analyses if a.id == "reader_live_year_family"][0]
+        line_plots = {(p.x, p.y) for p in live.plots if p.kind == "line"}
+        self.assertIn(("generation", "locomo_f1"), line_plots)
+        self.assertIn(("generation", "judge_score"), line_plots)
+        writer = [a for a in cfg.campaign_analyses if a.id == "writer_live_year_family"][0]
+        self.assertTrue(any(p.kind == "line" and p.x == "generation" for p in writer.plots))
 
     def test_annotate_generation_uses_catalog_year(self):
         df = pd.DataFrame(

@@ -5,6 +5,8 @@
 #   python -m src.memorybench report configs/analysis/campaign_year_family.yaml
 # Notebook: notebooks/15_year_family_robustness_analysis.ipynb
 # Schema: docs/schemas/analysis_campaign.md
+# Year-over-year condition comparisons are `kind: line` with x=generation
+# (same tables as the grouped bars; thinking-off series are dashed).
 
 campaign:
   id: year_family
@@ -115,6 +117,12 @@ campaign_analyses:
       - kind: grouped_bar
         x: generation
         y: locomo_f1
+      - kind: line
+        x: generation
+        y: judge_score
+      - kind: line
+        x: generation
+        y: locomo_f1
   - id: j_full_context_by_year_family
     title: Full-context J by generation and family
     experiments: [readers, readers_2026]
@@ -129,6 +137,9 @@ campaign_analyses:
         x: generation
         hue: model_family
         y: judge_score
+      - kind: line
+        x: generation
+        y: judge_score
   - id: j_rag_by_year_family
     title: RAG J by generation and family
     experiments: [readers, readers_2026]
@@ -142,6 +153,9 @@ campaign_analyses:
       - kind: grouped_bar
         x: generation
         hue: model_family
+        y: judge_score
+      - kind: line
+        x: generation
         y: judge_score
   - id: j_memory_write_by_year_family
     title: Memory-construction J (paper Mem0 vs teacher writers)
@@ -160,6 +174,9 @@ campaign_analyses:
       - kind: grouped_bar
         x: memory_method
         y: judge_score
+      - kind: line
+        x: generation
+        y: judge_score
   - id: reader_live_year_family
     title: Live reader 2025–2026 (matched sandwich; no 2024 pins)
     experiments: [readers, readers_2026]
@@ -173,6 +190,12 @@ campaign_analyses:
       - kind: grouped_bar
         x: generation
         hue: model_family
+        y: judge_score
+      - kind: line
+        x: generation
+        y: locomo_f1
+      - kind: line
+        x: generation
         y: judge_score
   - id: writer_live_year_family
     title: Live writer 2025–2026 (frozen gpt-4o-mini reader)
@@ -188,6 +211,12 @@ campaign_analyses:
         x: memory_method
         hue: generation
         y: locomo_f1
+      - kind: line
+        x: generation
+        y: locomo_f1
+      - kind: line
+        x: generation
+        y: judge_score
   - id: reader_fc_category_year
     title: Full-context category holes (thinking off)
     experiments: [readers, readers_2026]
@@ -200,6 +229,9 @@ campaign_analyses:
       - kind: grouped_bar
         x: question_category
         hue: generation
+        y: locomo_f1
+      - kind: line
+        x: generation
         y: locomo_f1
   - id: reader_rag_category_year
     title: RAG category holes (thinking off)
@@ -214,6 +246,9 @@ campaign_analyses:
         x: question_category
         hue: generation
         y: locomo_f1
+      - kind: line
+        x: generation
+        y: locomo_f1
   - id: writer_category_year
     title: Writer category holes (thinking off; frozen reader)
     experiments: [writers, writers_2026]
@@ -225,6 +260,9 @@ campaign_analyses:
       - kind: grouped_bar
         x: question_category
         hue: generation
+        y: locomo_f1
+      - kind: line
+        x: generation
         y: locomo_f1
   - id: year_family_by_thinking
     title: Year × family × thinking (J; live only)
@@ -239,6 +277,12 @@ campaign_analyses:
       - kind: grouped_bar
         x: model_family
         hue: thinking
+        y: locomo_f1
+      - kind: line
+        x: generation
+        y: judge_score
+      - kind: line
+        x: generation
         y: locomo_f1
   - id: thinking_tokens_by_year_family
     title: Reader thinking-axis by year and family
@@ -261,6 +305,12 @@ campaign_analyses:
       - kind: grouped_bar
         x: model_family
         hue: thinking
+        y: agent_latency_seconds
+      - kind: line
+        x: generation
+        y: agent_reasoning_tokens
+      - kind: line
+        x: generation
         y: agent_latency_seconds
   - id: writer_thinking_tokens_by_year_family
     title: Writer thinking-axis by year and family
@@ -285,6 +335,12 @@ campaign_analyses:
         x: model_family
         hue: thinking
         y: teacher_latency_seconds
+      - kind: line
+        x: generation
+        y: teacher_reasoning_tokens
+      - kind: line
+        x: generation
+        y: teacher_latency_seconds
   - id: reader_latency_year
     title: Reader latency by year (generate + Mem0 search/total)
     experiments: [readers, readers_2026]
@@ -308,6 +364,12 @@ campaign_analyses:
         x: generation
         hue: model_family
         y: agent_latency_seconds
+      - kind: line
+        x: generation
+        y: total_latency_seconds_p50
+      - kind: line
+        x: generation
+        y: agent_latency_seconds
   - id: writer_latency_year
     title: Frozen-reader generate latency by writer year
     experiments: [writers, writers_2026]
@@ -324,6 +386,12 @@ campaign_analyses:
       - kind: grouped_bar
         x: generation
         hue: model_family
+        y: agent_latency_seconds
+      - kind: line
+        x: generation
+        y: total_latency_seconds_p50
+      - kind: line
+        x: generation
         y: agent_latency_seconds
   - id: reader_efficiency_year
     title: Reader quality with latency and reasoning tokens (ROI inputs)
@@ -346,6 +414,15 @@ campaign_analyses:
       - kind: grouped_bar
         x: generation
         hue: model_family
+        y: agent_reasoning_tokens
+      - kind: line
+        x: generation
+        y: locomo_f1
+      - kind: line
+        x: generation
+        y: agent_latency_seconds
+      - kind: line
+        x: generation
         y: agent_reasoning_tokens
 
 insights:

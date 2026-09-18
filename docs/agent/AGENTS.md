@@ -63,7 +63,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `src/locomo_eval/` | Baseline package |
 | `scripts/compare_full_runs.py` | Sandwich report for finished run packs; infers frozen prompt from run metadata |
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
-| `scripts/analysis/campaign_tables.py` / `campaign_plots.py` | YAML-driven campaign/experiment means + bars (legend outside; category names) |
+| `scripts/analysis/campaign_tables.py` / `campaign_plots.py` | YAML-driven campaign/experiment means + bars and year-on-x lines (legend outside; category names) |
 | `scripts/analysis/campaign_insights.py` | Year-family labels: deltas, family gaps, rank flips, thinking, category holes |
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |

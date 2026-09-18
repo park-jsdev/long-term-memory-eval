@@ -497,6 +497,7 @@ class TestYearFamilyYamlInsights(unittest.TestCase):
         self.assertNotIn("matplotlib", text)
         self.assertNotIn("groupby(", text)
         self.assertIn("hue=thinking", text.lower())
+        self.assertIn("kind: line", text)
         self.assertIn("rank_flip", text)
         self.assertIn("diminishing_returns", text)
         self.assertIn("judge_score_per_usd", text)

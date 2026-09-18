@@ -10,7 +10,7 @@ Glue: `src/memorybench/analysis/` (load YAML, read aggregate parquet, write
 `analysis/`). CLI: `python -m src.memorybench report configs/analysis/<file>.yaml`.
 No LLM.
 
-`campaign: 2025_live` in `configs/analysis/campaign_2025_live.yaml` is the parked three-family recipe (includes Claude). The budget overlay `configs/analysis/campaign_2025_openai_deepseek.yaml` includes that file, remaps pack names, and adds `openai_deepseek_thinking_axis.yaml` (thinking on/off group_by plus reasoning-token vs latency plots). `configs/analysis/campaign_year_family.yaml` is the 2024–2026 robustness plane (pins + live packs; notebook 15). Insight CSVs label year moves, family gaps, method-rank flips, thinking deltas, and category holes. Missing 2026 packs are omitted; do not invent zero bars. The 2026 overlay `configs/analysis/campaign_2026_openai_deepseek.yaml` does the same for GPT-5.6 Terra vs DeepSeek-V4.
+`campaign: 2025_live` in `configs/analysis/campaign_2025_live.yaml` is the parked three-family recipe (includes Claude). The budget overlay `configs/analysis/campaign_2025_openai_deepseek.yaml` includes that file, remaps pack names, and adds `openai_deepseek_thinking_axis.yaml` (thinking on/off group_by plus reasoning-token vs latency plots). `configs/analysis/campaign_year_family.yaml` is the 2024–2026 robustness plane (pins + live packs; notebook 15). Insight CSVs label year moves, family gaps, method-rank flips, thinking deltas, and category holes. Year-family recipes also emit `kind: line` plots (`x: generation`) so each condition is a time series next to the bars. Missing 2026 packs are omitted; do not invent zero bars. The 2026 overlay `configs/analysis/campaign_2026_openai_deepseek.yaml` does the same for GPT-5.6 Terra vs DeepSeek-V4.
 
 ## Layout
 
@@ -112,6 +112,7 @@ experiments/_campaign/<campaign.id>/
 |------|-------------|--------|
 | `metrics_grouped_bar` | `hue` (optional; else join `group_by`) | `write_metrics_grouped_bar` — x = metric names |
 | `grouped_bar` | `x`, `hue`, `y` | `write_grouped_bar` |
+| `line` | `x`, `y` (`hue` optional) | `write_line` — year-on-x time series; remaining `group_by` columns join as series; thinking-off is dashed |
 | `bar` | `x`, `y` | `write_bar` (scores 0–1; latency/tokens autoscale) |
 
 Campaign concat includes `reader_family_by_category` and `writer_family_by_category`

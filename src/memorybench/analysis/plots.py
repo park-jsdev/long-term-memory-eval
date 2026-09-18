@@ -6,5 +6,6 @@ from scripts.analysis.campaign_plots import (  # noqa: F401
     unbounded_metric,
     write_bar,
     write_grouped_bar,
+    write_line,
     write_metrics_grouped_bar,
 )
