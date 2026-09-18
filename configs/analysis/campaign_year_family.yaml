@@ -1,14 +1,15 @@
-# 2024 vs 2025 (2026 slot ready) by model family.
+# 2024 vs 2025 vs 2026 by model family — robustness + year-move story.
 # Live packs + literature/local-clone pins. J excludes LoCoMo category 5
 # (Mem0 judge protocol). Do not claim paper Table 1–2 J from OSS clones.
 #
 #   python -m src.memorybench report configs/analysis/campaign_year_family.yaml
-# Add 2026 by appending live packs under experiments: and optional pins.
+# Notebook: notebooks/15_year_family_robustness_analysis.ipynb
 # Schema: docs/schemas/analysis_campaign.md
 
 campaign:
   id: year_family
-  title: 2024 vs 2025 vs 2026 by model family
+  title: Cross-model robustness and 2024–2026 year-family story
+  notebook: notebooks/15_year_family_robustness_analysis.ipynb
   freeze_note: >
     Judge score is Mem0 J (category 5 excluded). Paper rows are Table 2
     literature pins (gpt-4o-class, 2024). local_clone is this repo's
@@ -17,8 +18,15 @@ campaign:
     with matched thinking on/off. live writers freeze gpt-4o-mini as the
     reader and vary the teacher × thinking. teacher_session_summaries /
     teacher_graph are not Mem0 extract/update. Do not average on/off
-    cells. Prior GPT-5 writer packs that collapsed under high thinking +
-    1024 tokens are historical, not in this matrix.
+    cells. 2024→2025 pin vs live is a different stack (not a matched
+    sandwich delta). 2025→2026 live matched cells are the robustness
+    check for a future multi-teacher middle layer: if FC vs RAG ranking
+    or family gaps flip, a pooled-teacher claim cannot treat the reader
+    as interchangeable. Cost, latency, and reasoning tokens sit next to
+    F1/J so ROI (score per second / per $ / per 1k reasoning tokens) and
+    benchmark saturation (near_ceiling, diminishing_returns) are first-class.
+    Prior GPT-5 writer packs that collapsed under high thinking + 1024
+    tokens are historical, not in this matrix.
 
 defaults:
   source: examples
@@ -26,6 +34,13 @@ defaults:
     - locomo_f1
     - judge_score
   output_subdir: analysis
+
+cost:
+  volume_from:
+    readers: experiments/locomo-2025-readers-openai-deepseek
+    writers: experiments/locomo-mem0-reader-2025-writers-openai-deepseek
+    readers_2026: experiments/locomo-2026-readers-openai-deepseek
+    writers_2026: experiments/locomo-mem0-reader-2026-writers-openai-deepseek
 
 # Frozen overall scores (already aggregated). n=1540 is the judged subset.
 pins:
@@ -112,6 +127,7 @@ campaign_analyses:
     plots:
       - kind: grouped_bar
         x: generation
+        hue: model_family
         y: judge_score
   - id: j_rag_by_year_family
     title: RAG J by generation and family
@@ -125,6 +141,7 @@ campaign_analyses:
     plots:
       - kind: grouped_bar
         x: generation
+        hue: model_family
         y: judge_score
   - id: j_memory_write_by_year_family
     title: Memory-construction J (paper Mem0 vs teacher writers)
@@ -143,6 +160,72 @@ campaign_analyses:
       - kind: grouped_bar
         x: memory_method
         y: judge_score
+  - id: reader_live_year_family
+    title: Live reader 2025–2026 (matched sandwich; no 2024 pins)
+    experiments: [readers, readers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: locomo_f1
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: judge_score
+  - id: writer_live_year_family
+    title: Live writer 2025–2026 (frozen gpt-4o-mini reader)
+    experiments: [writers, writers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: locomo_f1
+      - kind: grouped_bar
+        x: memory_method
+        hue: generation
+        y: locomo_f1
+  - id: reader_fc_category_year
+    title: Full-context category holes (thinking off)
+    experiments: [readers, readers_2026]
+    where:
+      memory_method: [full_context]
+      thinking: [off]
+    group_by: [generation, model_family, question_category]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: question_category
+        hue: generation
+        y: locomo_f1
+  - id: reader_rag_category_year
+    title: RAG category holes (thinking off)
+    experiments: [readers, readers_2026]
+    where:
+      memory_method: [rag]
+      thinking: [off]
+    group_by: [generation, model_family, question_category]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: question_category
+        hue: generation
+        y: locomo_f1
+  - id: writer_category_year
+    title: Writer category holes (thinking off; frozen reader)
+    experiments: [writers, writers_2026]
+    where:
+      thinking: [off]
+    group_by: [generation, model_family, memory_method, question_category]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: question_category
+        hue: generation
+        y: locomo_f1
   - id: year_family_by_thinking
     title: Year × family × thinking (J; live only)
     experiments: [readers, writers, readers_2026, writers_2026]
@@ -150,38 +233,248 @@ campaign_analyses:
     metrics: [judge_score, locomo_f1]
     plots:
       - kind: grouped_bar
-        x: thinking
-        hue: model_family
+        x: model_family
+        hue: thinking
         y: judge_score
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: locomo_f1
   - id: thinking_tokens_by_year_family
-    title: Reader reasoning tokens vs latency by year and family
+    title: Reader thinking-axis by year and family
     experiments: [readers, readers_2026]
     group_by: [generation, model_family, memory_method, thinking]
     metrics: [agent_reasoning_tokens, agent_latency_seconds]
     plots:
       - kind: grouped_bar
-        x: thinking
+        x: generation
         hue: model_family
         y: agent_reasoning_tokens
       - kind: grouped_bar
-        x: thinking
+        x: generation
         hue: model_family
         y: agent_latency_seconds
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: agent_reasoning_tokens
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: agent_latency_seconds
   - id: writer_thinking_tokens_by_year_family
-    title: Writer reasoning tokens vs latency by year and family
+    title: Writer thinking-axis by year and family
     experiments: [writers, writers_2026]
     source: runs
     group_by: [generation, model_family, memory_method, thinking]
     metrics: [teacher_reasoning_tokens, teacher_latency_seconds]
     plots:
       - kind: grouped_bar
-        x: thinking
+        x: generation
         hue: model_family
         y: teacher_reasoning_tokens
       - kind: grouped_bar
-        x: thinking
+        x: generation
         hue: model_family
         y: teacher_latency_seconds
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: teacher_reasoning_tokens
+      - kind: grouped_bar
+        x: model_family
+        hue: thinking
+        y: teacher_latency_seconds
+  - id: reader_latency_year
+    title: Reader latency by year (generate + Mem0 search/total)
+    experiments: [readers, readers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics:
+      - agent_latency_seconds
+      - total_latency_seconds_p50
+      - total_latency_seconds_p95
+      - search_latency_seconds_p50
+      - search_latency_seconds_p95
+    plots:
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: total_latency_seconds_p50
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: total_latency_seconds_p95
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: agent_latency_seconds
+  - id: writer_latency_year
+    title: Frozen-reader generate latency by writer year
+    experiments: [writers, writers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics:
+      - agent_latency_seconds
+      - total_latency_seconds_p50
+      - total_latency_seconds_p95
+    plots:
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: total_latency_seconds_p50
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: agent_latency_seconds
+  - id: reader_efficiency_year
+    title: Reader quality with latency and reasoning tokens (ROI inputs)
+    experiments: [readers, readers_2026]
+    group_by: [generation, model_family, memory_method, thinking]
+    metrics:
+      - locomo_f1
+      - judge_score
+      - agent_latency_seconds
+      - agent_reasoning_tokens
+    plots:
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: locomo_f1
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: agent_latency_seconds
+      - kind: grouped_bar
+        x: generation
+        hue: model_family
+        y: agent_reasoning_tokens
+
+insights:
+  - id: reader_year_deltas
+    title: Within-family year moves (live readers)
+    kind: year_deltas
+    from: reader_live_year_family
+    metrics: [locomo_f1, judge_score]
+  - id: reader_family_gaps
+    title: OpenAI − DeepSeek reader gaps (closing vs widening)
+    kind: family_gaps
+    from: reader_live_year_family
+    metrics: [locomo_f1, judge_score]
+  - id: reader_thinking_deltas
+    title: Thinking on vs off within reader family × year
+    kind: thinking_deltas
+    from: reader_live_year_family
+    metrics: [locomo_f1, judge_score]
+  - id: reader_method_ranks
+    title: FC vs RAG rank within reader family × year × thinking
+    kind: method_ranks
+    from: reader_live_year_family
+    metric: locomo_f1
+  - id: reader_rank_flips
+    title: Reader method-rank flips (threat to sandwich validity)
+    kind: rank_flips
+    from: reader_method_ranks
+  - id: reader_fc_holes
+    title: Full-context category holes (thinking off)
+    kind: category_holes
+    from: reader_fc_category_year
+    metric: locomo_f1
+  - id: reader_rag_holes
+    title: RAG category holes (thinking off)
+    kind: category_holes
+    from: reader_rag_category_year
+    metric: locomo_f1
+  - id: writer_year_deltas
+    title: Within-family year moves (frozen-reader writers)
+    kind: year_deltas
+    from: writer_live_year_family
+    metrics: [locomo_f1, judge_score]
+  - id: writer_family_gaps
+    title: OpenAI − DeepSeek writer gaps
+    kind: family_gaps
+    from: writer_live_year_family
+    metrics: [locomo_f1, judge_score]
+  - id: writer_thinking_deltas
+    title: Thinking on vs off within writer family × year
+    kind: thinking_deltas
+    from: writer_live_year_family
+    metrics: [locomo_f1, judge_score]
+  - id: writer_method_ranks
+    title: teacher_graph vs session-summary rank
+    kind: method_ranks
+    from: writer_live_year_family
+    metric: locomo_f1
+  - id: writer_rank_flips
+    title: Writer method-rank flips (threat to multi-teacher pooling)
+    kind: rank_flips
+    from: writer_method_ranks
+  - id: writer_holes
+    title: Writer category holes (thinking off)
+    kind: category_holes
+    from: writer_category_year
+    metric: locomo_f1
+  - id: pin_vs_live_2025
+    title: 2024 pins vs 2025 OpenAI live (not a matched stack)
+    kind: pin_gaps
+    from: year_family_overview
+    metric: judge_score
+  - id: reader_latency_year_deltas
+    title: Reader latency year moves (improving = faster)
+    kind: year_deltas
+    from: reader_latency_year
+    metrics:
+      - agent_latency_seconds
+      - total_latency_seconds_p50
+      - total_latency_seconds_p95
+  - id: reader_token_year_deltas
+    title: Reader reasoning-token year moves (improving = fewer tokens)
+    kind: year_deltas
+    from: thinking_tokens_by_year_family
+    metrics: [agent_reasoning_tokens, agent_latency_seconds]
+  - id: writer_token_year_deltas
+    title: Writer reasoning-token year moves (improving = fewer tokens)
+    kind: year_deltas
+    from: writer_thinking_tokens_by_year_family
+    metrics: [teacher_reasoning_tokens, teacher_latency_seconds]
+  - id: reader_efficiency
+    title: Reader score per second, per $1, per 1k reasoning tokens
+    kind: efficiency
+    from: reader_efficiency_year
+    join_cost: true
+  - id: writer_efficiency
+    title: Writer score per $1 (frozen-reader sandwich; teacher+judge USD)
+    kind: efficiency
+    from: writer_live_year_family
+    join_cost: true
+  - id: reader_roi_year_deltas
+    title: Reader ROI year moves (higher ratio = better)
+    kind: year_deltas
+    from: reader_efficiency
+    metrics:
+      - locomo_f1_per_second
+      - judge_score_per_second
+      - locomo_f1_per_usd
+      - judge_score_per_usd
+      - locomo_f1_per_k_reasoning
+      - judge_score_per_k_reasoning
+  - id: writer_roi_year_deltas
+    title: Writer ROI year moves (higher ratio = better)
+    kind: year_deltas
+    from: writer_efficiency
+    metrics:
+      - locomo_f1_per_usd
+      - judge_score_per_usd
+  - id: reader_saturation
+    title: Reader benchmark saturation and diminishing returns
+    kind: saturation
+    from: reader_efficiency_year
+    metric: judge_score
+    join_cost: true
+  - id: writer_saturation
+    title: Writer benchmark saturation (frozen mini; teacher spend in USD)
+    kind: saturation
+    from: writer_live_year_family
+    metric: judge_score
+    join_cost: true
 
 experiments:
   readers:
@@ -190,21 +483,53 @@ experiments:
     role: reader_sweep
     family_from: reader
     analyses: []
+    pretest:
+      n_cells: 8
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "GPT-5 vs DeepSeek-V3 × {full_context, rag} × thinking on/off is the 2025 reader robustness plane."
+        - "Do not average thinking on/off cells."
+        - "Thinking-on cells cost more tokens and seconds; quality gain vs that spend is an ROI question, not assumed."
   writers:
     name: locomo-mem0-reader-2025-writers-openai-deepseek
     pack: experiments/locomo-mem0-reader-2025-writers-openai-deepseek
     role: sandwich
     family_from: writer
     analyses: []
+    pretest:
+      n_cells: 8
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "Frozen gpt-4o-mini reader; year deltas here are teacher quality, not answer-model quality."
+        - "teacher_graph vs teacher_session_summaries ranking should be stable across families if pooling is the next middle layer."
   readers_2026:
     name: locomo-2026-readers-openai-deepseek
     pack: experiments/locomo-2026-readers-openai-deepseek
     role: reader_sweep
     family_from: reader
     analyses: []
+    pretest:
+      n_cells: 8
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "Terra vs DeepSeek-V4 matches the 2025 reader matrix (including thinking)."
+        - "If FC still beats RAG in both families, a future multi-teacher claim can freeze the reader."
+        - "A rank flip vs 2025 is a threat to validity, not a memory-method result."
+        - "If J is near_ceiling and not_moving while latency or USD rose, LoCoMo is saturating as a reader benchmark (diminishing_returns)."
   writers_2026:
     name: locomo-mem0-reader-2026-writers-openai-deepseek
     pack: experiments/locomo-mem0-reader-2026-writers-openai-deepseek
     role: sandwich
     family_from: writer
     analyses: []
+    pretest:
+      n_cells: 8
+      n_questions: 1986
+      scientific_claim: true
+      hypotheses:
+        - "Same frozen gpt-4o-mini reader as 2025 writers, so 2025→2026 writer deltas isolate teacher generation."
+        - "Persistent category holes after a stronger teacher are candidates for fusion/claim-level work, not another reader swap."
+        - "Writer USD should stay small vs reader full_context; costly_gain on teachers is a reason not to pool the expensive family."

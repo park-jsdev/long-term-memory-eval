@@ -10,7 +10,10 @@ SA="${SA:-memorybench-runner}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/memorybench:${TAG}"
 JOB_MEMORY="${JOB_MEMORY:-4Gi}"
-# 8 saturates current 4/8-cell waves. Override JOB_PARALLELISM if 429s appear.
+# collect-full is 1 task. 8×32Gi exceeds us-central1 default 20 vCPU / 40Gi quota.
+COLLECT_FULL_MEMORY="${COLLECT_FULL_MEMORY:-32Gi}"
+COLLECT_FULL_CPU="${COLLECT_FULL_CPU:-8}"
+# 8 saturates current 4/8-cell QA/autorater waves. Aggregate and collect-full stay 1.
 JOB_PARALLELISM="${JOB_PARALLELISM:-8}"
 EXP_YAML="${EXPERIMENT_YAML:-configs/experiments/poc_gcs.yaml}"
 
@@ -23,38 +26,27 @@ COMMON=(
   --region="${REGION}"
   --service-account="${SA}@${PROJECT_ID}.iam.gserviceaccount.com"
   --tasks=1
-  --parallelism="${JOB_PARALLELISM}"
   --task-timeout=12h
   --max-retries=2
-  --cpu=1
-  --memory="${JOB_MEMORY}"
   --set-secrets="OPENAI_API_KEY=openai-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,DEEPSEEK_API_KEY=deepseek-api-key:latest"
   --set-env-vars="PYTHONUNBUFFERED=1,MEMORYBENCH_BUCKET=${BUCKET:-${PROJECT_ID}-memorybench}"
 )
 
-gcloud run jobs describe memorybench-qa --region="${REGION}" >/dev/null 2>&1 \
-  && gcloud run jobs update memorybench-qa "${COMMON[@]}" \
-      --args="execute-qa,${EXP_YAML}" \
-  || gcloud run jobs create memorybench-qa "${COMMON[@]}" \
-      --args="execute-qa,${EXP_YAML}"
+upsert_job() {
+  local name="$1" args="$2" cpu="$3" memory="$4" parallelism="$5"
+  if gcloud run jobs describe "${name}" --region="${REGION}" >/dev/null 2>&1; then
+    gcloud run jobs update "${name}" "${COMMON[@]}" \
+      --cpu="${cpu}" --memory="${memory}" --parallelism="${parallelism}" --args="${args}"
+  else
+    gcloud run jobs create "${name}" "${COMMON[@]}" \
+      --cpu="${cpu}" --memory="${memory}" --parallelism="${parallelism}" --args="${args}"
+  fi
+}
 
-gcloud run jobs describe memorybench-autorater --region="${REGION}" >/dev/null 2>&1 \
-  && gcloud run jobs update memorybench-autorater "${COMMON[@]}" \
-      --args="execute-autorater,${EXP_YAML}" \
-  || gcloud run jobs create memorybench-autorater "${COMMON[@]}" \
-      --args="execute-autorater,${EXP_YAML}"
-
-gcloud run jobs describe memorybench-aggregate --region="${REGION}" >/dev/null 2>&1 \
-  && gcloud run jobs update memorybench-aggregate "${COMMON[@]}" \
-      --args="aggregate,${EXP_YAML}" \
-  || gcloud run jobs create memorybench-aggregate "${COMMON[@]}" \
-      --args="aggregate,${EXP_YAML}"
-
-gcloud run jobs describe memorybench-collect-full --region="${REGION}" >/dev/null 2>&1 \
-  && gcloud run jobs update memorybench-collect-full "${COMMON[@]}" \
-      --args="collect-full,${EXP_YAML}" \
-  || gcloud run jobs create memorybench-collect-full "${COMMON[@]}" \
-      --args="collect-full,${EXP_YAML}"
+upsert_job memorybench-qa "execute-qa,${EXP_YAML}" 1 "${JOB_MEMORY}" "${JOB_PARALLELISM}"
+upsert_job memorybench-autorater "execute-autorater,${EXP_YAML}" 1 "${JOB_MEMORY}" "${JOB_PARALLELISM}"
+upsert_job memorybench-aggregate "aggregate,${EXP_YAML}" 1 "${JOB_MEMORY}" 1
+upsert_job memorybench-collect-full "collect-full,${EXP_YAML}" "${COLLECT_FULL_CPU}" "${COLLECT_FULL_MEMORY}" 1
 
 echo "Image ${IMAGE}"
 echo "Experiment YAML ${EXP_YAML}"

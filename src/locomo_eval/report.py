@@ -44,6 +44,8 @@ def write_predictions_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "prompt_version",
         "memory_chars",
         "memory_preview",
+        "latency_s",
+        "search_latency_s",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")

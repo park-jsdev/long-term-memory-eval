@@ -111,15 +111,23 @@ def download_experiment_runs(
     out_root: Path,
     *,
     store: Any | None = None,
+    rel_allowlist: tuple[str, ...] | None = None,
 ) -> dict[str, int]:
-    """Pull each run prefix into ``out_root/<run_id>/``. Local backend is a no-op."""
+    """Pull each run prefix into ``out_root/<run_id>/``. Local backend is a no-op.
+
+    ``rel_allowlist`` limits which relative paths are fetched (catalog aggregate).
+    Omit it to copy the whole pack (QA, autorater, collect-full).
+    """
     if not gcs_enabled(cfg):
         return {}
     handle = store or open_configured_store(cfg)
     counts: dict[str, int] = {}
     for run_id in run_ids:
         counts[run_id] = download_tree(
-            handle, remote_run_prefix(cfg, run_id), out_root / run_id
+            handle,
+            remote_run_prefix(cfg, run_id),
+            out_root / run_id,
+            rel_allowlist=rel_allowlist,
         )
     return counts
 
@@ -157,8 +165,15 @@ def upload_tree(store: Any, local_dir: Path, remote_prefix: str) -> int:
     return n
 
 
-def download_tree(store: Any, remote_prefix: str, local_dir: Path) -> int:
+def download_tree(
+    store: Any,
+    remote_prefix: str,
+    local_dir: Path,
+    *,
+    rel_allowlist: tuple[str, ...] | None = None,
+) -> int:
     marker = remote_prefix.strip("/").replace("\\", "/")
+    allowed = {p.replace("\\", "/") for p in rel_allowlist} if rel_allowlist else None
     names = store.list(marker)
     n = 0
     for name in names:
@@ -170,6 +185,8 @@ def download_tree(store: Any, remote_prefix: str, local_dir: Path) -> int:
         if key.startswith(marker + "/"):
             rel = key[len(marker) + 1 :]
         else:
+            continue
+        if allowed is not None and rel not in allowed:
             continue
         dest = local_dir / rel
         store.download(key, dest)

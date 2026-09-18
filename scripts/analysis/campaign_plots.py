@@ -17,6 +17,15 @@ FAMILY_COLORS = {
     "Anthropic": "#F58518",
     "DeepSeek": "#54A24B",
 }
+GENERATION_COLORS = {
+    "2024": "#B8B8B8",
+    "2025": "#4C78A8",
+    "2026": "#F58518",
+}
+THINKING_COLORS = {
+    "off": "#B8B8B8",
+    "on": "#4C78A8",
+}
 FALLBACK_COLORS = ("#4C78A8", "#F58518", "#54A24B", "#E45756", "#B279A2", "#72B7B2")
 
 
@@ -34,7 +43,16 @@ def _pyplot():
 def _colors(labels: list[str]) -> list[str]:
     out: list[str] = []
     for i, label in enumerate(labels):
-        out.append(FAMILY_COLORS.get(str(label), FALLBACK_COLORS[i % len(FALLBACK_COLORS)]))
+        key = str(label)
+        think = THINKING_COLORS.get(key.strip().lower())
+        if think:
+            out.append(think)
+            continue
+        year = GENERATION_COLORS.get(key)
+        if year:
+            out.append(year)
+            continue
+        out.append(FAMILY_COLORS.get(key, FALLBACK_COLORS[i % len(FALLBACK_COLORS)]))
     return out
 
 
@@ -62,6 +80,10 @@ def _save(fig, path: Path) -> Path:
 
 
 def _axis_title(col: str) -> str:
+    if col.endswith("_p50"):
+        return f"{_axis_title(col[:-4])} p50"
+    if col.endswith("_p95"):
+        return f"{_axis_title(col[:-4])} p95"
     if col == "question_category":
         return "LoCoMo question category"
     if col == "generation":
@@ -73,10 +95,35 @@ def _axis_title(col: str) -> str:
     if col == "teacher_reasoning_tokens":
         return "Teacher reasoning tokens"
     if col == "agent_latency_seconds":
-        return "Reader latency (s)"
+        return "Reader generate latency (s)"
     if col == "teacher_latency_seconds":
         return "Teacher latency (s)"
+    if col == "search_latency_seconds":
+        return "Search latency (s)"
+    if col == "total_latency_seconds":
+        return "Total latency (s)"
     return col.replace("_", " ")
+
+
+def unbounded_metric(metric: str) -> bool:
+    """Latency, token counts, and USD — not 0–1 scores (``token_f1`` stays a score)."""
+    name = str(metric)
+    if name.startswith("usd"):
+        return True
+    if "latency" in name or name.endswith("_seconds"):
+        return True
+    if name.endswith("_tokens") or "reasoning_tokens" in name:
+        return True
+    return False
+
+
+def _apply_ylim(ax, metric: str, values: list[float]) -> None:
+    if unbounded_metric(metric):
+        finite = [float(v) for v in values if v is not None and pd.notna(v)]
+        ymax = max(finite) if finite else 1.0
+        ax.set_ylim(0, ymax * 1.12 if ymax > 0 else 1.0)
+        return
+    ax.set_ylim(0, 1.05)
 
 
 def write_metrics_grouped_bar(
@@ -109,12 +156,21 @@ def write_metrics_grouped_bar(
         ax.bar([xi + offset for xi in x], ys, width, label=label, color=color)
     ax.set_xticks(x)
     ax.set_xticklabels(metric_cols, rotation=20, ha="right")
-    ymax = 1.05
-    if any(m == "agent_latency_seconds" or str(m).startswith("usd") for m in metric_cols):
-        ymax = None
-    if ymax is not None:
-        ax.set_ylim(0, ymax)
-    ax.set_ylabel("USD" if all(str(m).startswith("usd") for m in metric_cols) else "Score")
+    flat = []
+    for i in range(len(labels)):
+        for m in metric_cols:
+            val = table.iloc[i][m]
+            if pd.notna(val):
+                flat.append(float(val))
+    if any(unbounded_metric(m) for m in metric_cols):
+        ymax = max(flat) if flat else 1.0
+        ax.set_ylim(0, ymax * 1.12 if ymax > 0 else 1.0)
+        ax.set_ylabel(
+            "USD" if all(str(m).startswith("usd") for m in metric_cols) else "Value"
+        )
+    else:
+        ax.set_ylim(0, 1.05)
+        ax.set_ylabel("Score")
     ax.set_title(title)
     _place_legend_outside(ax)
     _save(fig, path)
@@ -156,9 +212,9 @@ def write_grouped_bar(
     ax.set_xticks(x)
     ax.set_xticklabels(xs, rotation=20, ha="right")
     ax.set_xlabel(_axis_title(x_col))
-    if metric != "agent_latency_seconds" and not str(metric).startswith("usd"):
-        ax.set_ylim(0, 1.05)
-    ax.set_ylabel(metric)
+    ys_flat = [float(v) for v in pivot.to_numpy().ravel() if pd.notna(v)]
+    _apply_ylim(ax, metric, ys_flat)
+    ax.set_ylabel(_axis_title(metric))
     ax.set_title(title)
     _place_legend_outside(ax)
     _save(fig, path)
@@ -182,10 +238,9 @@ def write_bar(
     fig, ax = plt.subplots(figsize=(6.5, 4.2))
     ax.bar(labels, ys, color=_colors(labels))
     ax.set_xlabel(_axis_title(x_col))
-    ax.set_ylabel(metric)
+    ax.set_ylabel(_axis_title(metric))
     ax.set_title(title)
-    if metric != "agent_latency_seconds" and not str(metric).startswith("usd"):
-        ax.set_ylim(0, 1.05)
+    _apply_ylim(ax, metric, ys)
     fig.autofmt_xdate(rotation=20)
     _save(fig, path)
     plt.close(fig)

@@ -22,8 +22,9 @@ NN_<frozen-axis>_<variable-axis>[_protocol|_analysis].ipynb
 | `12_2026_readers_openai_deepseek_*` | 2026 baseline | Same readers × `{full_context, rag}` |
 | `13_mem0_reader_2026_writers_openai_deepseek_*` | 2026 writers | Frozen `gpt-4o-mini` × `{Terra, DeepSeek-V4}` teachers |
 | `14_2026_openai_deepseek_campaign_analysis.ipynb` | 2026 concat | Family tables across 2026 OpenAI vs DeepSeek packs |
+| `15_year_family_robustness_analysis.ipynb` | year concat | Robustness, year moves, holes, rank flips, cost/latency/tokens, ROI, saturation |
 
-Year comparison: `python -m src.memorybench report configs/analysis/campaign_year_family.yaml` writes `experiments/_campaign/year_family/analysis/` (2024 vs 2025 family bars; 2026 appears when those packs are listed). Paper Table 2 and gpt-4o-mini clone scores are YAML `pins:`.
+Year comparison / multi-teacher validity: `python -m src.memorybench report configs/analysis/campaign_year_family.yaml` writes `experiments/_campaign/year_family/analysis/` (mean bars plus insight CSVs, including cost). Paper Table 2 and gpt-4o-mini clone scores are YAML `pins:`. 2024→2025 pin vs live is not a matched sandwich; 2025→2026 live is. A `rank_flip` on FC vs RAG or teacher_graph vs summaries is a threat to freezing that axis in a multi-teacher middle layer. ROI uses score per second / per $1 / per 1k reasoning tokens; saturation labels `near_ceiling` and `diminishing_returns`.
 
 Analysis notebooks are YAML wrappers with a **pre-test** (declared cells, hypotheses, priced volume estimate) and a **post-test** (finished-pack metrics + expected vs actual USD). Helpers: `notebook_pretest` / `notebook_posttest`. Do not put matplotlib or groupby in the notebook.
 

@@ -18,12 +18,16 @@ class PlotSpec:
     """One visualization over a table. ``x`` / ``hue`` / ``y`` are column names.
 
     Omitted fields fall back to ``group_by`` / ``metrics`` order in the report.
+    Optional ``title`` overrides the figure title; otherwise the y-axis metric
+    name is used so two plots in one analysis are not given the same heading.
+
     """
 
     kind: str
     x: str | None = None
     hue: str | None = None
     y: str | None = None
+    title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,23 @@ class ExperimentAnalysisRef:
 
 
 @dataclass(frozen=True)
+class InsightSpec:
+    """Derived robustness table over an already-written mean table (no plots)."""
+
+    id: str
+    title: str
+    kind: str
+    source_analysis: str
+    metrics: tuple[str, ...] = ()
+    metric: str | None = None
+    left_family: str = "OpenAI"
+    right_family: str = "DeepSeek"
+    hole_max: float | None = None
+    move_eps: float | None = None
+    join_cost: bool = False
+
+
+@dataclass(frozen=True)
 class CampaignConfig:
     """What it is: parsed analysis YAML. Who consumes it: report + notebooks."""
 
@@ -94,6 +115,7 @@ class CampaignConfig:
     source_path: Path
     notebook: str | None = None
     cost: CostConfig | None = None
+    insights: tuple[InsightSpec, ...] = ()
 
 
 def load_campaign_yaml(path: str | Path) -> CampaignConfig:
@@ -116,6 +138,9 @@ def load_campaign_yaml(path: str | Path) -> CampaignConfig:
         _parse_analysis(item, default_metrics, default_source)
         for item in (raw.get("campaign_analyses") or [])
     )
+    insights = tuple(
+        _parse_insight(item, default_metrics) for item in (raw.get("insights") or [])
+    )
     return CampaignConfig(
         id=str(campaign.get("id") or "campaign"),
         title=str(campaign.get("title") or campaign.get("id") or "campaign"),
@@ -128,6 +153,7 @@ def load_campaign_yaml(path: str | Path) -> CampaignConfig:
         source_path=Path(path).resolve(),
         notebook=_as_str(campaign.get("notebook")),
         cost=_parse_cost(raw.get("cost")),
+        insights=insights,
     )
 
 
@@ -188,6 +214,7 @@ def _parse_plot(item: Any) -> PlotSpec:
         x=_as_str(block.get("x")),
         hue=_as_str(block.get("hue")),
         y=_as_str(block.get("y")),
+        title=_as_str(block.get("title")),
     )
 
 
@@ -205,6 +232,25 @@ def _parse_pretest(raw: Any) -> PretestSpec | None:
         n_questions=int(n_questions) if n_questions is not None else None,
         scientific_claim=None if claim is None else bool(claim),
         hypotheses=tuple(str(h) for h in hyps),
+    )
+
+
+def _parse_insight(item: dict[str, Any], default_metrics: tuple[str, ...]) -> InsightSpec:
+    metrics = item.get("metrics")
+    hole = item.get("hole_max")
+    eps = item.get("move_eps")
+    return InsightSpec(
+        id=str(item.get("id") or "insight"),
+        title=str(item.get("title") or item.get("id") or "insight"),
+        kind=str(item.get("kind") or "year_deltas"),
+        source_analysis=str(item.get("from") or item.get("source_analysis") or ""),
+        metrics=tuple(str(m) for m in metrics) if metrics else default_metrics,
+        metric=_as_str(item.get("metric")),
+        left_family=str(item.get("left_family") or "OpenAI"),
+        right_family=str(item.get("right_family") or "DeepSeek"),
+        hole_max=float(hole) if hole is not None else None,
+        move_eps=float(eps) if eps is not None else None,
+        join_cost=bool(item.get("join_cost")),
     )
 
 

@@ -141,6 +141,7 @@ def collect_pack_rows(pack: Path) -> pd.DataFrame:
         teacher_model = str(meta.get("teacher_model") or "") or None
         cell_model = teacher_model or reader_model
         n_questions = int(meta.get("n_predictions") or 0)
+        thinking = _cost_thinking(meta)
         for role in ("reader", "teacher"):
             bucket = cost.get(role) or {}
             by_model = bucket.get("by_model") or {}
@@ -159,6 +160,7 @@ def collect_pack_rows(pack: Path) -> pd.DataFrame:
                         prompt=int(rec.get("prompt_tokens") or 0),
                         completion=int(rec.get("completion_tokens") or 0),
                         n_questions=n_questions,
+                        thinking=thinking,
                     )
                 )
         judge_tokens = _judge_tokens(cell_dir)
@@ -173,6 +175,7 @@ def collect_pack_rows(pack: Path) -> pd.DataFrame:
                     prompt=int(judge_tokens["prompt_tokens"]),
                     completion=int(judge_tokens["completion_tokens"]),
                     n_questions=n_questions,
+                    thinking=thinking,
                 )
             )
     return pd.DataFrame(rows)
@@ -334,6 +337,8 @@ def _map_models(df: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
 
 def _join_expected_actual(expected: pd.DataFrame, actual: pd.DataFrame) -> pd.DataFrame:
     keys = ["experiment", "memory_method", "role", "model", "cell_model"]
+    if "thinking" in expected.columns and "thinking" in actual.columns:
+        keys.append("thinking")
     exp = _rename_usd(expected, "usd_expected")
     act = _rename_usd(actual, "usd_actual")
     if exp.empty and act.empty:
@@ -455,8 +460,9 @@ def _token_row(
     prompt: int,
     completion: int,
     n_questions: int,
+    thinking: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    row = {
         "memory_method": memory_method,
         "role": role,
         "model": model,
@@ -466,6 +472,18 @@ def _token_row(
         "completion_tokens": completion,
         "n_questions": n_questions,
     }
+    if thinking is not None:
+        row["thinking"] = thinking
+    return row
+
+
+def _cost_thinking(meta: dict[str, Any]) -> str | None:
+    from scripts.analysis.campaign_tables import _thinking_token
+
+    raw = meta.get("teacher_thinking")
+    if raw is None:
+        raw = meta.get("reader_thinking")
+    return _thinking_token(raw)
 
 
 def _judge_tokens(cell_dir: Path) -> dict[str, int] | None:

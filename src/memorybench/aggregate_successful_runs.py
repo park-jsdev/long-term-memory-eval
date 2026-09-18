@@ -28,7 +28,9 @@ from src.memorybench.load_experiment_yaml import load_experiment_yaml
 from src.memorybench.open_configured_store import local_experiments_root
 
 # Human/machine audit files copied into aggregate/by_run/<id>/. Full memory/
-# dumps stay on the run prefix (too large to duplicate).
+# dumps stay on the run prefix (too large to duplicate). GCS catalog download
+# is the same set plus parquet: pulling whole packs (2800+ blobs) OOMs the
+# 4Gi aggregate job (Cloud Run SIGKILL / signal 9).
 CATALOG_FILES = (
     "SUMMARY.md",
     "TRACE.md",
@@ -45,6 +47,13 @@ CATALOG_FILES = (
     "autorater/autorater_metrics.json",
     "autorater/_SUCCESS",
     "_SUCCESS",
+)
+CATALOG_DOWNLOAD_FILES = CATALOG_FILES + (
+    "examples.parquet",
+    "summary.parquet",
+    # Search times live here on older cell parquet. Downloaded to patch
+    # aggregate examples; not copied into by_run (memory text is large).
+    "predictions.jsonl",
 )
 
 
@@ -73,7 +82,11 @@ def collect_experiment_results(
     out_root = local_experiments_root(cfg)
     if gcs_enabled(cfg):
         downloaded = download_experiment_runs(
-            cfg, [spec.run_id for spec in specs], out_root, store=store
+            cfg,
+            [spec.run_id for spec in specs],
+            out_root,
+            store=store,
+            rel_allowlist=CATALOG_DOWNLOAD_FILES if mode == "catalog" else None,
         )
         n_blobs = sum(downloaded.values())
         print(f"downloaded {n_blobs} blobs from GCS for {len(specs)} cell(s)")
@@ -100,7 +113,7 @@ def collect_experiment_results(
         examples = run_dir / "examples.parquet"
         summary = run_dir / "summary.parquet"
         if examples.is_file():
-            example_tables.append(pq.read_table(examples))
+            example_tables.append(_examples_table_with_search(examples, run_dir, pa, pq))
         if summary.is_file():
             summary_tables.append(pq.read_table(summary))
 
@@ -204,6 +217,21 @@ def _cell_record(
             f"by_run/{spec.run_id}" if mode == "catalog" else f"runs/{spec.run_id}"
         ),
     }
+
+
+def _examples_table_with_search(examples: Path, run_dir: Path, pa: Any, pq: Any):
+    """Concat-ready table; fill search seconds from predictions.jsonl if parquet omitted them."""
+    table = pq.read_table(examples)
+    names = set(table.schema.names)
+    search_present = "search_latency_seconds" in names
+    if search_present:
+        col = table.column("search_latency_seconds")
+        if col.null_count < len(col):
+            return table
+    from scripts.analysis.campaign_tables import overlay_search_latency_from_run
+
+    frame = overlay_search_latency_from_run(table.to_pandas(), run_dir)
+    return pa.Table.from_pandas(frame, preserve_index=False)
 
 
 def _copy_catalog(run_dir: Path, dest_dir: Path) -> None:

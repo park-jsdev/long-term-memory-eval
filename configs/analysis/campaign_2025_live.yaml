@@ -61,6 +61,16 @@ campaign_analyses:
     group_by: [model_family, memory_method]
     plots:
       - kind: metrics_grouped_bar
+  - id: writer_family_by_category
+    title: Writer LoCoMo F1 by family and question category
+    experiments: [writers]
+    group_by: [model_family, question_category]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - kind: grouped_bar
+        x: question_category
+        hue: model_family
+        y: locomo_f1
 
 experiments:
   smoke:

@@ -67,8 +67,8 @@ Experiment 3 **does not** run the Mem0 paper write path (`mem0_extract_v1` / `me
 | Frozen reader (exp 3) | catalog `gpt-4o-mini`, API `gpt-4o-mini` |
 | RAG | `configs/writers/rag.yaml`: chunk **256**, **k=2**, `cl100k_base`, `text-embedding-3-small` |
 | RAG dump | `experiments/rag_locomo10/rag_index/` uploaded to `gs://…/shared/rag_locomo10/` |
-| Job parallelism | `8` (set at deploy; **not** an `execute` flag) |
-| Task timeout | 12h; max retries 2; memory 4Gi |
+| Job parallelism | QA/autorater `8`; aggregate and collect-full `1` (set at deploy; **not** an `execute` flag) |
+| Task timeout | 12h; max retries 2; QA/autorater/aggregate 4Gi; collect-full 32Gi / 8 vCPU |
 | Seed | 1 |
 
 `run_id` is `<experiment-slug>-<8 hex>` hashed from QA identity (reader, memory, writer, indexes, subset, seed). Same YAML cell always gets the same id. Changing `experiment.name` or subset mints new ids.
@@ -339,7 +339,8 @@ Durable output is the bucket. `/tmp/memorybench-experiments` on the VM is scratc
 | Job args still `poc_gcs.yaml` or the previous experiment | Forgot redeploy | Set `EXPERIMENT_YAML`, run `deploy_gcp.ps1`, `Show-QaArgs`. |
 | RAG task: missing `rag_index` / empty `shared/rag_locomo10` | Dump not uploaded or wrong prefix | `storage ls` the prefix; re-upload `experiments/rag_locomo10` under `shared/`. |
 | Autorater fails immediately | QA `_SUCCESS` missing for that `run_id` | Finish QA first; same YAML so hashed ids match. |
-| `execute --parallelism=…` unrecognized | Parallelism is a job update field | Ignore; deploy already sets `--parallelism=8`. |
+| `execute --parallelism=…` unrecognized | Parallelism is a job update field | Ignore; deploy sets QA/autorater `--parallelism=8`, collectors `--parallelism=1`. |
+| `Parallelism must be 1` / CpuAlloc 64000 vs 20000 | collect-full 8 CPU × parallelism 8 | Redeploy this image. Collectors are parallelism 1. |
 | Logging filter syntax error in PowerShell | Split filter / `.ps1` parser | `gcloud.cmd logging read "resource.labels.job_name=memorybench-qa"` as one string. |
 | Dataset download fail | Missing `data/locomo10.json` in bucket | Upload once (see `GCP_RUNBOOK.md`). |
 | DeepSeek 404 | Hosted `deepseek-chat` alias moved | Pin a current id in `generation_catalog.yaml`, redeploy, new `run_id`s if API id changes. |

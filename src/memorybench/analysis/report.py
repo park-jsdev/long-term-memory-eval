@@ -13,21 +13,27 @@ from pathlib import Path
 import pandas as pd
 
 from scripts.analysis.campaign_plots import (
+    _axis_title,
     write_bar,
     write_grouped_bar,
     write_metrics_grouped_bar,
 )
 from scripts.analysis.campaign_tables import (
     annotate_generation,
+    annotate_mem0_latency,
     annotate_model_family,
+    annotate_thinking,
+    join_search_latency,
     mean_table,
     sort_year_family_table,
 )
 from src.memorybench.analysis.cost import CostReport, render_cost
+from scripts.analysis.campaign_insights import attach_cell_cost, render_insight
 from src.memorybench.analysis.load_campaign import (
     AnalysisSpec,
     CampaignConfig,
     ExperimentAnalysisRef,
+    InsightSpec,
     PlotSpec,
     load_campaign_yaml,
 )
@@ -66,6 +72,12 @@ def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.
     runs = annotate_model_family(runs, ref.family_from)
     examples = annotate_generation(examples, ref.family_from)
     runs = annotate_generation(runs, ref.family_from)
+    examples = annotate_thinking(examples, pack)
+    runs = annotate_thinking(runs, pack)
+    examples = join_search_latency(examples, pack)
+    runs = join_search_latency(runs, pack)
+    examples = annotate_mem0_latency(examples)
+    runs = annotate_mem0_latency(runs)
     if not examples.empty and "result_source" not in examples.columns:
         examples = examples.copy()
         examples["result_source"] = "live"
@@ -102,11 +114,11 @@ def render_analysis(
     csv_path = tables_dir / f"{spec.id}.csv"
     table.to_csv(csv_path, index=False)
     plot_paths: list[Path] = []
+    n_plots = len(spec.plots)
     for plot in spec.plots:
         dest = plots_dir / f"{spec.id}.png"
-        if len(spec.plots) > 1:
-            suffix = plot.y or plot.kind
-            dest = plots_dir / f"{spec.id}_{suffix}.png"
+        if n_plots > 1:
+            dest = plots_dir / f"{_plot_stem(spec.id, plot)}.png"
         written = _write_plot(plot, spec, table, dest)
         if written is not None:
             plot_paths.append(written)
@@ -138,7 +150,7 @@ def _write_plot(
             group_col=series_col,
             metrics=mets,
             path=dest,
-            title=spec.title,
+            title=_plot_title(plot, spec, mets[0] if len(mets) == 1 else None),
         )
     if kind == "grouped_bar":
         x_col = plot.x if plot.x in table.columns else (groups[-1] if groups else None)
@@ -150,7 +162,11 @@ def _write_plot(
             hue_parts = [plot.hue] + [g for g in hue_parts if g != plot.hue]
         if not hue_parts:
             return write_bar(
-                table, x_col=x_col, metric=y, path=dest, title=spec.title
+                table,
+                x_col=x_col,
+                metric=y,
+                path=dest,
+                title=_plot_title(plot, spec, y),
             )
         plot_table = table
         if len(hue_parts) == 1:
@@ -167,15 +183,36 @@ def _write_plot(
             hue_col=hue_col,
             metric=y,
             path=dest,
-            title=spec.title,
+            title=_plot_title(plot, spec, y),
         )
     if kind == "bar":
         x_col = plot.x if plot.x in table.columns else groups[0]
         y = plot.y if plot.y in metrics else metrics[0]
         return write_bar(
-            table, x_col=x_col, metric=y, path=dest, title=spec.title
+            table,
+            x_col=x_col,
+            metric=y,
+            path=dest,
+            title=_plot_title(plot, spec, y),
         )
     return None
+
+
+def _plot_title(plot: PlotSpec, spec: AnalysisSpec, metric: str | None) -> str:
+    """One figure, one metric: do not reuse the analysis section title."""
+    if plot.title:
+        return plot.title
+    if metric:
+        return _axis_title(metric)
+    return spec.title
+
+
+def _plot_stem(analysis_id: str, plot: PlotSpec) -> str:
+    parts = [analysis_id]
+    for bit in (plot.x, plot.hue, plot.y or plot.kind):
+        if bit:
+            parts.append(str(bit))
+    return "_".join(parts)
 
 
 def render_experiment(
@@ -243,21 +280,26 @@ def render_campaign(
     root: Path | None = None,
 ) -> ReportResult:
     root = root or ROOT
-    frames: dict[str, pd.DataFrame] = {}
+    example_frames: dict[str, pd.DataFrame] = {}
+    run_frames: dict[str, pd.DataFrame] = {}
     missing: list[str] = []
     for exp_id, ref in cfg.experiments.items():
         loaded = load_pack(root, ref)
         if loaded is None:
             missing.append(ref.name)
             continue
-        _runs, examples = loaded
+        runs, examples = loaded
         examples = examples.copy()
         examples["campaign_experiment"] = exp_id
-        frames[exp_id] = examples
+        runs = runs.copy()
+        runs["campaign_experiment"] = exp_id
+        example_frames[exp_id] = examples
+        run_frames[exp_id] = runs
     out_dir = root / "experiments" / "_campaign" / cfg.id / cfg.output_subdir
     results: list[AnalysisResult] = []
     for spec in cfg.campaign_analyses:
-        parts = [frames[eid] for eid in spec.experiments if eid in frames]
+        src = run_frames if spec.source == "runs" else example_frames
+        parts = [src[eid] for eid in spec.experiments if eid in src]
         df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
         if df.empty and not (spec.include_pins and cfg.pins):
             results.append(
@@ -269,8 +311,16 @@ def render_campaign(
                 spec, df, out_dir, pins=cfg.pins if spec.include_pins else None
             )
         )
-    _write_summary(out_dir, cfg, f"campaign {cfg.id}", results, missing=missing)
     cost = render_cost(cfg, out_dir, root=root, experiment_id=None)
+    results.extend(
+        _render_insights(
+            cfg,
+            results,
+            out_dir,
+            cost=cost.by_cell if cost is not None else None,
+        )
+    )
+    _write_summary(out_dir, cfg, f"campaign {cfg.id}", results, missing=missing)
     if cost is not None:
         _append_cost_summary(out_dir / "SUMMARY.md", cost)
     return ReportResult(
@@ -324,6 +374,69 @@ def notebook_show(report: ReportResult) -> None:
         display(item.table)
         for path in item.plot_paths:
             display(Image(filename=str(path)))
+
+
+def _render_insights(
+    cfg: CampaignConfig,
+    results: list[AnalysisResult],
+    out_dir: Path,
+    cost: pd.DataFrame | None = None,
+) -> list[AnalysisResult]:
+    """Year-family robustness CSVs from already-written mean tables."""
+    lookup = {item.spec.id: item.table for item in results if not item.skipped}
+    extra: list[AnalysisResult] = []
+    tables_dir = out_dir / "tables"
+    for spec in cfg.insights:
+        source = lookup.get(spec.source_analysis)
+        if source is None or source.empty:
+            extra.append(
+                AnalysisResult(
+                    spec=_insight_analysis_spec(spec),
+                    table=pd.DataFrame(),
+                    skipped=f"missing source {spec.source_analysis}",
+                )
+            )
+            continue
+        work = source
+        if spec.join_cost:
+            work = attach_cell_cost(work, cost if cost is not None else pd.DataFrame())
+        kwargs: dict = {
+            "metrics": spec.metrics,
+            "left_family": spec.left_family,
+            "right_family": spec.right_family,
+        }
+        if spec.metric:
+            kwargs["metric"] = spec.metric
+        if spec.hole_max is not None:
+            kwargs["hole_max"] = spec.hole_max
+        if spec.move_eps is not None:
+            kwargs["move_eps"] = spec.move_eps
+        table = render_insight(spec.kind, work, **kwargs)
+        tables_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = tables_dir / f"{spec.id}.csv"
+        if not table.empty:
+            table.to_csv(csv_path, index=False)
+        extra.append(
+            AnalysisResult(
+                spec=_insight_analysis_spec(spec),
+                table=table,
+                csv_path=csv_path if not table.empty else None,
+                skipped="empty table" if table.empty else None,
+            )
+        )
+        lookup[spec.id] = table
+    return extra
+
+
+def _insight_analysis_spec(spec: InsightSpec) -> AnalysisSpec:
+    return AnalysisSpec(
+        id=spec.id,
+        title=spec.title,
+        group_by=(),
+        metrics=spec.metrics,
+        plots=(),
+        source="examples",
+    )
 
 
 def _source_frame(
