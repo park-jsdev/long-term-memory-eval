@@ -1,5 +1,9 @@
 """Campaign vs experiment analysis over finished aggregate packs."""
 
+from src.memorybench.analysis.context_window import (
+    notebook_show_context_window,
+    render_context_window_report,
+)
 from src.memorybench.analysis.load_campaign import load_campaign_yaml
 from src.memorybench.analysis.notebook_protocol import notebook_posttest, notebook_pretest
 from src.memorybench.analysis.report import (
@@ -14,7 +18,9 @@ __all__ = [
     "notebook_posttest",
     "notebook_pretest",
     "notebook_show",
+    "notebook_show_context_window",
     "render_campaign",
+    "render_context_window_report",
     "render_experiment",
     "run_report",
 ]

@@ -20,4 +20,12 @@ grouped Table 2 bars using the best live seed per method.
 Campaign / experiment reports (offline): YAML in ``configs/analysis/`` names
 the table and plot; ``campaign_tables`` / ``campaign_plots`` draw them.
 ``python -m src.memorybench report configs/analysis/<campaign>.yaml``.
+
+Context window vs coverage (offline, not a job): billed reader input against
+published windows + memory-method coverage vs J/latency/USD.
+``python -m scripts.analysis.context_window`` (notebook 16).
+
+Pack validity (offline, not a job): TRACE / prompt snapshots / quality.json /
+graph dumps. ``python -m scripts.analysis.verify_experiments``. ``--graph-years``
+labels technical vs scientific reasons teacher_graph did not move.
 """

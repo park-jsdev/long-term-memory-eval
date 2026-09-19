@@ -845,6 +845,7 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         from src.memorybench.analysis.plots import unbounded_metric
 
         self.assertTrue(unbounded_metric("agent_reasoning_tokens"))
+        self.assertTrue(unbounded_metric("agent_input_tokens_mean"))
         self.assertTrue(unbounded_metric("total_latency_seconds_p95"))
         self.assertTrue(unbounded_metric("search_latency_seconds"))
         self.assertFalse(unbounded_metric("locomo_f1"))

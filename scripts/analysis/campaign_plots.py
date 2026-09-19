@@ -102,6 +102,12 @@ def _axis_title(col: str) -> str:
         return "Search latency (s)"
     if col == "total_latency_seconds":
         return "Total latency (s)"
+    if col == "window_utilization":
+        return "Window utilization (input / window)"
+    if col == "agent_input_tokens_mean":
+        return "Mean reader input tokens"
+    if col == "judge_score_per_1k_input":
+        return "J per 1k input tokens"
     return col.replace("_", " ")
 
 
@@ -112,7 +118,7 @@ def unbounded_metric(metric: str) -> bool:
         return True
     if "latency" in name or name.endswith("_seconds"):
         return True
-    if name.endswith("_tokens") or "reasoning_tokens" in name:
+    if name.endswith("_tokens") or "reasoning_tokens" in name or "_tokens_" in name:
         return True
     if "_per_" in name:
         return True
