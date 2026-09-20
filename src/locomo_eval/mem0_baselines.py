@@ -368,6 +368,12 @@ def literature_overall_j(method: str) -> float | None:
     return row.get("j")
 
 
+def paper_full_context_memory_tokens() -> int:
+    """Table 2 Full-context ``memory_tokens`` (26,031). Conversation, not window."""
+    row = table2_by_method().get("Full-context") or {}
+    return int(row["memory_tokens"])
+
+
 def rag_paper_method(k: int | None, chunk_size: int | None) -> str:
     """Table 2 RAG row name. Paper's strongest cell is k=2, chunk=256."""
     kk = 2 if k is None else int(k)

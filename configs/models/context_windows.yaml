@@ -1,0 +1,65 @@
+# Provider-published context windows for utilization analysis (not an API cap
+# we send). Utilization = billed prompt_tokens / context_window.
+# Fill rates are analysis-only; locomo_eval does not truncate to these numbers.
+
+windows_as_of: "2026-09-19"
+note: >
+  Full-context LoCoMo input is the conversation transcript (~17–33k billed
+  tokens locally; Mem0 Table 2 lists 26,031 memory tokens). That is not
+  "fill the window" and not the whole LoCoMo dataset.
+
+models:
+  gpt-4o-mini:
+    context_window: 128000
+    max_input: 128000
+    source: "OpenAI model card (GPT-4o mini)"
+
+  gpt-4o:
+    context_window: 128000
+    max_input: 128000
+    source: "OpenAI model card (GPT-4o)"
+
+  gpt-5:
+    context_window: 400000
+    max_input: 272000
+    source: "OpenAI GPT-5 for developers (272k input + 128k output = 400k)"
+
+  gpt-5.6-terra:
+    context_window: 1050000
+    max_input: 1050000
+    source: "OpenAI GPT-5.6 Terra model card"
+
+  gpt-5.6-sol:
+    context_window: 1050000
+    max_input: 1050000
+    source: "OpenAI GPT-5.6 family card (same window class as Terra unless noted)"
+
+  gpt-5.6-luna:
+    context_window: 1050000
+    max_input: 1050000
+    source: "OpenAI GPT-5.6 family card (same window class as Terra unless noted)"
+
+  deepseek-chat:
+    context_window: 128000
+    max_input: 128000
+    source: "DeepSeek API Models & Pricing (V3-era deepseek-chat 128k)"
+
+  deepseek-v4-flash:
+    context_window: 1048576
+    max_input: 1048576
+    source: "DeepSeek-V4 Flash / V4.1-Flash ~1M context"
+
+  claude-sonnet-4-5:
+    context_window: 200000
+    max_input: 200000
+    source: "Anthropic Claude Sonnet 4.5 (200k)"
+
+  claude-sonnet-4-5-20250929:
+    context_window: 200000
+    max_input: 200000
+    source: "Dated Sonnet 4.5 snapshot; same 200k window"
+
+aliases:
+  deepseek-v3: deepseek-chat
+  deepseek-v4: deepseek-v4-flash
+  claude-sonnet-4.5: claude-sonnet-4-5

@@ -43,6 +43,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `configs/autoraters/` | Judge configs (QA does not include these) |
 | `configs/models/generation_catalog.yaml` | Fillable `api_model_id` / `model_snapshot` table |
 | `configs/models/pricing.yaml` | List-price pins for campaign cost estimates (not invoices) |
+| `configs/models/context_windows.yaml` | Published context windows for utilization analysis (not a runtime cap) |
 | `prompts/` | Role folders matching configs: `readers/`, `writers/`, `teachers/`, `autoraters/` — see `prompts/README.md` |
 | `prompts/readers/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
 | `prompts/readers/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
@@ -68,6 +69,8 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `scripts/analysis/compare_predictions.py` | Two prediction JSONLs → paired LoCoMo F1 boxplot + histograms (kernel used by compare_full_runs) |
 | `scripts/analysis/run_benchmark.py` | Finished prediction pack → Mem0 F1/BLEU-1/J + literature tables, histograms, boxplots, latency plots |
 | `scripts/analysis/compare_to_paper.py` | Offline paper Table 2 J vs best local autorater J (grouped bars) |
+| `scripts/analysis/context_window.py` | Offline: billed input vs published windows, coverage vs J/latency/USD (notebook 16) |
+| `scripts/analysis/verify_experiments.py` | Offline pack verifier (TRACE/prompts/logs) + teacher_graph year diagnosis |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
@@ -121,7 +124,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) |
+| `experiments/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) + `verify_pack` / `verify_graph_years` (offline log verifier) |
 | `audit_pack.py` | Compat shim re-exporting `audit_writer` / `audit_layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
@@ -135,7 +138,7 @@ Purpose-named files (no generic `run.py` / `config.py`). Wraps locomo_eval; does
 | `hashed_run_id.py` | Deterministic `<experiment>-<8 hex>` |
 | `execute_qa_run.py` | One cell → locomo_eval QA + Parquet + `_SUCCESS` |
 | `execute_autorater_run.py` | Separate judge job on stored predictions |
-| `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*`; cost from `analysis/cost.py` |
+| `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*`; cost from `analysis/cost.py`; `context_window.py` is a standalone coverage/window report (not a job) |
 | `aggregate_successful_runs.py` | Third wave: collect all cells → `experiments/<name>/aggregate/` |
 | `completed_run_skip.py` | Skip if `_SUCCESS` unless `--force` |
 | `open_configured_store.py` / `local_object_store.py` / `gcs_object_store.py` / `gcs_run_workspace.py` | Portable storage; GCS download/upload for Cloud Run (dataset + `shared/<index_run_id>/`) |
@@ -204,6 +207,13 @@ python -m scripts.analysis.aggregate_seeds --packs experiments/<run>/autorater_s
 # Paper Table 2 J vs best local live-judge seed (no API; packs already judged)
 python -m scripts.analysis.compare_to_paper --runs experiments/full_context_qa experiments/rag_k2_256_qa experiments/mem0_qa --out experiments/compare_paper_vs_local
 
+# Full-context injection vs published windows (offline; audit dumps + campaign parquet)
+python -m scripts.analysis.context_window --out experiments/_campaign/context_window
+
+# Offline pack verifier (configs, prompts, schemas, logs; no API). Exit 1 if invalid.
+python -m scripts.analysis.verify_experiments experiments/<run_id>
+python -m scripts.analysis.verify_experiments --graph-years experiments/locomo-mem0-reader-2025-writers-openai-deepseek experiments/locomo-mem0-reader-2026-writers-openai-deepseek
+
 # Deterministic preprocess write-index (no LLM). Full locomo10, then 10 reader calls per sanity memory:
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
@@ -211,9 +221,9 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -351,6 +361,8 @@ Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
 - [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, `tests/test_teacher_orchestrator.py`, and `tests/test_claim_audit.py` stay green (mock only; no API)
 - [ ] `tests/test_memorybench_matrix.py`, `tests/test_memorybench_execute_qa.py`, and `tests/test_memorybench_aggregate.py` stay green (mock only)
+- [ ] `tests/test_context_window.py` stays green (offline; paper 26,031 pin + utilization = input/window)
+- [ ] `tests/test_verify_experiments.py` stays green (offline pack verifier + graph year diagnosis)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 
 ---

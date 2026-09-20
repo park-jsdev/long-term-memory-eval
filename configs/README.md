@@ -13,7 +13,7 @@ configs/
   stacks/        frozen combinations of data+layout+reader+run
   run/           output_dir
   presets/       one-axis overlays (Mem0-parity reader, Luna reader, …)
-  models/        generation catalog (snapshots)
+  models/        generation catalog (snapshots), list prices, context windows
   experiments/   memorybench matrices
   analysis/      campaign vs experiment recipes (tables/plots); engines in scripts/analysis/
 ```

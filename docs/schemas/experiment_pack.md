@@ -50,7 +50,12 @@ Eval / analysis code should import only:
 ```python
 from src.locomo_eval.experiments.audit_loader import load_sandwich_audit, load_qa_pack
 from src.locomo_eval.experiments.audit_layout import AuditPaths
+from src.locomo_eval.experiments.verify_pack import verify_pack
+from src.locomo_eval.experiments.verify_graph_years import diagnose_graph_year_stagnation
 ```
+
+CLI: `python -m scripts.analysis.verify_experiments experiments/<run_id>`
+(`--graph-years` for teacher_graph 2025 vs 2026). Not a Cloud Run job.
 
 Do not import `src.locomo_eval.run`, `teachers`, or `experiments.audit_writer`
 from an eval branch. That keeps git conflicts on the write path vs analysis

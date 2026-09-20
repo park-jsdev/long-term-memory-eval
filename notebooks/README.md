@@ -23,8 +23,11 @@ NN_<frozen-axis>_<variable-axis>[_protocol|_analysis].ipynb
 | `13_mem0_reader_2026_writers_openai_deepseek_*` | 2026 writers | Frozen `gpt-4o-mini` × `{Terra, DeepSeek-V4}` teachers |
 | `14_2026_openai_deepseek_campaign_analysis.ipynb` | 2026 concat | Family tables across 2026 OpenAI vs DeepSeek packs |
 | `15_year_family_robustness_analysis.ipynb` | year concat | Robustness, year moves, holes, rank flips, cost/latency/tokens, ROI, saturation |
+| `16_locomo_full_context_window_analysis.ipynb` | audit + packs | Full-context injection vs published windows; coverage vs J/latency/USD |
 
 Year comparison / multi-teacher validity: `python -m src.memorybench report configs/analysis/campaign_year_family.yaml` writes `experiments/_campaign/year_family/analysis/` (mean bars, year-on-x line charts, plus insight CSVs, including cost). Paper Table 2 and gpt-4o-mini clone scores are YAML `pins:`. 2024→2025 pin vs live is not a matched sandwich; 2025→2026 live is. A `rank_flip` on FC vs RAG or teacher_graph vs summaries is a threat to freezing that axis in a multi-teacher middle layer. ROI uses score per second / per $1 / per 1k reasoning tokens; saturation labels `near_ceiling` and `diminishing_returns`.
+
+Full-context vs the model window: `python -m scripts.analysis.context_window` writes `experiments/_campaign/context_window/` from audit dumps + campaign parquet. Not a memorybench job. `full_context` is the conversation (~26k paper / ~28k local), not a filled window.
 
 Analysis notebooks are YAML wrappers with a **pre-test** (declared cells, hypotheses, priced volume estimate) and a **post-test** (finished-pack metrics + expected vs actual USD). Helpers: `notebook_pretest` / `notebook_posttest`. Do not put matplotlib or groupby in the notebook.
 
