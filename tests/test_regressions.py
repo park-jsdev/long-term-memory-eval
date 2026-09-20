@@ -33,7 +33,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.compare_full_runs import load_pack, pair_analysis, resolve_prompt_path
+from scripts.compare_full_runs import (
+    load_pack,
+    pair_analysis,
+    require_frozen_control_parity,
+    resolve_prompt_path,
+)
 from src.config import load_config
 from src.locomo_eval.readers import (
     READER_MESSAGE_LAYOUT_MEM0,
@@ -152,6 +157,14 @@ class TestMem0ParityBaselineConfig(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "different prompt paths"):
             resolve_prompt_path(packs)
+
+    def test_compare_rejects_data_or_retriever_control_mismatch(self):
+        packs = [
+            {"run_id": "a", "meta": {"data_sha256": "aaa", "rag_k": 2}},
+            {"run_id": "b", "meta": {"data_sha256": "bbb", "rag_k": 3}},
+        ]
+        with self.assertRaisesRegex(ValueError, "data_sha256"):
+            require_frozen_control_parity(packs)
 
 FROZEN_PREDICTION_FIELDS = (
     "sample_id",

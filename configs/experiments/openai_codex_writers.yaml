@@ -1,0 +1,30 @@
+# Codex writes locked summary/graph artifacts; GPT-4o-mini remains the reader.
+# Native Codex is audit-only until its tool limits are enforceable.
+experiment:
+  name: locomo-openai-codex-writers
+  type: sandwich
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    reader:
+      catalog: gpt-4o-mini
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+model_catalog: configs/models/generation_catalog.yaml
+matrix:
+  writer:
+    - {display_name: Codex GPT-4o-mini, provider: codex, api_model_id: gpt-4o-mini, model_snapshot: TO_CONFIRM}
+    - {display_name: Codex GPT-5, provider: codex, api_model_id: gpt-5, model_snapshot: TO_CONFIRM}
+    - {display_name: Codex GPT-5.6 Terra, provider: codex, api_model_id: gpt-5.6-terra, model_snapshot: TO_CONFIRM}
+  thinking: [false]
+  memory_method: [teacher_session_summaries, agent_codex_mem0_facts, teacher_graph]
+  seed: [1]
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 600
+storage:
+  backend: local
+  path: experiments

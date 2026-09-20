@@ -48,6 +48,14 @@ EXAMPLE_COLUMNS = (
     "judge_output_tokens",
     "judge_latency_seconds",
     "retry_count",
+    "agent_harness",
+    "n_retrieval_calls",
+    "retrieved_tokens",
+    "evidence_retrieved",
+    "memory_recall",
+    "memory_precision",
+    "unnecessary_retrievals",
+    "failure_mode",
 )
 
 
@@ -146,12 +154,24 @@ def _example_record(
         "locomo_f1": float(scores["locomo_f1"]),
         "judge_score": _as_float(llm_score),
         "judge_reasoning": _as_str(verdict.get("reasoning") or verdict.get("raw_text")),
-        "agent_input_tokens": _as_int(usage.get("prompt_tokens")),
-        "agent_output_tokens": _as_int(usage.get("completion_tokens")),
+        "agent_input_tokens": _as_int(
+            usage.get("prompt_tokens")
+            if usage.get("prompt_tokens") is not None
+            else usage.get("input_tokens")
+        ),
+        "agent_output_tokens": _as_int(
+            usage.get("completion_tokens")
+            if usage.get("completion_tokens") is not None
+            else usage.get("output_tokens")
+        ),
         "agent_reasoning_tokens": _as_int(
             usage.get("reasoning_tokens")
             if usage.get("reasoning_tokens") is not None
-            else row.get("reasoning_tokens")
+            else (
+                usage.get("reasoning_output_tokens")
+                if usage.get("reasoning_output_tokens") is not None
+                else row.get("reasoning_tokens")
+            )
         ),
         "agent_latency_seconds": _as_float(row.get("latency_s")),
         "search_latency_seconds": _as_float(row.get("search_latency_s")),
@@ -163,6 +183,14 @@ def _example_record(
         "judge_output_tokens": _as_int(judge_usage.get("completion_tokens")),
         "judge_latency_seconds": _as_float(verdict.get("latency_s")),
         "retry_count": _as_int(row.get("retry_count")) or 0,
+        "agent_harness": _as_str(row.get("agent") or spec.agent),
+        "n_retrieval_calls": _as_int(row.get("n_retrieval_calls")),
+        "retrieved_tokens": _as_int(row.get("retrieved_tokens")),
+        "evidence_retrieved": row.get("evidence_retrieved"),
+        "memory_recall": _as_float(row.get("memory_recall")),
+        "memory_precision": _as_float(row.get("memory_precision")),
+        "unnecessary_retrievals": _as_int(row.get("unnecessary_retrievals")),
+        "failure_mode": _as_str(row.get("failure_mode")),
     }
 
 

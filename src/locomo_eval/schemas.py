@@ -190,7 +190,7 @@ class Memory:
 
     Built by MemoryBuilder (raw_chunks / session_summaries / teacher_session_summaries /
     teacher_graph / pooled_teacher_graph / fused_teacher_graph / full_context / rag /
-    openai_memory / mem0 / mem0g).
+    openai_memory / mem0 / mem0g / workspace_files).
     Schema: docs/schemas/memory_runtime.md
     """
 

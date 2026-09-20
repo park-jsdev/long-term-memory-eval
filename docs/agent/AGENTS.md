@@ -29,23 +29,35 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 
 **Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/readers/qa_mem0_v1.txt`) for paper-method and sandwich memory conditions. Orchestrate paper methods with `python -m src.locomo_eval.eval_pipeline --method …` (`rag`, `full_context`, `openai_memory`, `mem0` / `mem0g`). Cheap **teacher plumbing** models: `gpt-4o-mini`, `claude-haiku-4-5`, `deepseek-v4-flash`. `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` write locked Mem0g via the orchestrator. Reader-model or `qa_v1` swaps remain a **separate** robustness axis.
 
+**Agent-level (new):** `workspace_files` + `configs/agents/` (Codex first). Model-only remains one-shot `full_context`. Isolate persist on/off and tools native/controlled. Every harness run writes `agent_comparison.v1` to `run_meta.json` and `agent/COMPARISON.md`: backbone, prompt, context, retrieval, memory-write, judge, and tool budget. Only `status=comparable` supports strict cross-agent claims; native Codex is audit-only until it can enforce shared tool/retrieval limits. No successful workspace read/search is `harness_failed`, not `retrieval_failure`. Mock smoke does not need the Codex binary. Live GPT-5 + Codex is `configs/presets/agent_codex_gpt5.yaml` after mock+GCP smokes. See `docs/schemas/agent_runtime.md`.
+
+**OpenAI agent campaign:** `openai_agent_{readers,writers}.yaml` is the
+thinking-off 2024/2025/2026 all-condition plane; `openai_codex_readers.yaml`
+is no-memory workspace answering; `openai_codex_writers.yaml` uses Codex as a
+summary/fact/graph writer with frozen GPT-4o-mini reader; and
+`openai_codex_end_to_end.yaml` permits persistent workspace notes. Operator
+instructions: `docs/agent/RUNBOOK_OPENAI_AGENTS.md`.
+
 ---
 
 ## Repo map (v0.1)
 
 | Path | Role |
 |------|------|
-| `configs/` | Composable YAML: `writers/`, `readers/`, `layouts/`, `autoraters/`, `teachers/`, `stacks/`, `presets/`, `experiments/` — see `configs/README.md` |
+| `configs/` | Composable YAML: `writers/`, `readers/`, `agents/`, `layouts/`, `autoraters/`, `teachers/`, `stacks/`, `presets/`, `experiments/` — see `configs/README.md` |
 | `configs/presets/mem0_baseline.yaml` | CLI default: Mem0-parity reader + `session_summaries` writer |
-| `configs/writers/` | Memory methods (`raw_chunks`, `mem0`, `teacher_graph`, …) |
+| `configs/presets/agent_codex_gpt5.yaml` | Codex + GPT-5 harness (minimal model knobs); `--reader mock` for smoke |
+| `configs/writers/` | Memory methods (`raw_chunks`, `mem0`, `teacher_graph`, `workspace_files`, …) |
 | `configs/readers/` | Answer LLM request controls |
+| `configs/agents/` | Harness adapters / persist / tools (`codex`, later `claude_code`, `opencode`, `pi`) |
 | `configs/layouts/` | Answer prompt + message layout |
 | `configs/autoraters/` | Judge configs (QA does not include these) |
 | `configs/models/generation_catalog.yaml` | Fillable `api_model_id` / `model_snapshot` table |
 | `configs/models/pricing.yaml` | List-price pins for campaign cost estimates (not invoices) |
 | `configs/models/context_windows.yaml` | Published context windows for utilization analysis (not a runtime cap) |
-| `prompts/` | Role folders matching configs: `readers/`, `writers/`, `teachers/`, `autoraters/` — see `prompts/README.md` |
+| `prompts/` | Role folders matching configs: `readers/`, `agents/`, `writers/`, `teachers/`, `autoraters/` — see `prompts/README.md` |
 | `prompts/readers/qa_mem0_v1.txt` | Pinned released Mem0 answer prompt for baseline parity |
+| `prompts/agents/qa_workspace_v1.txt` | Harness prompt: retrieve from conversation files, JSON `answer` |
 | `prompts/readers/qa_v1.txt` | Alternate short prompt; override only as a separate bottom-layer axis |
 | `prompts/teachers/teacher_session_v1.txt` | Teacher session-summary prompt |
 | `prompts/teachers/teacher_graph_v1.txt` | Teacher → entity/relation JSON (Mem0g-shaped) |
@@ -112,6 +124,7 @@ Conditions planned: `raw_chunks`, `session_summaries`, `teacher_session_summarie
 | `teacher_callers.py` | Write-path LLM clients for teachers (via `teachers.py` → orchestrator; not reader) |
 | `reasoning_extractor.py` | Shared reasoning-text helpers (reader + teacher callers) |
 | `eval_pipeline.py` | Index → QA → optional autorater seeds for one `--method` |
+| `agents/` | Harness eval: workspace files, Codex/mock adapters, retrieval trajectory |
 | `stats.py` | Mean ± std, 95% CI, Wilcoxon, McNemar (no API) |
 | `prompts.py` | Load/render prompt text |
 | `readers.py` | OpenAI + Mock readers, temp=0 |
@@ -171,6 +184,13 @@ python -m src.memorybench report configs/analysis/campaign_year_family.yaml
 # Offline smoke (no API key)
 python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --reader mock --max-questions 5 --run-id smoke_mock
 
+# Agent harness mock smoke (no Codex binary, no API)
+python -m src.locomo_eval.run --config configs/presets/agent_codex_gpt5.yaml --reader mock --max-questions 3 --run-id smoke_agent_codex
+python -m src.memorybench execute-qa configs/experiments/agent_codex_poc.yaml --run-index 0
+# GCP mock: configs/experiments/agent_codex_poc_gcs.yaml (Codex not required in the image)
+# Live Codex + GPT-5 (needs `codex` on PATH + CODEX_API_KEY or CLI login; do not pass --reader mock)
+# python -m src.locomo_eval.run --config configs/presets/agent_codex_gpt5.yaml --max-questions 3 --run-id live_agent_codex_gpt5
+
 # Live OpenAI (needs OPENAI_API_KEY in repo-root .env or shell)
 python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --max-questions 3 --run-id smoke_openai
 
@@ -221,9 +241,9 @@ python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader
 
 # Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
-python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py -q
+python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py tests/test_agent_harness.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
-python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py
+python -m unittest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_teacher_orchestrator.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_memorybench_matrix.py tests/test_memorybench_execute_qa.py tests/test_memorybench_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py tests/test_agent_harness.py
 
 # Compare two prediction sets (offline; LoCoMo F1 boxplot + histograms)
 python -m scripts.analysis.compare_predictions --a experiments/cmp_raw_chunks --b experiments/cmp_session_summaries --out experiments/compare_raw_chunks_session_summaries
@@ -272,6 +292,7 @@ Each run under `experiments/<run_id>/` must include:
 - `metrics_by_category.csv`
 - `run_meta.json` — model, **teacher_model**, prompt, data hash, git hash, timestamp, `audit_layout`
 - `config.source.yaml` / `config.resolved.yaml` — source YAML copy + loaded YAML with CLI overrides
+- `agent/` — harness traces, retrieval trajectory, conversation workspaces (when `answer_mode: agent`)
 - `cost.json` — reader/teacher token totals and pinned-USD rollup
 - `SUMMARY.md` — human claim-audit report (lineage pointers, teacher quality, ingest)
 - `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → sandwich role → claims made
@@ -303,7 +324,7 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 ## Design rules for agents
 
-1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). Do not mix a reader sweep into a sandwich claim. GPT-5.6 frozen sandwich readers stay `reasoning_effort=none`; hosted `gpt-5` off-cells use `minimal` (API rejects `none`). OpenAI vs DeepSeek campaigns set `matrix.thinking: [off, on]` for **both** families as readers (sweep) and writers (sandwich). DeepSeek on/off always sends `extra_body.thinking` `{type: enabled|disabled}` (`deepseek-chat` defaults off; `deepseek-v4-flash` defaults on). Headroom: reader 256/8192, teacher 8192/32768 (overrides catalog `teacher:`). `--reader-thinking` is the reader-sweep flag; `--thinking` remains write-path. Parked three-family YAML omits the axis; catalog GPT-5/5.6/6 `teacher:` stays off + 8192 there. Overall analysis F1/J drop LoCoMo category 5; category plots keep it. Reasoning tokens (`agent_reasoning_tokens` / `teacher_reasoning_tokens`) are first-class campaign metrics next to latency. Each figure title is its `y` metric (tokens ≠ generate ≠ search p50 ≠ total p95). Missing RAG search stays empty, not 0; `full_context` search is 0.
+1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). **Agent eval** (`type: agent`) freezes the harness model and varies adapter / persist / tools; `workspace_files` is not a stuffed-context memory claim. Do not mix a reader sweep into a sandwich claim. GPT-5.6 frozen sandwich readers stay `reasoning_effort=none`; hosted `gpt-5` off-cells use `minimal` (API rejects `none`). OpenAI vs DeepSeek campaigns set `matrix.thinking: [off, on]` for **both** families as readers (sweep) and writers (sandwich). DeepSeek on/off always sends `extra_body.thinking` `{type: enabled|disabled}` (`deepseek-chat` defaults off; `deepseek-v4-flash` defaults on). Headroom: reader 256/8192, teacher 8192/32768 (overrides catalog `teacher:`). `--reader-thinking` is the reader-sweep flag; `--thinking` remains write-path. Parked three-family YAML omits the axis; catalog GPT-5/5.6/6 `teacher:` stays off + 8192 there. Overall analysis F1/J drop LoCoMo category 5; category plots keep it. Reasoning tokens (`agent_reasoning_tokens` / `teacher_reasoning_tokens`) are first-class campaign metrics next to latency. Each figure title is its `y` metric (tokens ≠ generate ≠ search p50 ≠ total p95). Missing RAG search stays empty, not 0; `full_context` search is 0.
 2. **Orchestrator is software**, not one giant LLM call (`TeacherOrchestrator` + `fusion.py`). The **harness** (`memorybench`) only expands matrices and launches one locomo_eval cell per task.
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
@@ -361,7 +382,7 @@ Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone
 - [ ] `tests/test_rag_index.py`, `tests/test_openai_memory.py`, `tests/test_stats.py`, `tests/test_eval_pipeline.py` stay green (mock only; no API)
 - [ ] `tests/test_mem0_index.py`, `tests/test_regressions.py`, `tests/test_run_isolation.py`, `tests/test_teacher_orchestrator.py`, and `tests/test_claim_audit.py` stay green (mock only; no API)
 - [ ] `tests/test_memorybench_matrix.py`, `tests/test_memorybench_execute_qa.py`, and `tests/test_memorybench_aggregate.py` stay green (mock only)
-- [ ] `tests/test_context_window.py` stays green (offline; paper 26,031 pin + utilization = input/window)
+- [ ] `tests/test_agent_harness.py` stays green (mock harness, trajectory failure modes, matrix skip)
 - [ ] `tests/test_verify_experiments.py` stays green (offline pack verifier + graph year diagnosis)
 - [ ] AGENTS.md + HUMANS.md updated + trace snapshot  
 

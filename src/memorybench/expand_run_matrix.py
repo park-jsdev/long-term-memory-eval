@@ -15,6 +15,7 @@ from src.memorybench.experiment_run_spec import (
     WriterModelRef,
 )
 from src.memorybench.experiment_types import (
+    AGENT,
     MATRIX_AXIS_ORDER,
     SANDWICH,
     require_known_type,
@@ -22,7 +23,8 @@ from src.memorybench.experiment_types import (
 from src.memorybench.hashed_run_id import hashed_run_id
 from src.memorybench.locomo_method_yaml import method_yaml_for
 from src.memorybench.shared_index_paths import index_run_ids_for_memory
-from src.locomo_eval.prompts import QA_MEM0_V1
+from src.locomo_eval.prompts import QA_MEM0_V1, QA_WORKSPACE_V1
+from src.locomo_eval.agents.comparison import validate_strict_contract
 
 # Completion-token caps when ``matrix.thinking`` is set. Overrides catalog
 # ``teacher:`` overlays so GPT-5 on-cells are not stuck at thinking=false.
@@ -56,9 +58,12 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
     subset = cfg.get("subset") or {}
     catalog = cfg.get("_model_catalog") or {}
     shared = cfg.get("shared_indexes") or {}
+    agent_comparison = dict(cfg.get("agent_comparison") or {})
 
     if exp_type == SANDWICH:
         matrix = _apply_sandwich_freeze(matrix, freeze)
+    if exp_type == AGENT:
+        matrix = _apply_agent_freeze(matrix, freeze)
 
     axes = _axis_values(matrix, freeze, catalog)
     keys = [key for key in MATRIX_AXIS_ORDER if key in axes]
@@ -83,6 +88,22 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
         thinking_flag = cell.get("thinking")
         if thinking_flag is not None:
             reader, writer = _apply_thinking_axis(reader, writer, bool(thinking_flag))
+        agent_id = _normalize_agent(cell.get("agent"))
+        agent_persist = cell.get("agent_persist")
+        agent_tools = cell.get("agent_tools")
+        if "agent" in axes and not _agent_combo_allowed(
+            agent_id, memory_method, agent_persist, agent_tools
+        ):
+            continue
+        if agent_id:
+            validate_strict_contract(
+                agent_comparison,
+                adapter=agent_id,
+                model_snapshot=reader.model_snapshot,
+            )
+        cell_prompt = _prompt_for_agent_cell(
+            agent_id, memory_method, prompt_path
+        ) if "agent" in axes else prompt_path
         indexes = index_run_ids_for_memory(memory_method, shared)
         status = _cell_status(reader, writer)
         run_index = len(specs)
@@ -95,7 +116,7 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
             memory_method=memory_method,
             reader=reader,
             seed=seed,
-            prompt_path=prompt_path,
+            prompt_path=cell_prompt,
             judge_provider=str(judge.get("provider") or "openai"),
             judge_model=str(judge.get("api_model_id") or judge.get("model") or "gpt-4o-mini"),
             writer=writer,
@@ -106,6 +127,14 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
             mem0_index_run_id=indexes.get("mem0"),
             rag_index_run_id=indexes.get("rag"),
             status=status,
+            agent=agent_id,
+            agent_persist=(
+                False if agent_persist is None else bool(agent_persist)
+            )
+            if agent_id
+            else None,
+            agent_tools=(str(agent_tools or "native") if agent_id else None),
+            agent_comparison=agent_comparison if agent_id else {},
         )
         run_id = hashed_run_id(name, spec.qa_identity())
         specs.append(
@@ -131,6 +160,63 @@ def _apply_sandwich_freeze(
         raise ValueError("sandwich experiments require experiment.freeze.reader")
     out["reader"] = [frozen]
     return out
+
+
+def _apply_agent_freeze(
+    matrix: dict[str, Any],
+    freeze: dict[str, Any],
+) -> dict[str, Any]:
+    """Agent experiments freeze the model inside the harness (like sandwich reader)."""
+    out = dict(matrix)
+    if "reader" in out and _len_axis(out["reader"]) > 1:
+        raise ValueError(
+            "agent experiments freeze the harness model; put one reader in "
+            "experiment.freeze.reader, not a list under matrix.reader"
+        )
+    frozen = freeze.get("reader")
+    if frozen is None:
+        raise ValueError("agent experiments require experiment.freeze.reader")
+    out["reader"] = [frozen]
+    return out
+
+
+def _normalize_agent(value: Any) -> str | None:
+    if value is None:
+        return None
+    key = str(value).strip().lower()
+    if key in ("", "none", "null", "false", "off"):
+        return None
+    return key
+
+
+def _agent_combo_allowed(
+    agent_id: str | None,
+    memory_method: str,
+    persist: Any,
+    tools: Any,
+) -> bool:
+    """Model-only uses stuffed full_context; harness cells use workspace_files."""
+    if agent_id is None:
+        if memory_method == "workspace_files":
+            return False
+        persist_on = persist is True or persist == "on"
+        tools_key = None if tools is None else str(tools).strip().lower()
+        if persist_on:
+            return False
+        if tools_key not in (None, "native"):
+            return False
+        return True
+    return memory_method == "workspace_files"
+
+
+def _prompt_for_agent_cell(
+    agent_id: str | None, memory_method: str, freeze_prompt: str
+) -> str:
+    if agent_id is None:
+        return QA_MEM0_V1
+    if memory_method == "workspace_files":
+        return freeze_prompt or QA_WORKSPACE_V1
+    return freeze_prompt
 
 
 def _axis_values(
@@ -162,6 +248,14 @@ def _axis_values(
         axes["seed"] = [1]
     if matrix.get("thinking") is not None:
         axes["thinking"] = [_as_bool(v) for v in _as_list(matrix.get("thinking"))]
+    if matrix.get("agent") is not None:
+        axes["agent"] = [_normalize_agent(v) or "none" for v in _as_list(matrix.get("agent"))]
+    if matrix.get("agent_persist") is not None:
+        axes["agent_persist"] = [
+            _as_bool(v) for v in _as_list(matrix.get("agent_persist"))
+        ]
+    if matrix.get("agent_tools") is not None:
+        axes["agent_tools"] = [str(v).strip().lower() for v in _as_list(matrix.get("agent_tools"))]
     return axes
 
 
@@ -216,6 +310,7 @@ def _memory_uses_teacher_writer(memory_method: str) -> bool:
     return key in {
         "teacher_graph",
         "teacher_session_summaries",
+        "agent_codex_mem0_facts",
     } or key.startswith("pooled_teacher") or key.startswith("fused_teacher")
 
 

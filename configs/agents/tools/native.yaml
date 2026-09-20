@@ -1,0 +1,3 @@
+# Codex/Claude default file tools (read, grep, shell). No extra MCP.
+agent:
+  tools: native

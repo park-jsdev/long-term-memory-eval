@@ -1,0 +1,39 @@
+campaign:
+  id: openai_codex_poc
+  title: GPT-4o-mini Codex reader/writer proof of concept
+  notebook: notebooks/17_openai_codex_poc_analysis.ipynb
+  freeze_note: >
+    GPT-4o-mini is the fixed answer reader and Codex backbone. Thinking is off.
+    Native Codex workspace/tool cells are plumbing evidence unless their
+    comparison contract says comparable; harness_failed is never scored as a
+    memory-method result.
+defaults:
+  source: runs
+  metrics: [locomo_f1, judge_score]
+  output_subdir: analysis
+campaign_analyses:
+  - id: reader_controls
+    title: GPT-4o-mini reader and Codex workspace controls
+    experiments: [readers]
+    group_by: [memory_method, agent, agent_persist]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: judge_score}
+  - id: writer_artifacts
+    title: Codex GPT-4o-mini summary/fact/graph artifacts
+    experiments: [writers]
+    group_by: [memory_method, writer_model]
+    plots:
+      - {kind: grouped_bar, x: memory_method, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, y: judge_score}
+experiments:
+  readers:
+    name: locomo-openai-codex-poc-readers
+    pack: experiments/locomo-openai-codex-poc-readers
+    role: agent_reader
+    family_from: reader
+  writers:
+    name: locomo-openai-codex-poc-writers
+    pack: experiments/locomo-openai-codex-poc-writers
+    role: sandwich
+    family_from: writer

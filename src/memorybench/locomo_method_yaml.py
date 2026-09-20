@@ -20,6 +20,8 @@ _RESOLVE = {
     "fused_teacher_graph_resolve_confidence": (
         "configs/writers/fused_teacher_graph_resolve_confidence.yaml"
     ),
+    "workspace_files": "configs/writers/workspace_files.yaml",
+    "agent_codex_mem0_facts": "configs/writers/agent_codex_mem0_facts.yaml",
 }
 
 

@@ -1,0 +1,10 @@
+# Conversation available as files. The harness retrieves; Memory.text is a
+# short manifest (not stuffed full_context).
+#   python -m src.locomo_eval.run --config configs/writers/workspace_files.yaml --reader mock --run-id smoke_agent
+includes:
+  - configs/stacks/qa_agent_default.yaml
+  - configs/agents/adapters/mock.yaml
+
+pipeline:
+  memory: workspace_files
+  answer_mode: agent

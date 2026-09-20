@@ -1,0 +1,13 @@
+# Live Codex + GPT-5 proof of concept. Keep model knobs minimal.
+# Mock smoke: add --reader mock (forces mock adapter, no Codex binary).
+# Live: Codex on PATH, CODEX_API_KEY or CLI login; do not pass --reader mock.
+includes:
+  - configs/stacks/qa_agent_default.yaml
+  - configs/agents/adapters/codex.yaml
+  - configs/agents/persist/off.yaml
+  - configs/agents/tools/native.yaml
+  - configs/agents/comparison/audit_codex.yaml
+
+pipeline:
+  memory: workspace_files
+  answer_mode: agent

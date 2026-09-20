@@ -57,6 +57,8 @@ def _reasoning_tokens(usage: dict[str, Any] | None, *, fallback: Any = None) -> 
     usage = usage or {}
     raw = usage.get("reasoning_tokens")
     if raw is None:
+        raw = usage.get("reasoning_output_tokens")
+    if raw is None:
         raw = fallback
     try:
         return int(raw or 0)
@@ -576,6 +578,7 @@ def lineage_rows(
 # Sandwich layer for each LLM role (write = teachers, read = answer, judge = autorater).
 ROLE_LAYER = {
     "reader": "read",
+    "agent": "read",
     "teacher": "write",
     "teacher_graph": "write",
     "autorater": "judge",
@@ -863,10 +866,13 @@ def _reader_call_row(
             }
         )
     prompt, completion, total = _usage_tokens(trace.get("usage"))
+    role = infer_llm_role(trace) if trace.get("role") else "reader"
+    if role not in ("reader", "agent"):
+        role = "reader"
     return {
-        "call_id": ":".join(["reader", qid or "-", str(index)]),
-        "role": "reader",
-        "layer": "read",
+        "call_id": ":".join([role, qid or "-", str(index)]),
+        "role": role,
+        "layer": ROLE_LAYER.get(role, "read"),
         "provider": trace.get("provider"),
         "model": trace.get("model"),
         "teacher_id": None,
@@ -1088,6 +1094,12 @@ def render_summary_md(
         f"- **memory:** `{meta.get('memory_type')}`",
         f"- **reader:** `{meta.get('reader_provider')}/{meta.get('reader_model')}` "
         f"(prompt `{meta.get('prompt_version')}`)",
+        (
+            f"- **agent:** `{meta.get('agent')}` persist={meta.get('agent_persist')} "
+            f"tools={meta.get('agent_tools')}"
+            if meta.get("agent")
+            else "- **agent:** (none; one-shot reader)"
+        ),
         f"- **teacher:** `{meta.get('teacher_provider')}/{meta.get('teacher_model')}`"
         if meta.get("teacher_model")
         else "- **teacher:** (none)",
@@ -1117,6 +1129,25 @@ def render_summary_md(
                 f"{rec.get('n_calls')} | {rec.get('n_claims')} |"
             )
         lines.append("")
+    contract = meta.get("comparison_contract") or {}
+    if contract:
+        lines.extend(
+            [
+                "## Agent comparison controls",
+                "",
+                f"- status: **{contract.get('status')}** · contract `{contract.get('sha256')}`",
+                f"- backbone: `{(contract.get('backbone') or {}).get('adapter')}` / "
+                f"`{(contract.get('backbone') or {}).get('model')}` snapshot="
+                f"`{(contract.get('backbone') or {}).get('model_snapshot')}`",
+                f"- prompt sha256: `{(contract.get('task_prompt') or {}).get('sha256')}`",
+                f"- context workspace sha256: `{(contract.get('context') or {}).get('workspace_manifest_sha256')}`",
+                f"- retrieval: `{contract.get('retrieval')}`",
+                f"- memory write: `{contract.get('memory_write')}`",
+                f"- judge: `{contract.get('judge')}`",
+                f"- tool budget: `{contract.get('tool_budget')}`",
+                "",
+            ]
+        )
     lines.extend(
         [
         "## Frozen config",

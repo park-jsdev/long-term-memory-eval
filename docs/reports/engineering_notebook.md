@@ -113,6 +113,9 @@ clears artifacts for a run id and starts from question one;
 - Claim-level fusion + LLM validators (see `docs/reports/multi_teacher_methodologies.md` for current resolve baselines).
 - Distilled `GraphMemory` subclass (freeze extract).
 - Anthropic/DeepSeek as **frozen** answer readers for a robustness table (infra is in `readers.py` / `models.py`).
+- Claude Code / OpenCode / Pi harness adapters (configs exist; factory is stubbed). Live Codex after local+GCP mock smokes.
+
+**Agent-level eval (implemented, mock-first):** `workspace_files` dumps the conversation as session markdown. A harness (`mock` or `codex exec --json`) retrieves; we log the trajectory and split `retrieval_failure` vs `reasoning_failure`. Model-only comparison stays `full_context` + one-shot reader. Schema: `docs/schemas/agent_runtime.md`. Do not claim this is AMA-Bench / LongMemEval-V2.
 
 ---
 

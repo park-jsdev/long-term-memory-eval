@@ -8,6 +8,7 @@ and feed Mem0GraphMemory. Swap provider+model; gold answers never enter.
 from __future__ import annotations
 
 import hashlib
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ from .prompts import (
 DEFAULT_TEACHER_PROMPT = ROOT / TEACHER_SESSION_V1
 DEFAULT_GRAPH_PROMPT = ROOT / TEACHER_GRAPH_V1
 
-KNOWN_TEACHER_PROVIDERS = ("openai", "anthropic", "deepseek", "mock")
+KNOWN_TEACHER_PROVIDERS = ("openai", "anthropic", "deepseek", "mock", "codex")
 
 
 def teacher_call_record(
@@ -376,6 +377,123 @@ class OpenAITeacher(ChatTeacher):
         )
 
 
+class CodexTeacher(Teacher):
+    """Codex CLI write-path teacher over a disposable session workspace.
+
+    The ordinary reader never sees this workspace.  Codex must read the
+    session file and return the requested summary/graph in the same contracts
+    consumed by the existing teacher builders.
+    """
+
+    provider = "codex"
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        prompt_path: str | Path | None = None,
+        graph_prompt_path: str | Path | None = None,
+        teacher_id: str | None = None,
+        thinking: bool = False,
+        **_unused: Any,
+    ):
+        self.model_name = model
+        self.teacher_id = teacher_id or f"codex/{model}"
+        self.thinking = bool(thinking)
+        path = Path(prompt_path) if prompt_path else DEFAULT_TEACHER_PROMPT
+        self.prompt_version, self.prompt_template = load_prompt_template(path)
+        gpath = Path(graph_prompt_path) if graph_prompt_path else DEFAULT_GRAPH_PROMPT
+        self.graph_prompt_version, self.graph_prompt_template = load_prompt_template(gpath)
+
+    def _run(self, session_text: str, prompt: str) -> tuple[str, dict[str, Any]]:
+        from .agents.adapters.codex import CodexAgentRunner
+        from .agents.protocol import AgentRequest
+
+        with tempfile.TemporaryDirectory(prefix="locomo_codex_writer_") as temp:
+            root = Path(temp)
+            (root / "INDEX.md").write_text("- `sessions/session_1.md`\n", encoding="utf-8")
+            sessions = root / "sessions"
+            sessions.mkdir()
+            (sessions / "session_1.md").write_text(session_text, encoding="utf-8")
+            runner = CodexAgentRunner(
+                model_name=self.model_name,
+                persist_memory=False,
+                tools="native",
+            )
+            result = runner.run(
+                AgentRequest(
+                    workspace_dir=root,
+                    sample_id="write",
+                    question_id="write",
+                    question="Write the requested memory artifact.",
+                    prompt=(
+                        f"{prompt}\n\nRead sessions/session_1.md before answering. "
+                        'Return a JSON object with only "answer".'
+                    ),
+                )
+            )
+        return result.predicted_answer, {
+            **result.call_meta,
+            "latency_s": result.latency_s,
+            "usage": result.usage,
+            "reasoning_tokens": result.usage.get("reasoning_tokens"),
+            "thinking": self.thinking,
+            "thinking_supported": False,
+            "role": "agent_memory_writer",
+            "provider": self.provider,
+            "harness_failed": result.trajectory.harness_failed,
+            "harness_failure_reason": result.trajectory.harness_failure_reason,
+        }
+
+    def summarize_session(
+        self, *, session_text: str, date_time: str, speaker_a: str, speaker_b: str
+    ) -> tuple[str, dict[str, Any]]:
+        prompt = render_teacher_session_prompt(
+            self.prompt_template,
+            date=date_time,
+            session_text="Read sessions/session_1.md instead of pasted text.",
+            speaker_a=speaker_a,
+            speaker_b=speaker_b,
+        )
+        text, meta = self._run(session_text, prompt)
+        return text, {**meta, "prompt_version": self.prompt_version, "output_text": text}
+
+    def extract_session_graph(
+        self, *, session_text: str, user_id: str
+    ) -> tuple[list[dict[str, str]], list[dict[str, str]], dict[str, Any]]:
+        prompt = render_teacher_graph_prompt(
+            self.graph_prompt_template,
+            user_id=user_id,
+            text="Read sessions/session_1.md instead of pasted text.",
+        )
+        raw, meta = self._run(session_text, prompt)
+        try:
+            obj = parse_json_object(raw)
+        except ValueError:
+            entities = mock_extract_entities(session_text, user_id)
+            relations = mock_extract_relations(session_text, entities, user_id)
+            return entities, relations, {
+                **meta, "prompt_version": self.graph_prompt_version, "parse": "fallback_mock"
+            }
+        entities = [
+            {"entity": str(row["entity"]), "entity_type": str(row.get("entity_type") or "other")}
+            for row in obj.get("entities") or []
+            if isinstance(row, dict) and row.get("entity")
+        ]
+        relations = [
+            {
+                "source": str(row["source"]),
+                "relationship": str(row.get("relationship") or "related_to"),
+                "target": str(row["target"]),
+            }
+            for row in obj.get("relations") or []
+            if isinstance(row, dict) and row.get("source") and row.get("target")
+        ]
+        return entities, relations, {
+            **meta, "prompt_version": self.graph_prompt_version, "parse": "ok", "output_text": raw
+        }
+
+
 def get_teacher(
     name: str,
     model: str,
@@ -412,7 +530,15 @@ def get_teacher(
             thinking=thinking,
             thinking_budget_tokens=thinking_budget_tokens,
         )
+    if name == "codex":
+        return CodexTeacher(
+            model=model,
+            prompt_path=prompt_path,
+            graph_prompt_path=graph_prompt_path,
+            teacher_id=teacher_id,
+            thinking=thinking,
+        )
     raise ValueError(
-        f"Unknown teacher '{name}'. Use openai, anthropic, deepseek, or mock."
+        f"Unknown teacher '{name}'. Use openai, anthropic, deepseek, codex, or mock."
     )
 

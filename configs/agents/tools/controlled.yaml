@@ -1,0 +1,4 @@
+# Same workspace files; later adapters may restrict to an allowlist.
+# Mock honors retrieve=read only. Codex currently uses --ignore-rules.
+agent:
+  tools: controlled

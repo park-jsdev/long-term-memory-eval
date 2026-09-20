@@ -45,13 +45,25 @@ from src.locomo_eval.fusion import (
     POOL_SINGLE,
 )
 from src.locomo_eval.memory import (
+    AgentFactMemoryBuilder,
     ORCHESTRATED_GRAPH_NAMES,
     TeacherSessionMemoryBuilder,
     get_memory_builder,
     is_question_independent,
     resolve_memory_name,
 )
-from src.locomo_eval.experiments.audit_layout import audit_layout_meta
+from src.locomo_eval.agents import get_agent_runner, render_agent_prompt
+from src.locomo_eval.agents.comparison import (
+    comparison_status,
+    contract_sha256,
+    resolve_contract,
+    validate_strict_contract,
+    workspace_manifest_sha256,
+)
+from src.locomo_eval.agents.dump import write_agent_module
+from src.locomo_eval.agents.metrics import score_agent_row, summarize_agent_rows
+from src.locomo_eval.agents.protocol import AgentRequest
+from src.locomo_eval.metrics import score_row, summarize_predictions
 from src.locomo_eval.experiments.audit_writer import (
     write_claim_audit,
     write_frozen_config,
@@ -68,7 +80,7 @@ from src.locomo_eval.memory_log import (
     collect_teacher_call_log,
     write_memory_run_log,
 )
-from src.locomo_eval.metrics import summarize_predictions
+from src.locomo_eval.experiments.audit_layout import audit_layout_meta
 from src.locomo_eval.models import resolve_model
 from src.locomo_eval.prompts import load_prompt_template, locate_prompt_file
 from src.locomo_eval.readers import get_reader
@@ -274,9 +286,67 @@ def _force_mock_teachers(overrides: argparse.Namespace, reader_name: str) -> boo
     return str(getattr(overrides, "teacher", None) or "").lower() == "mock"
 
 
+def _resolve_agent_run(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
+) -> dict[str, Any]:
+    """Decide whether this invocation uses a coding-agent harness.
+
+    ``agent.adapter: none`` (or omitted) keeps the one-shot reader. Mock reader
+    forces the mock adapter so local/GCP smokes never need the Codex binary.
+    """
+    acfg = dict(cfg.get("agent") or {})
+    adapter = getattr(overrides, "agent", None) or acfg.get("adapter") or acfg.get("id")
+    persist_flag = getattr(overrides, "agent_persist", None)
+    if persist_flag == "on":
+        persist = True
+    elif persist_flag == "off":
+        persist = False
+    else:
+        persist = _as_bool(acfg.get("persist_memory"), False)
+    tools = getattr(overrides, "agent_tools", None) or acfg.get("tools") or "native"
+    answer_mode = getattr(overrides, "answer_mode", None) or (
+        (cfg.get("pipeline") or {}).get("answer_mode") or "reader"
+    )
+    if adapter and str(adapter).strip().lower() not in ("", "none"):
+        answer_mode = "agent"
+    if resolve_memory_name(memory_name) == "workspace_files":
+        answer_mode = "agent"
+        adapter = adapter or "mock"
+    if str(answer_mode).lower() != "agent":
+        return {
+            "enabled": False,
+            "adapter": None,
+            "model": None,
+            "persist_memory": persist,
+            "tools": str(tools),
+        }
+    adapter = str(adapter or acfg.get("adapter") or "mock").strip().lower()
+    model = (
+        getattr(overrides, "model", None)
+        or acfg.get("model")
+        or (cfg.get("reader") or {}).get("model")
+        or "gpt-5"
+    )
+    if str(reader_name).lower() == "mock" or adapter == "mock":
+        adapter = "mock"
+        model = "mock"
+    return {
+        "enabled": True,
+        "adapter": adapter,
+        "model": model,
+        "persist_memory": persist,
+        "tools": str(tools),
+        "timeout_s": float(acfg.get("timeout_s") or 600),
+        "codex_bin": acfg.get("codex_bin"),
+    }
+
+
 def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
     """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML."""
-    if resolve_memory_name(memory_name) != TeacherSessionMemoryBuilder.name:
+    if resolve_memory_name(memory_name) not in (
+        TeacherSessionMemoryBuilder.name,
+        AgentFactMemoryBuilder.name,
+    ):
         return None
     tcfg = cfg.get("teacher") or {}
     provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
@@ -455,7 +525,7 @@ def _reset_run_output(run_dir: Path) -> None:
 
     Reusing a run id must not keep old answers, metrics, or autorater reports.
     """
-    for dirname in ("plots", "memory", "autorater", "reader", "prompts"):
+    for dirname in ("plots", "memory", "autorater", "reader", "agent", "prompts"):
         path = run_dir / dirname
         if path.is_dir():
             shutil.rmtree(path)
@@ -498,6 +568,12 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     memory_name = overrides.memory or cfg["pipeline"]["memory"]
     reader_name = overrides.reader or cfg["reader"]["provider"]
     model = overrides.model or cfg["reader"]["model"]
+    agent_run = _resolve_agent_run(cfg, overrides, memory_name, reader_name)
+    if agent_run["enabled"] and resolve_memory_name(memory_name) != "workspace_files":
+        raise SystemExit(
+            "Agent harness requires pipeline.memory=workspace_files "
+            "(conversation files). Use full_context for model-only one-shot."
+        )
     prompt_path = locate_prompt_file(overrides.prompt or cfg["pipeline"]["prompt_path"])
     max_questions = overrides.max_questions
     if max_questions is None:
@@ -543,6 +619,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     preprocess_kwargs = _preprocess_builder_kwargs(cfg, overrides, memory_name)
     rag_kwargs = _rag_builder_kwargs(cfg, overrides, memory_name, reader_name)
     openai_kwargs = _openai_memory_builder_kwargs(cfg, overrides, memory_name)
+    agent_workspace_root = None
+    if agent_run["enabled"]:
+        agent_workspace_root = run_dir / "agent" / "workspaces"
     builder = get_memory_builder(
         memory_name,
         max_chars=max_chars,
@@ -552,6 +631,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         **preprocess_kwargs,
         **rag_kwargs,
         **openai_kwargs,
+        agent_workspace_root=agent_workspace_root,
+        agent_persist_memory=bool(agent_run.get("persist_memory")),
     )
 
     rate_cfg = cfg.get("reader") or {}
@@ -577,23 +658,60 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         or "default_system_user"
     )
     reader_model = "mock" if reader_name.lower() == "mock" else model
+    if agent_run["enabled"] and agent_run["adapter"] == "mock":
+        reader_model = "mock"
     reader_thinking = None
     thinking_flag = getattr(overrides, "reader_thinking", None)
     if thinking_flag == "on":
         reader_thinking = True
     elif thinking_flag == "off":
         reader_thinking = False
-    reader = get_reader(
-        reader_name,
-        model=reader_model,
-        temperature=reader_temperature,
-        max_tokens=reader_max_tokens,
-        max_retries=int(rate_cfg.get("max_retries", 8)),
-        min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
-        max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
-        message_layout=reader_message_layout,
-        thinking=reader_thinking,
-    )
+    agent_runner = None
+    comparison_contract: dict[str, Any] | None = None
+    if agent_run["enabled"]:
+        agent_kwargs = {}
+        if agent_run.get("timeout_s") is not None:
+            agent_kwargs["timeout_s"] = agent_run["timeout_s"]
+        if agent_run.get("codex_bin"):
+            agent_kwargs["codex_bin"] = agent_run["codex_bin"]
+        agent_runner = get_agent_runner(
+            agent_run["adapter"],
+            model=str(agent_run["model"] or reader_model),
+            persist_memory=bool(agent_run.get("persist_memory")),
+            tools=str(agent_run.get("tools") or "native"),
+            **agent_kwargs,
+        )
+        reader = None
+        answer_model_name = agent_runner.model_name
+        answer_provider = agent_run["adapter"]
+        comparison_cfg = dict((cfg.get("agent") or {}).get("comparison") or {})
+        validate_strict_contract(
+            comparison_cfg,
+            adapter=answer_provider,
+            model_snapshot=(comparison_cfg.get("backbone") or {}).get("model_snapshot"),
+        )
+        comparison_contract = resolve_contract(
+            config=cfg,
+            adapter=answer_provider,
+            model=answer_model_name,
+            model_snapshot=(comparison_cfg.get("backbone") or {}).get("model_snapshot"),
+            prompt_path=prompt_path,
+            memory_type=memory_name,
+        )
+    else:
+        reader = get_reader(
+            reader_name,
+            model=reader_model,
+            temperature=reader_temperature,
+            max_tokens=reader_max_tokens,
+            max_retries=int(rate_cfg.get("max_retries", 8)),
+            min_request_interval_s=float(rate_cfg.get("min_request_interval_s", 0.0)),
+            max_wait_s=float(rate_cfg.get("max_wait_s", 3600.0)),
+            message_layout=reader_message_layout,
+            thinking=reader_thinking,
+        )
+        answer_model_name = reader.model_name
+        answer_provider = reader_name
 
     conversations = load_conversations(data_path)
     if overrides.sample_id:
@@ -640,11 +758,16 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     orch = getattr(builder, "orchestrator", None)
     print(
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
-        f"reader={reader_name}/{reader.model_name}"
+        f"{'agent' if agent_runner else 'reader'}={answer_provider}/{answer_model_name}"
         + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
         + (
             f" | pool={orch.pool} fusion={orch.fusion}"
             if orch is not None
+            else ""
+        )
+        + (
+            f" | persist={agent_run.get('persist_memory')} tools={agent_run.get('tools')}"
+            if agent_runner is not None
             else ""
         )
         + f" | question_sample={question_sample}"
@@ -652,6 +775,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
 
     prediction_rows: list[dict] = []
     reader_traces: list[dict] = []
+    agent_traces: list[dict] = []
+    agent_trajectories: list[dict] = []
+    agent_events: list[dict] = []
+    trajectories_by_qid: dict[str, Any] = {}
     n_api = 0
     used_memories: dict[str, Memory] = {}
     used_memories_by_question: dict[str, Memory] = {}
@@ -673,7 +800,63 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             if example_question is None:
                 example_question = q.question
 
-            answer, meta = reader.answer(memory.text, q.question, prompt_template)
+            if agent_runner is not None:
+                workspaces = getattr(builder, "workspaces", {}) or {}
+                workspace_dir = workspaces.get(conv.sample_id)
+                if workspace_dir is None:
+                    raise RuntimeError(
+                        f"workspace_files missing for sample {conv.sample_id}"
+                    )
+                filled = render_agent_prompt(prompt_template, q.question)
+                result = agent_runner.run(
+                    AgentRequest(
+                        workspace_dir=Path(workspace_dir),
+                        sample_id=conv.sample_id,
+                        question_id=q.question_id,
+                        question=q.question,
+                        prompt=filled,
+                        evidence_ids=list(q.evidence),
+                        tool_budget=(comparison_contract or {}).get("tool_budget") or {},
+                    )
+                )
+                if comparison_contract is not None:
+                    comparison_contract["context"]["workspace_manifest_sha256"] = (
+                        workspace_manifest_sha256(Path(workspace_dir))
+                    )
+                answer = result.predicted_answer
+                meta = {
+                    **(result.call_meta or {}),
+                    "latency_s": result.latency_s,
+                    "usage": result.usage,
+                    "reasoning": (result.call_meta or {}).get("reasoning") or "",
+                }
+                trajectories_by_qid[q.question_id] = result.trajectory
+                agent_trajectories.append(
+                    {
+                        "sample_id": conv.sample_id,
+                        "question_id": q.question_id,
+                        **result.trajectory.to_dict(),
+                    }
+                )
+                for raw in result.events_raw:
+                    agent_events.append(
+                        {
+                            "sample_id": conv.sample_id,
+                            "question_id": q.question_id,
+                            "event": raw,
+                        }
+                    )
+                agent_traces.append(
+                    result.to_trace_row(
+                        sample_id=conv.sample_id,
+                        question_id=q.question_id,
+                        adapter=answer_provider,
+                        model=answer_model_name,
+                        prompt_version=prompt_version,
+                    )
+                )
+            else:
+                answer, meta = reader.answer(memory.text, q.question, prompt_template)
             n_api += 1
 
             pred = Prediction(
@@ -685,7 +868,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 category=q.category,
                 memory_type=memory.memory_type,
                 memory_text=memory.text,
-                reader_model=reader.model_name,
+                reader_model=answer_model_name,
                 prompt_version=prompt_version,
                 evidence=list(q.evidence),
                 run_id=run_id,
@@ -698,14 +881,18 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             row["memory_schema_version"] = memory.schema_version
             if memory.search_latency_s is not None:
                 row["search_latency_s"] = memory.search_latency_s
+            if agent_runner is not None:
+                row["agent"] = answer_provider
+                row["agent_persist"] = agent_run.get("persist_memory")
+                row["agent_tools"] = agent_run.get("tools")
             prediction_rows.append(row)
             reader_traces.append(
                 {
                     "sample_id": q.sample_id,
                     "question_id": q.question_id,
-                    "role": "reader",
-                    "provider": reader_name,
-                    "model": reader.model_name,
+                    "role": "agent" if agent_runner is not None else "reader",
+                    "provider": answer_provider,
+                    "model": answer_model_name,
                     "predicted_answer": answer,
                     "reasoning": meta.get("reasoning") or "",
                     "reasoning_tokens": meta.get("reasoning_tokens"),
@@ -746,6 +933,15 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 prediction_rows=prediction_rows,
                 traces=reader_traces,
             )
+            if agent_runner is not None:
+                write_agent_module(
+                    run_dir,
+                    traces=agent_traces,
+                    trajectories=agent_trajectories,
+                    events=agent_events,
+                    metrics={},
+                    comparison_contract=comparison_contract,
+                )
         print(
             f"\nStopped early ({type(exc).__name__}: {exc})\n"
             f"Saved {len(prediction_rows)} rows to {pred_path}\n"
@@ -783,8 +979,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
 
     summary = summarize_predictions(prediction_rows)
     summary["memory_type"] = builder.name
-    summary["reader_model"] = reader.model_name
-    summary["reader_family"] = resolve_model(reader.model_name).family
+    summary["reader_model"] = answer_model_name
+    summary["reader_family"] = resolve_model(answer_model_name).family
     summary["prompt_version"] = prompt_version
     if teacher_model:
         summary["teacher_model"] = teacher_model
@@ -803,6 +999,34 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         summary["teacher_fusion"] = orch.fusion
     if teacher_thinking is not None:
         summary["teacher_thinking"] = teacher_thinking
+
+    agent_metric_rows: list[dict] = []
+    if trajectories_by_qid:
+        for row in prediction_rows:
+            traj = trajectories_by_qid.get(str(row.get("question_id") or ""))
+            if traj is None:
+                continue
+            scores = score_row(
+                str(row.get("predicted_answer") or ""),
+                str(row.get("reference_answer") or ""),
+                int(row.get("category") or 0),
+            )
+            extra = score_agent_row(
+                locomo_f1=float(scores["locomo_f1"]),
+                exact_match=float(scores["exact_match"]),
+                trajectory=traj,
+            )
+            row.update(extra)
+            agent_metric_rows.append(extra)
+        summary["agent"] = summarize_agent_rows(agent_metric_rows)
+    if comparison_contract is not None:
+        comparison_contract["status"] = comparison_status(
+            comparison_contract,
+            harness_failed=any(
+                bool(row.get("harness_failed")) for row in agent_metric_rows
+            ),
+        )
+        comparison_contract["sha256"] = contract_sha256(comparison_contract)
 
     # Pins for later audit: data file, code commit, prompt, model, memory type.
     meta_out = {
@@ -823,9 +1047,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             overrides, "openai_memory_index_run_id", None
         )
         or (cfg.get("openai_memory") or {}).get("index_run_id"),
-        "reader_provider": reader_name,
-        "reader_model": reader.model_name,
-        "reader_family": resolve_model(reader.model_name).family,
+        "reader_provider": answer_provider,
+        "reader_model": answer_model_name,
+        "reader_family": resolve_model(answer_model_name).family,
         "teacher_provider": teacher_provider,
         "teacher_model": teacher_model,
         "teacher_family": (
@@ -837,6 +1061,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "teacher_fusion": orch.fusion if orch is not None else None,
         "teacher_thinking": teacher_thinking,
         "temperature": reader_temperature,
+        "reader_thinking": reader_thinking,
         "max_tokens": reader_max_tokens,
         "message_layout": reader_message_layout,
         "max_retries": rate_cfg.get("max_retries", 8),
@@ -854,6 +1079,16 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "memory_schema_version": "memory_io.v1",
         "memory_audit_dir": "memory",
         "audit_layout": audit_layout_meta(),
+        "answer_mode": "agent" if agent_runner is not None else "reader",
+        "agent": agent_run.get("adapter") if agent_runner is not None else None,
+        "agent_persist": agent_run.get("persist_memory") if agent_runner is not None else None,
+        "agent_tools": agent_run.get("tools") if agent_runner is not None else None,
+        "agent_model": answer_model_name if agent_runner is not None else None,
+        "agent_adapter": answer_provider if agent_runner is not None else None,
+        "comparison_contract": comparison_contract,
+        "comparison_contract_sha256": (
+            comparison_contract.get("sha256") if comparison_contract else None
+        ),
     }
 
     paths = write_run_report(run_dir, prediction_rows, summary, meta_out)
@@ -863,6 +1098,19 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         traces=reader_traces,
         summary=summary,
     )
+    if agent_runner is not None:
+        agent_paths = write_agent_module(
+            run_dir,
+            traces=agent_traces,
+            trajectories=agent_trajectories,
+            events=agent_events,
+            metrics=summary.get("agent") or {},
+            summary_rows=agent_metric_rows,
+            comparison_contract=comparison_contract,
+        )
+        print("Agent audit:")
+        for k, v in agent_paths.items():
+            print(f"  {k}: {v}")
     claim_paths = write_claim_audit(
         run_dir,
         prediction_rows=prediction_rows,
@@ -906,10 +1154,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, full_context, rag, openai_memory, mem0, mem0g)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, full_context, rag, openai_memory, mem0, mem0g, workspace_files)",
     )
     p.add_argument("--reader", default=None, help="openai | deepseek | anthropic | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
+    p.add_argument(
+        "--agent",
+        default=None,
+        help="Harness adapter: mock | codex | claude_code | opencode | pi (omit for one-shot reader)",
+    )
+    p.add_argument(
+        "--agent-persist",
+        default=None,
+        choices=("on", "off"),
+        help="Agent-specific persistent memory (Codex ephemeral vs workspace notes)",
+    )
+    p.add_argument(
+        "--agent-tools",
+        default=None,
+        choices=("native", "controlled"),
+        help="Native harness tools vs a later controlled allowlist",
+    )
     p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
     p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
     p.add_argument(

@@ -1,0 +1,9 @@
+# Cloud Run mock harness smoke. Same cell as agent_codex_poc.yaml.
+# Codex is not required in the image for this mock cell.
+includes:
+  - configs/experiments/agent_codex_poc.yaml
+
+storage:
+  backend: gcs
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

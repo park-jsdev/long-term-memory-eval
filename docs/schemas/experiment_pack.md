@@ -78,7 +78,7 @@ experiments/<run_id>/
     writers/
     teachers/
     autoraters/
-  run_meta.json                 pins + audit_layout paths
+  run_meta.json                 pins + audit_layout paths + agent comparison contract
   metrics.json                  overall string metrics
   predictions.jsonl             QA rows (compat copy at run root)
   predictions.csv
@@ -88,6 +88,13 @@ experiments/<run_id>/
     traces.jsonl
     metrics.json
     schema.json
+  agent/                        coding-agent harness (optional; workspace_files)
+    traces.jsonl
+    trajectory.jsonl            retrieval events + evidence hits
+    events.jsonl                raw adapter JSONL
+    metrics.json                recall/precision + failure modes + comparison status
+    COMPARISON.md               human view of the eight requested controls
+    workspaces/<sample_id>/     conversation files the harness saw
   memory/                       sandwich middle ({memory} payload)
     schema.json
     lineage.jsonl               question → injected item → teacher

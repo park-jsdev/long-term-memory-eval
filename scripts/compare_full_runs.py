@@ -65,6 +65,50 @@ def resolve_prompt_path(packs: list[dict], explicit: str | Path | None = None) -
     return Path(prompt_paths.pop())
 
 
+_FROZEN_COMPARE_FIELDS = (
+    "data_sha256",
+    "locomo_pin",
+    "max_questions",
+    "max_samples",
+    "sample_id",
+    "question_sample",
+    "prompt_path",
+    "prompt_sha256",
+    "reader_provider",
+    "reader_model",
+    "reader_thinking",
+    "temperature",
+    "max_tokens",
+    "message_layout",
+    "preprocess_index_run_id",
+    "retrieve_top_k",
+    "rag_index_run_id",
+    "rag_k",
+    "mem0_index_run_id",
+    "openai_memory_index_run_id",
+    "code_git_hash",
+)
+
+
+def require_frozen_control_parity(packs: list[dict]) -> None:
+    """Fail before score comparison when a supposedly fixed control moved."""
+    if len(packs) < 2:
+        return
+    mismatches: list[str] = []
+    for field in _FROZEN_COMPARE_FIELDS:
+        values = [pack["meta"].get(field) for pack in packs]
+        if any(value != values[0] for value in values[1:]):
+            rendered = ", ".join(
+                f"{pack['run_id']}={value!r}" for pack, value in zip(packs, values)
+            )
+            mismatches.append(f"{field}: {rendered}")
+    if mismatches:
+        raise ValueError(
+            "Run packs differ on frozen comparison controls; do not compare "
+            "their scores:\n" + "\n".join(mismatches)
+        )
+
+
 def write_overall_csv(path: Path, packs: list[dict]) -> None:
     fieldnames = [
         "run_dir",
@@ -515,25 +559,16 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     packs = [load_pack(Path(r)) for r in args.runs]
+    require_frozen_control_parity(packs)
     write_overall_csv(out / "overall.csv", packs)
     write_category_csv(out / "by_category.csv", packs)
-
-    keys = ["reader_model", "prompt_version", "temperature"]
-    bottoms = [tuple(pack["meta"].get(k) for k in keys) for pack in packs]
-    bottom_warn = None
-    if len(set(bottoms)) > 1:
-        bottom_warn = "Runs differ on frozen bottom-layer settings:\n" + "\n".join(
-            str(b) for b in bottoms
-        )
-        (out / "WARNING_bottom_mismatch.txt").write_text(bottom_warn, encoding="utf-8")
-        print("WARNING: frozen bottom mismatch")
 
     paired = pair_analysis(packs, resolve_prompt_path(packs, args.prompt))
     write_paired_csv(out / "paired_questions.csv", paired)
     # Drop huge paired_rows from JSON blob (CSV holds them)
     paired_slim = {k: v for k, v in paired.items() if k != "paired_rows"}
     plot_paths = make_compare_plots(packs, paired, out / "plots")
-    write_text_report(out / "SUMMARY.md", packs, paired_slim, plot_paths, bottom_warn)
+    write_text_report(out / "SUMMARY.md", packs, paired_slim, plot_paths, None)
 
     payload = {
         "runs": [

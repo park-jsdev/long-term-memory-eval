@@ -5,7 +5,7 @@
 **Resource inventory (what exists, not how to click it):** `infra/gcp/README.md`.  
 **Scientific matrix:** `docs/agent/EXPERIMENT_MATRIX_v1.md`.
 
-Jobs always use `configs/experiments/poc_gcs.yaml`. Local mock (no GCP): `configs/experiments/poc.yaml`.
+Jobs always use `configs/experiments/poc_gcs.yaml`. Local mock (no GCP): `configs/experiments/poc.yaml`. Agent-harness mock (no Codex binary): `configs/experiments/agent_codex_poc.yaml` locally or `configs/experiments/agent_codex_poc_gcs.yaml` on Cloud Run.
 
 Never put API keys in this file, git, chat, or Cloud Run plaintext env vars. Keys live only in Secret Manager (cloud) or repo-root `.env` (laptop).
 

@@ -1,0 +1,31 @@
+# Deterministic local/GCP validation profile. Only adapters that declare every
+# hard control enforceable may use `strict: true`.
+agent:
+  comparison:
+    strict: true
+    backbone:
+      model_snapshot: mock-v1
+    adapter_version: mock-v1
+    adapter_system_prompt: not_applicable
+    context:
+      max_available_tokens: 4096
+      max_input_tokens: 4096
+    retrieval:
+      mode: controlled_search
+      embedding_model: not_applicable
+      k: 1
+    memory_write:
+      method: not_applicable
+      model: not_applicable
+      index_sha256: not_applicable
+    judge:
+      provider: mock
+      model_snapshot: mock-v1
+      prompt_sha256: not_applicable
+      temperature: 0
+      category_5_policy: excluded_from_j
+    tool_budget:
+      allowed_tools: [read]
+      max_tool_calls: 2
+      max_retrieved_tokens: 4096
+      wall_clock_s: 60

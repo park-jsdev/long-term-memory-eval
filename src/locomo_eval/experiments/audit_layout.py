@@ -20,6 +20,7 @@ from pathlib import Path
 AUDIT_LAYOUT_VERSION = "audit_pack.v2"
 
 READER = "reader"
+AGENT = "agent"
 MEMORY = "memory"
 TEACHERS = "memory/teachers"
 GRAPH = "memory/graph"
@@ -51,6 +52,7 @@ def audit_layout_meta() -> dict[str, str]:
     return {
         "version": AUDIT_LAYOUT_VERSION,
         "reader": f"{READER}/",
+        "agent": f"{AGENT}/",
         "memory": f"{MEMORY}/",
         "teachers": f"{TEACHERS}/",
         "graph": f"{GRAPH}/",
@@ -94,6 +96,11 @@ class AuditPaths:
     reader_predictions: Path
     reader_traces: Path
     reader_metrics: Path
+    agent_dir: Path
+    agent_traces: Path
+    agent_trajectory: Path
+    agent_events: Path
+    agent_metrics: Path
     memory_dir: Path
     teachers_dir: Path
     teacher_index: Path
@@ -128,6 +135,7 @@ class AuditPaths:
         """
         root = Path(run_dir)
         reader = root / READER
+        agent = root / AGENT
         teachers = root / TEACHERS
         graph = root / GRAPH
         autorater = root / AUTORATER
@@ -141,6 +149,11 @@ class AuditPaths:
             reader_predictions=reader / "predictions.jsonl",
             reader_traces=reader / "traces.jsonl",
             reader_metrics=reader / "metrics.json",
+            agent_dir=agent,
+            agent_traces=agent / "traces.jsonl",
+            agent_trajectory=agent / "trajectory.jsonl",
+            agent_events=agent / "events.jsonl",
+            agent_metrics=agent / "metrics.json",
             memory_dir=root / MEMORY,
             teachers_dir=teachers,
             teacher_index=teachers / "index.jsonl",

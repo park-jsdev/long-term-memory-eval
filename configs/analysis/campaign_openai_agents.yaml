@@ -1,0 +1,61 @@
+campaign:
+  id: openai_agents
+  title: OpenAI 2024–2026 memory and Codex agent campaign
+  notebook: notebooks/17_openai_agent_reader_writer_analysis.ipynb
+  freeze_note: >
+    Thinking is off. Codex reader workspace runs and Codex writer native-tool
+    runs are audit-only unless their comparison contract is comparable.
+defaults:
+  source: runs
+  metrics: [locomo_f1, judge_score]
+  output_subdir: analysis
+campaign_analyses:
+  - id: standard_memory_readers
+    title: OpenAI reader years across fixed memory conditions
+    experiments: [readers]
+    group_by: [reader_model, memory_method, thinking]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: reader_model, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, hue: reader_model, y: judge_score}
+  - id: codex_no_memory_readers
+    title: Codex reader with workspace files and no memory artifact
+    experiments: [codex_readers]
+    group_by: [reader_model, memory_method]
+    plots:
+      - {kind: grouped_bar, x: reader_model, y: locomo_f1}
+      - {kind: grouped_bar, x: reader_model, y: judge_score}
+  - id: codex_memory_writers
+    title: Codex summary and graph writers with frozen GPT-4o-mini reader
+    experiments: [codex_writers]
+    group_by: [writer_model, memory_method]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: writer_model, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, hue: writer_model, y: judge_score}
+  - id: codex_end_to_end
+    title: End-to-end persistent Codex workspace
+    experiments: [codex_end_to_end]
+    group_by: [reader_model, memory_method]
+    plots:
+      - {kind: grouped_bar, x: reader_model, y: locomo_f1}
+      - {kind: grouped_bar, x: reader_model, y: judge_score}
+experiments:
+  readers:
+    name: locomo-openai-agent-readers
+    pack: experiments/locomo-openai-agent-readers
+    role: reader_sweep
+    family_from: reader
+  codex_readers:
+    name: locomo-openai-codex-readers
+    pack: experiments/locomo-openai-codex-readers
+    role: agent_reader
+    family_from: reader
+  codex_writers:
+    name: locomo-openai-codex-writers
+    pack: experiments/locomo-openai-codex-writers
+    role: sandwich
+    family_from: writer
+  codex_end_to_end:
+    name: locomo-openai-codex-end-to-end
+    pack: experiments/locomo-openai-codex-end-to-end
+    role: agent_end_to_end
+    family_from: reader

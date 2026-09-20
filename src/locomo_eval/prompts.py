@@ -3,6 +3,7 @@
 Repo layout mirrors ``configs/`` roles so a human can walk YAML → txt → jsonl:
 
 - ``prompts/readers/`` — answer LLM (``pipeline.prompt_path`` / layouts)
+- ``prompts/agents/`` — coding-agent harness (workspace files, not stuffed memory)
 - ``prompts/writers/`` — mem0 / mem0g / openai_memory extract
 - ``prompts/teachers/`` — session summary + graph teachers
 - ``prompts/autoraters/`` — LLM-as-a-Judge (separate job from QA)
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 QA_MEM0_V1 = "prompts/readers/qa_mem0_v1.txt"
 QA_V1 = "prompts/readers/qa_v1.txt"
+QA_WORKSPACE_V1 = "prompts/agents/qa_workspace_v1.txt"
 TEACHER_SESSION_V1 = "prompts/teachers/teacher_session_v1.txt"
 TEACHER_GRAPH_V1 = "prompts/teachers/teacher_graph_v1.txt"
 AUTORATER_MEM0_V1 = "prompts/autoraters/autorater_mem0_v1.txt"

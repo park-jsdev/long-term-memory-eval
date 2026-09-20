@@ -1,0 +1,9 @@
+Read the session material provided in the workspace. Write a concise list of
+durable, factual memories with names, dates, preferences, commitments, and
+relationships when present. Do not answer a future question and do not invent
+facts. Return only the memory facts.
+
+Date: {date}
+Speakers: {speaker_a}, {speaker_b}
+Session:
+{session_text}

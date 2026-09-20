@@ -1,7 +1,8 @@
 """Named experiment designs the harness can expand.
 
-Sandwich is one design, not the only one. The harness does not assume a frozen
-reader unless the YAML says ``type: sandwich``.
+Sandwich is one design, not the only one. Agent eval freezes the harness
+model and varies adapter / persist / tools. The harness does not assume a
+frozen reader unless the YAML says ``type: sandwich`` or ``type: agent``.
 """
 
 from __future__ import annotations
@@ -10,8 +11,9 @@ SANDWICH = "sandwich"
 SWEEP = "sweep"
 ABLATION = "ablation"
 CALIBRATION = "calibration"
+AGENT = "agent"
 
-KNOWN_TYPES = (SANDWICH, SWEEP, ABLATION, CALIBRATION)
+KNOWN_TYPES = (SANDWICH, SWEEP, ABLATION, CALIBRATION, AGENT)
 
 # Cartesian axes, in this order, so expansion is stable across processes.
 MATRIX_AXIS_ORDER = (
@@ -19,6 +21,9 @@ MATRIX_AXIS_ORDER = (
     "memory_method",
     "writer",
     "thinking",
+    "agent",
+    "agent_persist",
+    "agent_tools",
     "seed",
 )
 

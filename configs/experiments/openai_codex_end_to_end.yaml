@@ -1,0 +1,34 @@
+# End-to-end Codex: one persistent workspace per conversation, so the harness
+# may read session files, write durable notes, and answer. It is not a frozen-
+# reader sandwich condition; report it as an agent-system baseline.
+experiment:
+  name: locomo-openai-codex-end-to-end
+  type: sweep
+  freeze:
+    prompt_path: prompts/agents/qa_workspace_v1.txt
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+model_catalog: configs/models/generation_catalog.yaml
+matrix:
+  reader:
+    - catalog: gpt-4o-mini
+    - catalog: gpt-5
+    - catalog: gpt-5.6-terra
+  agent: [codex]
+  agent_persist: [on]
+  agent_tools: [native]
+  memory_method: [workspace_files]
+  seed: [1]
+agent_comparison:
+  strict: false
+  tool_budget: {allowed_tools: [], max_tool_calls: null, max_retrieved_tokens: null, wall_clock_s: 600}
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 600
+storage:
+  backend: local
+  path: experiments

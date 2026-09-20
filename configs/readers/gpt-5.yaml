@@ -1,0 +1,10 @@
+# Minimal GPT-5 pin for harness / model-only comparison.
+# No temperature / thinking overlays — this layer tests the agent, not sampling.
+reader:
+  provider: openai
+  model: gpt-5
+  temperature: 0.0
+  max_tokens: 64
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600

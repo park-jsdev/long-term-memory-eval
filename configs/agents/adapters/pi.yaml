@@ -1,0 +1,4 @@
+# Stub. Implement src/locomo_eval/agents/adapters/pi.py later.
+agent:
+  id: pi
+  adapter: pi

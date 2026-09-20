@@ -65,6 +65,10 @@ class ExperimentRunSpec:
     mem0_index_run_id: str | None = None
     rag_index_run_id: str | None = None
     status: str = "runnable"
+    agent: str | None = None
+    agent_persist: bool | None = None
+    agent_tools: str | None = None
+    agent_comparison: dict[str, Any] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
 
     def to_manifest_row(self) -> dict[str, Any]:
@@ -80,6 +84,10 @@ class ExperimentRunSpec:
         row["reader_max_tokens"] = self.reader.max_tokens
         row["teacher_thinking"] = self.writer.thinking if self.writer else None
         row["teacher_max_tokens"] = self.writer.max_tokens if self.writer else None
+        row["agent"] = self.agent
+        row["agent_persist"] = self.agent_persist
+        row["agent_tools"] = self.agent_tools
+        row["comparison_contract"] = self.agent_comparison
         return row
 
     def qa_identity(self) -> dict[str, Any]:
@@ -100,6 +108,11 @@ class ExperimentRunSpec:
             "seed": self.seed,
             "writer_model": self.writer.api_model_id if self.writer else None,
         }
+        if self.agent:
+            identity["agent"] = self.agent
+            identity["agent_persist"] = self.agent_persist
+            identity["agent_tools"] = self.agent_tools
+            identity["agent_comparison"] = self.agent_comparison
         if self.reader.thinking is not None:
             identity["reader_thinking"] = self.reader.thinking
         if self.reader.max_tokens is not None:

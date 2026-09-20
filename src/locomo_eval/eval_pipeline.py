@@ -37,6 +37,7 @@ METHOD_CONFIGS: dict[str, str] = {
     "teacher_graph": "configs/writers/teacher_graph.yaml",
     "pooled_teacher_graph": "configs/writers/pooled_teacher_graph.yaml",
     "fused_teacher_graph": "configs/writers/fused_teacher_graph.yaml",
+    "workspace_files": "configs/writers/workspace_files.yaml",
     "mem0_baseline": "configs/presets/mem0_baseline.yaml",
 }
 

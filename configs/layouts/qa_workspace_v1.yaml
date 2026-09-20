@@ -1,0 +1,6 @@
+# Harness eval bottom: agent prompt (not stuffed qa_mem0_v1).
+# The model id is the harness model; Chat Completions sampling is unused.
+pipeline:
+  prompt_path: prompts/agents/qa_workspace_v1.txt
+  answer_mode: agent
+  max_questions: null

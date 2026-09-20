@@ -1,0 +1,30 @@
+# Thinking-off OpenAI answer-reader sweep: 7 fixed/index conditions × 3 years.
+experiment:
+  name: locomo-openai-agent-readers
+  type: sweep
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+model_catalog: configs/models/generation_catalog.yaml
+matrix:
+  reader:
+    - catalog: gpt-4o-mini
+    - catalog: gpt-5
+    - catalog: gpt-5.6-terra
+  thinking: [false]
+  memory_method: [raw_chunks, session_summaries, full_context, rag, openai_memory, mem0, mem0g]
+  seed: [1]
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 600
+storage:
+  backend: local
+  path: experiments
+shared_indexes:
+  rag: {index_run_id: rag_locomo10}
+  mem0: {index_run_id: mem0_locomo10}

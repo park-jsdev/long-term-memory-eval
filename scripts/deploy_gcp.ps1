@@ -27,7 +27,7 @@ $JOB_PARALLELISM = if ($env:JOB_PARALLELISM) { $env:JOB_PARALLELISM } else { "8"
 $EXP_YAML = if ($env:EXPERIMENT_YAML) { $env:EXPERIMENT_YAML } else { "configs/experiments/poc_gcs.yaml" }
 $IMAGE = "${REGION}-docker.pkg.dev/$($env:PROJECT_ID)/${AR_REPO}/memorybench:${TAG}"
 $SA_EMAIL = "$SA@$($env:PROJECT_ID).iam.gserviceaccount.com"
-$SECRETS = "OPENAI_API_KEY=openai-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,DEEPSEEK_API_KEY=deepseek-api-key:latest"
+$SECRETS = "OPENAI_API_KEY=openai-api-key:latest,CODEX_API_KEY=codex-api-key:latest,ANTHROPIC_API_KEY=anthropic-api-key:latest,DEEPSEEK_API_KEY=deepseek-api-key:latest"
 $ENV_VARS = "PYTHONUNBUFFERED=1,MEMORYBENCH_BUCKET=$BUCKET"
 
 function Invoke-Gcloud {
