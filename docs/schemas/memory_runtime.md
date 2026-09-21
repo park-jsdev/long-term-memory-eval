@@ -111,7 +111,7 @@ Graph relations:
 ...
 ```
 
-`pooled_teacher_graph` uses `orchestrator.pool` (`equal_weight` | `random` | `round_robin`). `fused_teacher_graph` keeps triples with majority votes. Gold answers never enter teacher prompts.
+`teacher_graph` is K=1 (`pool: single`, `openai_single.yaml`). `pooled_teacher_graph` uses `orchestrator.pool` (`equal_weight` | `random` | `round_robin`) with `cheap_k3`. `fused_teacher_graph` keeps triples with majority votes. Gold answers never enter teacher prompts. Current `configs/experiments/` matrices schedule only K=1; pooled/fused stay locomo_eval plumbing.
 
 ### Injection into the fixed prompt
 

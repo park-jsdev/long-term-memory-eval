@@ -361,13 +361,16 @@ def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, r
     return get_teacher(provider, model=model, **kwargs)
 
 
-def _build_orchestrator(
+def _teacher_roster(
     cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
-) -> TeacherOrchestrator | None:
-    """K teachers + pool/fusion for graph memory conditions. None for other builders."""
+) -> list[dict]:
+    """Resolved teacher slots for this memory method (before get_teacher).
+
+    ``teacher_graph`` + ``--teacher-model`` replaces the one sandwich writer.
+    Pooled/fused keep the YAML roster (cheap_k3); experiment matrices must
+    not schedule those methods.
+    """
     resolved = resolve_memory_name(memory_name)
-    if resolved not in ORCHESTRATED_GRAPH_NAMES:
-        return None
     force_mock = _force_mock_teachers(overrides, reader_name)
     tcfg = cfg.get("teacher") or {}
     roster = list(cfg.get("teachers") or [])
@@ -377,15 +380,42 @@ def _build_orchestrator(
         if not provider:
             provider = "mock" if force_mock else "openai"
         if not model:
-            raise SystemExit(
-                f"{resolved} requires teacher.model in YAML, teachers:, or --teacher-model"
-            )
-        roster = [{"id": provider, "provider": provider, "model": model}]
-    elif getattr(overrides, "teacher_model", None) and resolved == "teacher_graph":
+            return []
+        return [{"id": provider, "provider": provider, "model": model}]
+    if getattr(overrides, "teacher_model", None) and resolved == "teacher_graph":
         roster = [{**roster[0], "model": overrides.teacher_model}]
         if getattr(overrides, "teacher", None):
             roster[0]["provider"] = overrides.teacher
             roster[0]["id"] = overrides.teacher
+    return roster
+
+
+def _teacher_cardinality(
+    orch: TeacherOrchestrator | None, teacher
+) -> tuple[int, list[str]]:
+    """How many write-path teachers this run constructed (0 if none)."""
+    if orch is not None:
+        ids = [str(t.teacher_id) for t in orch.teachers]
+        return len(ids), ids
+    if teacher is not None:
+        tid = str(getattr(teacher, "teacher_id", None) or teacher.model_name)
+        return 1, [tid]
+    return 0, []
+
+
+def _build_orchestrator(
+    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
+) -> TeacherOrchestrator | None:
+    """K teachers + pool/fusion for graph memory conditions. None for other builders."""
+    resolved = resolve_memory_name(memory_name)
+    if resolved not in ORCHESTRATED_GRAPH_NAMES:
+        return None
+    force_mock = _force_mock_teachers(overrides, reader_name)
+    roster = _teacher_roster(cfg, overrides, memory_name, reader_name)
+    if not roster:
+        raise SystemExit(
+            f"{resolved} requires teacher.model in YAML, teachers:, or --teacher-model"
+        )
 
     kwargs = _teacher_call_kwargs(cfg, overrides)
     teachers = []
@@ -756,6 +786,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     teacher_model = getattr(builder, "teacher_model", None)
     teacher_provider = getattr(builder, "teacher_provider", None)
     orch = getattr(builder, "orchestrator", None)
+    n_teachers, teacher_ids = _teacher_cardinality(orchestrator, teacher)
     print(
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
         f"{'agent' if agent_runner else 'reader'}={answer_provider}/{answer_model_name}"
@@ -997,6 +1028,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     if orch is not None:
         summary["teacher_pool"] = orch.pool
         summary["teacher_fusion"] = orch.fusion
+    summary["n_teachers"] = n_teachers
+    summary["teacher_ids"] = teacher_ids
     if teacher_thinking is not None:
         summary["teacher_thinking"] = teacher_thinking
 
@@ -1059,6 +1092,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         ),
         "teacher_pool": orch.pool if orch is not None else None,
         "teacher_fusion": orch.fusion if orch is not None else None,
+        "n_teachers": n_teachers,
+        "teacher_ids": teacher_ids,
         "teacher_thinking": teacher_thinking,
         "temperature": reader_temperature,
         "reader_thinking": reader_thinking,

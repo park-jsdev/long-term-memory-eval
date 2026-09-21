@@ -384,6 +384,42 @@ def annotate_mem0_latency(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def attach_run_judge_score(
+    runs: pd.DataFrame, examples: pd.DataFrame
+) -> pd.DataFrame:
+    """Copy cat-5-excluded mean J from examples onto each runs row.
+
+    ``runs.parquet`` stores pack LoCoMo F1, not Mem0 J. Campaign recipes still
+    ask for ``judge_score`` on ``source: runs``. Do not leave J blank and let
+    plots fall back to locomo_f1.
+    """
+    if runs.empty or examples.empty:
+        return runs
+    if "run_id" not in runs.columns or "run_id" not in examples.columns:
+        return runs
+    if "judge_score" not in examples.columns:
+        return runs
+    if "judge_score" in runs.columns and pd.to_numeric(
+        runs["judge_score"], errors="coerce"
+    ).notna().any():
+        return runs
+    work = examples
+    if "question_category" in work.columns:
+        category = pd.to_numeric(work["question_category"], errors="coerce")
+        work = work.loc[~category.isin({5})]
+    means = (
+        pd.to_numeric(work["judge_score"], errors="coerce")
+        .groupby(work["run_id"])
+        .mean()
+        .rename("judge_score")
+        .reset_index()
+    )
+    out = runs.copy()
+    if "judge_score" in out.columns:
+        out = out.drop(columns=["judge_score"])
+    return out.merge(means, on="run_id", how="left")
+
+
 def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.DataFrame:
     cols = [c for c in group_by if c in df.columns]
     specs = []

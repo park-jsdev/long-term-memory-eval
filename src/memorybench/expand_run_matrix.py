@@ -23,6 +23,7 @@ from src.memorybench.experiment_types import (
 from src.memorybench.hashed_run_id import hashed_run_id
 from src.memorybench.locomo_method_yaml import method_yaml_for
 from src.memorybench.shared_index_paths import index_run_ids_for_memory
+from src.locomo_eval.fusion import is_multi_teacher_memory_method
 from src.locomo_eval.prompts import QA_MEM0_V1, QA_WORKSPACE_V1
 from src.locomo_eval.agents.comparison import validate_strict_contract
 
@@ -78,6 +79,13 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
         cell = dict(zip(keys, combo))
         reader = cell["reader"]
         memory_method = str(cell["memory_method"])
+        if is_multi_teacher_memory_method(memory_method):
+            raise ValueError(
+                f"Experiment matrix includes multi-teacher method {memory_method!r}. "
+                "Current locomo/mem0/agent campaigns are single-teacher. "
+                "Run pooled/fused writer YAMLs via python -m src.locomo_eval.run, "
+                "not memorybench experiment matrices."
+            )
         writer = cell.get("writer")
         if writer_axis and _memory_uses_teacher_writer(memory_method) != (
             writer is not None
@@ -311,7 +319,7 @@ def _memory_uses_teacher_writer(memory_method: str) -> bool:
         "teacher_graph",
         "teacher_session_summaries",
         "agent_codex_mem0_facts",
-    } or key.startswith("pooled_teacher") or key.startswith("fused_teacher")
+    } or is_multi_teacher_memory_method(key)
 
 
 def _parse_writer(item: Any, catalog: dict[str, Any]) -> WriterModelRef | None:

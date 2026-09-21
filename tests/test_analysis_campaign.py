@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.memorybench.analysis.load_campaign import (
     AnalysisSpec,
+    ExperimentAnalysisRef,
     PlotSpec,
     load_campaign_yaml,
 )
@@ -24,6 +25,7 @@ from src.memorybench.analysis.report import (
     _plot_stem,
     _plot_title,
     annotate_model_family,
+    load_pack,
     mean_table,
     render_analysis,
     render_campaign,
@@ -34,6 +36,7 @@ from scripts.analysis.campaign_tables import (
     annotate_generation,
     annotate_mem0_latency,
     annotate_thinking,
+    attach_run_judge_score,
     join_search_latency,
 )
 
@@ -313,6 +316,128 @@ class TestGroupedBarKeepsReaderAndMemory(unittest.TestCase):
             & (result.table["memory_method"] == "full_context")
         ].iloc[0]
         self.assertAlmostEqual(float(gpt_full["locomo_f1"]), 1.0)
+
+
+class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
+    def test_missing_judge_score_skips_instead_of_drawing_locomo_f1(self):
+        spec = AnalysisSpec(
+            id="writer_artifacts",
+            title="Codex artifacts",
+            group_by=("memory_method", "writer_model"),
+            metrics=("locomo_f1", "judge_score"),
+            plots=(
+                PlotSpec(kind="grouped_bar", x="memory_method", y="locomo_f1"),
+                PlotSpec(kind="grouped_bar", x="memory_method", y="judge_score"),
+            ),
+            source="runs",
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "teacher_graph",
+                    "writer_model": "gpt-4o-mini",
+                    "locomo_f1": 0.211,
+                }
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+        names = [path.name for path in result.plot_paths]
+        self.assertTrue(any("locomo_f1" in name for name in names))
+        self.assertFalse(any("judge_score" in name for name in names))
+        self.assertNotIn("judge_score", result.table.columns)
+
+    def test_both_metrics_write_distinct_y_axes(self):
+        spec = AnalysisSpec(
+            id="writer_artifacts",
+            title="Codex artifacts",
+            group_by=("memory_method", "writer_model"),
+            metrics=("locomo_f1", "judge_score"),
+            plots=(
+                PlotSpec(kind="grouped_bar", x="memory_method", y="locomo_f1"),
+                PlotSpec(kind="grouped_bar", x="memory_method", y="judge_score"),
+            ),
+            source="runs",
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "teacher_graph",
+                    "writer_model": "gpt-4o-mini",
+                    "locomo_f1": 0.211,
+                    "judge_score": 0.2429,
+                }
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+        names = [path.name for path in result.plot_paths]
+        self.assertEqual(len(names), 2)
+        self.assertTrue(any("locomo_f1" in name for name in names))
+        self.assertTrue(any("judge_score" in name for name in names))
+        self.assertAlmostEqual(float(result.table.iloc[0]["judge_score"]), 0.2429)
+
+    def test_runs_receive_cat5_excluded_mean_j_from_examples(self):
+        runs = pd.DataFrame(
+            [{"run_id": "cell-a", "memory_method": "teacher_graph", "locomo_f1": 0.211}]
+        )
+        examples = pd.DataFrame(
+            [
+                {"run_id": "cell-a", "question_category": 1, "judge_score": 1.0},
+                {"run_id": "cell-a", "question_category": 1, "judge_score": 0.0},
+                {"run_id": "cell-a", "question_category": 5, "judge_score": 0.0},
+            ]
+        )
+        out = attach_run_judge_score(runs, examples)
+        self.assertAlmostEqual(float(out.iloc[0]["judge_score"]), 0.5)
+
+    def test_load_pack_copies_example_j_onto_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            agg = root / "experiments" / "pack" / "aggregate"
+            agg.mkdir(parents=True)
+            pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "memory_method": "teacher_graph",
+                        "writer_model": "gpt-4o-mini",
+                        "locomo_f1": 0.211,
+                    }
+                ]
+            ).to_parquet(agg / "runs.parquet", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "question_category": 1,
+                        "judge_score": 0.5,
+                        "reader_provider": "openai",
+                        "writer_model": "gpt-4o-mini",
+                    },
+                    {
+                        "run_id": "cell-a",
+                        "question_category": 5,
+                        "judge_score": 0.0,
+                        "reader_provider": "openai",
+                        "writer_model": "gpt-4o-mini",
+                    },
+                ]
+            ).to_parquet(agg / "examples.parquet", index=False)
+            ref = ExperimentAnalysisRef(
+                id="writers",
+                name="pack",
+                pack=Path("experiments/pack"),
+                notebook=None,
+                role="sandwich",
+                family_from="writer",
+                subset=None,
+                analyses=(),
+            )
+            loaded = load_pack(root, ref)
+        self.assertIsNotNone(loaded)
+        runs, _examples = loaded
+        self.assertAlmostEqual(float(runs.iloc[0]["judge_score"]), 0.5)
 
 
 class TestAdversarialExcludedFromOverall(unittest.TestCase):

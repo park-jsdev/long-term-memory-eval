@@ -5,7 +5,7 @@ Thinking is off for all cells. Run the four matrices separately:
 | YAML | QA cells | Claim |
 |---|---:|---|
 | `openai_agent_readers_gcs.yaml` | 21 | fixed/index memory × OpenAI readers |
-| `openai_agent_writers_gcs.yaml` | 12 | OpenAI teachers × frozen mini reader |
+| `openai_agent_writers_gcs.yaml` | 6 | OpenAI single teachers × frozen mini reader |
 | `openai_codex_readers_gcs.yaml` | 3 | workspace-only Codex answer harness |
 | `openai_codex_writers_gcs.yaml` | 9 | Codex summary/fact/graph writers × frozen mini reader |
 | `openai_codex_end_to_end_gcs.yaml` | 3 | persistent Codex reader+writer workspace |

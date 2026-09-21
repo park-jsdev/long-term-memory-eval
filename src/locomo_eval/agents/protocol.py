@@ -140,6 +140,9 @@ class AgentResult:
             "n_web_search": self.trajectory.n_web_search,
             "n_mcp": self.trajectory.n_mcp,
             "used_non_workspace_tools": self.trajectory.used_non_workspace_tools,
+            "web_search": self.call_meta.get("web_search"),
+            "argv": self.call_meta.get("argv"),
+            "returncode": self.call_meta.get("returncode"),
         }
 
 

@@ -182,7 +182,7 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 | `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
 | `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
 
-Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `teacher_session_summaries` is the live single-teacher *summary* replacement. `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` write locked Mem0g via the orchestrator.
+Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `teacher_session_summaries` is the live single-teacher *summary* replacement. `teacher_graph` writes locked Mem0g with `pool: single`. `pooled_teacher_graph` / `fused_teacher_graph` (`cheap_k3`) are locomo_eval plumbing only until a dedicated multi-teacher experiment YAML is added; memorybench matrices reject them.
 
 Aliases for convenience (legacy numbered ids still resolve):
 

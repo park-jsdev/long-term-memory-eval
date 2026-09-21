@@ -20,6 +20,7 @@ from src.config import load_config
 from src.locomo_eval.agents import get_agent_runner, render_agent_prompt, resolve_codex_bin
 from src.locomo_eval.agents.adapters.codex import (
     ANSWER_BASENAME,
+    DISK_READ_PERMISSION,
     WEB_SEARCH_DISABLED,
     CodexAgentRunner,
     _codex_in_dir,
@@ -351,8 +352,9 @@ class TestCodexArgv(unittest.TestCase):
         self.assertIn("--ephemeral", argv)
         self.assertIn("read-only", argv)
         self.assertIn("--ignore-user-config", argv)
-        self.assertIn("-c", argv)
-        self.assertEqual(argv[argv.index("-c") + 1], WEB_SEARCH_DISABLED)
+        self.assertIn("--ignore-rules", argv)
+        self.assertIn(WEB_SEARCH_DISABLED, argv)
+        self.assertIn(DISK_READ_PERMISSION, argv)
         self.assertNotIn("--search", argv)
 
     def test_persist_on_uses_workspace_write_and_skips_ephemeral(self):
@@ -363,7 +365,9 @@ class TestCodexArgv(unittest.TestCase):
         self.assertIn("workspace-write", argv)
         self.assertNotIn("--ephemeral", argv)
         self.assertIn("--ignore-user-config", argv)
-        self.assertEqual(argv[argv.index("-c") + 1], WEB_SEARCH_DISABLED)
+        self.assertIn("--ignore-rules", argv)
+        self.assertIn(WEB_SEARCH_DISABLED, argv)
+        self.assertIn(DISK_READ_PERMISSION, argv)
 
     def test_argv_drops_search_flag_from_extra_args(self):
         runner = CodexAgentRunner(

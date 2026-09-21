@@ -1,3 +1,4 @@
+# K=3 cheap plumbing. Not scheduled in configs/experiments/ (single-teacher lock).
 teachers:
   - id: openai
     provider: openai

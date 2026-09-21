@@ -24,6 +24,7 @@ from scripts.analysis.campaign_tables import (
     annotate_mem0_latency,
     annotate_model_family,
     annotate_thinking,
+    attach_run_judge_score,
     join_search_latency,
     mean_table,
     sort_year_family_table,
@@ -79,6 +80,7 @@ def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.
     runs = join_search_latency(runs, pack)
     examples = annotate_mem0_latency(examples)
     runs = annotate_mem0_latency(runs)
+    runs = attach_run_judge_score(runs, examples)
     if not examples.empty and "result_source" not in examples.columns:
         examples = examples.copy()
         examples["result_source"] = "live"
@@ -145,7 +147,9 @@ def _write_plot(
             collapsed[series_col] = collapsed[list(groups)].astype(str).agg(
                 " × ".join, axis=1
             )
-        mets = [plot.y] if plot.y and plot.y in metrics else metrics
+        mets = _requested_metrics(plot, metrics)
+        if not mets:
+            return None
         return write_metrics_grouped_bar(
             collapsed,
             group_col=series_col,
@@ -155,7 +159,7 @@ def _write_plot(
         )
     if kind in ("grouped_bar", "line"):
         x_col = plot.x if plot.x in table.columns else (groups[-1] if groups else None)
-        y = plot.y if plot.y in metrics else (metrics[0] if metrics else None)
+        y = _requested_metric(plot, metrics)
         if not x_col or not y:
             return None
         hue_parts = [g for g in groups if g != x_col]
@@ -200,7 +204,9 @@ def _write_plot(
         )
     if kind == "bar":
         x_col = plot.x if plot.x in table.columns else groups[0]
-        y = plot.y if plot.y in metrics else metrics[0]
+        y = _requested_metric(plot, metrics)
+        if not y:
+            return None
         return write_bar(
             table,
             x_col=x_col,
@@ -209,6 +215,19 @@ def _write_plot(
             title=_plot_title(plot, spec, y),
         )
     return None
+
+
+def _requested_metric(plot: PlotSpec, metrics: list[str]) -> str | None:
+    """YAML ``y`` wins; missing ``y`` does not reuse the first table metric."""
+    if plot.y:
+        return plot.y if plot.y in metrics else None
+    return metrics[0] if metrics else None
+
+
+def _requested_metrics(plot: PlotSpec, metrics: list[str]) -> list[str]:
+    if plot.y:
+        return [plot.y] if plot.y in metrics else []
+    return list(metrics)
 
 
 def _plot_title(plot: PlotSpec, spec: AnalysisSpec, metric: str | None) -> str:

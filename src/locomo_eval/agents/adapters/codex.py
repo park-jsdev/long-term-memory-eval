@@ -2,6 +2,7 @@
 
 Uses the local Codex binary (not Chat Completions). Isolation flags:
 ``--ignore-user-config`` (no user MCP), ``-c web_search="disabled"``,
+``-c sandbox_permissions=["disk-full-read-access"]``, ``--ignore-rules``,
 ``--ephemeral`` when persist is off, ``--skip-git-repo-check``,
 read-only sandbox unless persist writes are on.
 
@@ -35,6 +36,9 @@ ANSWER_BASENAME = "agent_answer.json"
 # Codex default is cached web_search. Disable the hosted tool; audit still
 # counts any web_search / mcp events that leak through.
 WEB_SEARCH_DISABLED = 'web_search="disabled"'
+# Read-only sandbox otherwise blocks cat/read of workspace files (Windows
+# live smoke: "shell/file access is currently blocked").
+DISK_READ_PERMISSION = 'sandbox_permissions=["disk-full-read-access"]'
 
 DEFAULT_TIMEOUT_S = 600.0
 # Official Windows installer puts the binary here and on the *user*
@@ -254,14 +258,15 @@ class CodexAgentRunner(AgentRunner):
             str(root / ANSWER_BASENAME),
             "-c",
             WEB_SEARCH_DISABLED,
+            "-c",
+            DISK_READ_PERMISSION,
             "--ignore-user-config",
+            # Skip user/project execpolicy so local ~/.codex/rules cannot
+            # block workspace cat/read. MCP still off via ignore-user-config.
+            "--ignore-rules",
         ]
         if not self.persist_memory:
             argv.extend(["--ephemeral"])
-        if self.tools == "controlled":
-            # Native file tools only: no MCP, no extra servers. Persist the
-            # policy in argv so a later adapter can swap in a tool allowlist.
-            argv.extend(["--ignore-rules"])
         # `--search` would re-enable live hosted web_search after our -c.
         argv.extend(arg for arg in self.extra_args if arg != "--search")
         argv.append(prompt)
