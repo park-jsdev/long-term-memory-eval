@@ -36,6 +36,7 @@ def write_agent_module(
     write_json(paths.agent_metrics, payload)
     comparison_path = paths.agent_dir / "COMPARISON.md"
     if comparison_contract is not None:
+        # Human snapshot of the same contract stored in run_meta.json.
         controls = comparison_contract
         lines = [
             "# Agent comparison controls",
@@ -51,6 +52,10 @@ def write_agent_module(
             f"- memory write: `{controls.get('memory_write')}`",
             f"- judge: `{controls.get('judge')}`",
             f"- tool budget: `{controls.get('tool_budget')}`",
+            f"- n_web_search (run sum): `{payload.get('n_web_search_sum')}`",
+            f"- n_mcp (run sum): `{payload.get('n_mcp_sum')}`",
+            f"- used_non_workspace_tools_rate: "
+            f"`{payload.get('used_non_workspace_tools_rate')}`",
         ]
         comparison_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {

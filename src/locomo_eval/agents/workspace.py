@@ -33,6 +33,7 @@ class WorkspaceManifest:
 
 
 def session_file_name(session_id: int) -> str:
+    """Stable ``sessions/session_N.md`` basename used in INDEX.md links."""
     return f"session_{session_id}.md"
 
 
@@ -125,7 +126,7 @@ def render_agent_prompt(template: str, question: str) -> str:
 
 
 class WorkspaceFilesMemoryBuilder(MemoryBuilder):
-    """Sandwich middle for harness eval: conversation as files, not stuffed text.
+    """Sandwich middle for harness eval: files, not stuffed transcript text.
 
     ``Memory.text`` is a short manifest so claim-audit still has a pointer.
     The harness reads the files; the one-shot reader is not used.

@@ -28,6 +28,9 @@ EVENT_CATALOG = "catalog"
 EVENT_RETRIEVE = "retrieve"
 EVENT_OTHER = "other"
 EVENT_ERROR = "error"
+# Hosted search / MCP are outside the workspace. Not evidence; audited.
+EVENT_WEB_SEARCH = "web_search"
+EVENT_MCP = "mcp"
 
 KNOWN_ADAPTERS = ("mock", "codex", "claude_code", "opencode", "pi")
 STUB_ADAPTERS = ("claude_code", "opencode", "pi")
@@ -46,6 +49,7 @@ class RetrievalEvent:
     evidence_ids_hit: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """JSONL-safe row for ``agent/trajectory.jsonl`` event lists."""
         return asdict(self)
 
 
@@ -69,11 +73,15 @@ class RetrievalTrajectory:
     memory_recall: float | None = None
     memory_precision: float | None = None
     unnecessary_retrievals: int = 0
+    n_web_search: int = 0
+    n_mcp: int = 0
+    used_non_workspace_tools: bool = False
     harness_failed: bool = False
     harness_failure_reason: str | None = None
     events: list[RetrievalEvent] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Flatten nested events so json.dump does not need a default=."""
         row = asdict(self)
         row["events"] = [e.to_dict() if hasattr(e, "to_dict") else e for e in self.events]
         return row
@@ -113,6 +121,7 @@ class AgentResult:
         model: str,
         prompt_version: str,
     ) -> dict[str, Any]:
+        """One ``agent/traces.jsonl`` row: answer + usage + retrieval flags."""
         return {
             "sample_id": sample_id,
             "question_id": question_id,
@@ -128,6 +137,9 @@ class AgentResult:
             "n_retrieval_calls": self.trajectory.n_retrieval_calls,
             "retrieved_tokens": self.trajectory.retrieved_tokens,
             "evidence_retrieved": self.trajectory.evidence_retrieved,
+            "n_web_search": self.trajectory.n_web_search,
+            "n_mcp": self.trajectory.n_mcp,
+            "used_non_workspace_tools": self.trajectory.used_non_workspace_tools,
         }
 
 

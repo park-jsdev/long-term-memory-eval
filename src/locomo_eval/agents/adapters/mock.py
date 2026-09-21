@@ -68,6 +68,8 @@ class MockAgentRunner(AgentRunner):
                 allowed = max(0, int(max_tokens) - used)
                 words = body.split()
                 body = " ".join(words[:allowed])
+            # POSIX relative path so Windows backslashes do not make the
+            # same session file look like a different retrieval target.
             rel = path.relative_to(root).as_posix()
             events.append(
                 RetrievalEvent(

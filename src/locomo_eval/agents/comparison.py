@@ -28,6 +28,7 @@ def contract_sha256(contract: dict[str, Any]) -> str:
 
 
 def file_sha256(path: Path) -> str:
+    """Content hash for a pinned prompt or snapshot file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -35,6 +36,7 @@ def workspace_manifest_sha256(workspace: Path) -> str:
     """Hash relative paths and bytes so every adapter sees the same corpus."""
     digest = hashlib.sha256()
     for path in sorted(p for p in workspace.rglob("*") if p.is_file()):
+        # POSIX relative paths so Windows vs POSIX dumps hash equal.
         digest.update(path.relative_to(workspace).as_posix().encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
@@ -166,6 +168,7 @@ def comparison_status(
     *,
     harness_failed: bool,
 ) -> str:
+    """Map one run onto comparable / incomparable / harness_failed."""
     if harness_failed:
         return "harness_failed"
     if not contract.get("strict"):

@@ -33,6 +33,9 @@ def score_agent_row(
         "memory_recall": trajectory.memory_recall,
         "memory_precision": trajectory.memory_precision,
         "unnecessary_retrievals": trajectory.unnecessary_retrievals,
+        "n_web_search": trajectory.n_web_search,
+        "n_mcp": trajectory.n_mcp,
+        "used_non_workspace_tools": trajectory.used_non_workspace_tools,
         "failure_mode": mode,
         "harness_failed": trajectory.harness_failed,
         "harness_failure_reason": trajectory.harness_failure_reason,
@@ -51,6 +54,9 @@ def summarize_agent_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "memory_precision_mean": None,
             "unnecessary_retrievals_mean": None,
             "evidence_retrieved_rate": None,
+            "n_web_search_sum": None,
+            "n_mcp_sum": None,
+            "used_non_workspace_tools_rate": None,
             "failure_modes": {},
         }
     n = len(rows)
@@ -77,11 +83,17 @@ def summarize_agent_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "evidence_retrieved_rate": (
             sum(1 for h in hits if h) / len(hits) if hits else None
         ),
+        "n_web_search_sum": sum(int(r.get("n_web_search") or 0) for r in rows),
+        "n_mcp_sum": sum(int(r.get("n_mcp") or 0) for r in rows),
+        "used_non_workspace_tools_rate": _mean(
+            [bool(r.get("used_non_workspace_tools")) for r in rows]
+        ),
         "failure_modes": modes,
     }
 
 
 def _mean(values: list[Any]) -> float | None:
+    """Arithmetic mean, skipping None / non-numeric. Empty → None, not 0."""
     nums = []
     for value in values:
         if value is None:

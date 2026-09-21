@@ -1,8 +1,9 @@
 """Codex CLI adapter: ``codex exec --json`` in a conversation workspace.
 
 Uses the local Codex binary (not Chat Completions). Isolation flags:
-``--ephemeral`` / ``--ignore-user-config`` when persist is off,
-``--skip-git-repo-check``, read-only sandbox unless persist writes are on.
+``--ignore-user-config`` (no user MCP), ``-c web_search="disabled"``,
+``--ephemeral`` when persist is off, ``--skip-git-repo-check``,
+read-only sandbox unless persist writes are on.
 
 Auth: ``CODEX_API_KEY`` or the CLI's saved login. Live runs need the binary
 on PATH; tests never import this unless the caller asks for ``codex``.
@@ -31,10 +32,14 @@ from ..trajectory import (
 # current Codex CLI builds it constrains intermediate agent messages too,
 # preventing ordinary workspace tool calls.
 ANSWER_BASENAME = "agent_answer.json"
+# Codex default is cached web_search. Disable the hosted tool; audit still
+# counts any web_search / mcp events that leak through.
+WEB_SEARCH_DISABLED = 'web_search="disabled"'
 
 DEFAULT_TIMEOUT_S = 600.0
-# Official Windows installer puts the binary here and on the *user* PATH.
-# Cursor/conda shells started before that install still have a stale process PATH.
+# Official Windows installer puts the binary here and on the *user*
+# PATH. Cursor/conda shells started before that install still have a
+# stale process PATH.
 _WINDOWS_BIN_NAMES = ("codex.exe", "codex.cmd", "codex.bat", "codex")
 _POSIX_BIN_NAMES = ("codex",)
 
@@ -66,6 +71,7 @@ def resolve_codex_bin(explicit: str | None = None) -> str | None:
 
 
 def _codex_search_dirs() -> list[Path]:
+    """Install dirs plus the user PATH (not the possibly stale process PATH)."""
     home = Path.home()
     local = Path(os.environ.get("LOCALAPPDATA") or (home / "AppData" / "Local"))
     dirs = [
@@ -101,6 +107,7 @@ def _windows_user_path_dirs() -> list[Path]:
         return []
     dirs: list[Path] = []
     for part in str(raw or "").split(os.pathsep):
+        # Registry PATH entries are sometimes quoted.
         part = part.strip().strip('"')
         if part:
             dirs.append(Path(os.path.expandvars(part)))
@@ -108,6 +115,7 @@ def _windows_user_path_dirs() -> list[Path]:
 
 
 def _codex_in_dir(directory: Path) -> Path | None:
+    """Return the first existing Codex binary name in ``directory``."""
     names = _WINDOWS_BIN_NAMES if os.name == "nt" else _POSIX_BIN_NAMES
     for name in names:
         candidate = directory / name
@@ -223,6 +231,7 @@ class CodexAgentRunner(AgentRunner):
                 "argv": argv[1:],
                 "tools": self.tools,
                 "persist_memory": self.persist_memory,
+                "web_search": "disabled",
             },
             stderr=stderr[-8000:],
         )
@@ -243,13 +252,17 @@ class CodexAgentRunner(AgentRunner):
             self.model_name,
             "-o",
             str(root / ANSWER_BASENAME),
+            "-c",
+            WEB_SEARCH_DISABLED,
+            "--ignore-user-config",
         ]
         if not self.persist_memory:
-            argv.extend(["--ephemeral", "--ignore-user-config"])
+            argv.extend(["--ephemeral"])
         if self.tools == "controlled":
             # Native file tools only: no MCP, no extra servers. Persist the
             # policy in argv so a later adapter can swap in a tool allowlist.
             argv.extend(["--ignore-rules"])
-        argv.extend(self.extra_args)
+        # `--search` would re-enable live hosted web_search after our -c.
+        argv.extend(arg for arg in self.extra_args if arg != "--search")
         argv.append(prompt)
         return argv

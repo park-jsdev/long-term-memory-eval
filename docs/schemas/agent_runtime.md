@@ -23,6 +23,13 @@ context. The split that matters:
 | `parametric_success` | answer is correct but evidence was never retrieved |
 | `none` | correct, with evidence in hand (or no gold evidence ids) |
 
+Catalog (`INDEX.md` / `ls`) is navigation, not gold evidence. Session-file
+reads are `retrieve`. Hosted `web_search` and `mcp` are outside-workspace
+kinds: they never count toward recall. Codex argv sets
+`web_search="disabled"` and `--ignore-user-config`; `agent/metrics.json`
+still records `n_web_search_sum`, `n_mcp_sum`, and
+`used_non_workspace_tools_rate` so a leak is visible.
+
 ## Workspace (`workspace_files`)
 
 ```text
@@ -82,8 +89,9 @@ absolute last-message file (`agent_answer.json`, no leading dot). Codex output
 schema mode is not used because it can suppress intermediate workspace tool
 calls; the task prompt and final-message parser retain the one-key JSON answer
 contract. A repo-relative `experiments\...` path is resolved from the workspace
-cwd and 404s on Windows. `--ephemeral --ignore-user-config` when persist is
-off, `--skip-git-repo-check`, read-only sandbox unless persist writes.
+cwd and 404s on Windows. `--ephemeral` when persist is off,
+`--ignore-user-config` always (skip user MCP), `-c web_search="disabled"`,
+`--skip-git-repo-check`, read-only sandbox unless persist writes.
 Auth: `CODEX_API_KEY`, else `OPENAI_API_KEY` from `.env` (ChatGPT CLI login is
 a fallback; stale tokens 401).
 

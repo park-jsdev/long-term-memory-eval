@@ -16,8 +16,10 @@ from typing import Any
 from .protocol import (
     EVENT_CATALOG,
     EVENT_ERROR,
+    EVENT_MCP,
     EVENT_OTHER,
     EVENT_RETRIEVE,
+    EVENT_WEB_SEARCH,
     FAILURE_HARNESS,
     FAILURE_NONE,
     FAILURE_PARAMETRIC,
@@ -37,6 +39,7 @@ _CATALOG_HINTS = re.compile(r"(INDEX\.md|\bls\b|\bdir\b|\bglob\b)", re.I)
 
 
 def count_retrieved_tokens(text: str) -> int:
+    """Tokenize retrieved text with the RAG tiktoken pin, else whitespace."""
     if not text:
         return 0
     try:
@@ -48,6 +51,7 @@ def count_retrieved_tokens(text: str) -> int:
 
 
 def evidence_ids_in_text(text: str, evidence_ids: list[str]) -> list[str]:
+    """Return gold ``dia_id``s that appear as substrings of retrieved text."""
     hits: list[str] = []
     blob = text or ""
     for eid in evidence_ids:
@@ -57,15 +61,44 @@ def evidence_ids_in_text(text: str, evidence_ids: list[str]) -> list[str]:
     return hits
 
 
+def _posix_lower_path(target: str) -> str:
+    """Slash-normalize a tool target so Windows and POSIX paths compare.
+
+    Codex on Windows logs ``workspaces\\conv-26\\INDEX.md``; mock and POSIX
+    adapters use forward slashes. Drop a trailing slash so
+    ``.../INDEX.md/`` still names the catalog file.
+    """
+    return (target or "").replace("\\", "/").rstrip("/").lower()
+
+
 def classify_event(tool: str, target: str, retrieved_text: str) -> str:
+    """Label one harness tool call for trajectory scoring.
+
+    Session-file reads/searches are ``retrieve`` (can hold gold ``dia_id``s).
+    INDEX.md / ls / dir are ``catalog`` navigation, not evidence. Adapter
+    ``error`` / ``reasoning`` items are not evidence. Hosted ``web_search``
+    and ``mcp`` are outside the workspace: never retrieve, distinct kinds
+    so audit metrics can count cheats. Unknown tools stay ``other``.
+
+    ``target`` may be a Windows or POSIX path; slash-normalize before
+    testing whether the path *is* INDEX.md.
+    """
     if str(tool or "").lower() in ("error", "reasoning"):
         return EVENT_ERROR
+    if tool == "web_search":
+        return EVENT_WEB_SEARCH
+    if tool == "mcp":
+        return EVENT_MCP
+    # Session reads are evidence. INDEX.md in the command/path, or in a
+    # short `ls` prefix, is catalog. Do not scan a full session body:
+    # that read is retrieve even if the transcript mentions INDEX.md.
     hay = f"{tool} {target} {retrieved_text[:200]}"
     if INDEX_NAME.lower() in hay.lower() or (
         _CATALOG_HINTS.search(target or "") and INDEX_NAME.lower() in hay.lower()
     ):
         return EVENT_CATALOG
-    if (target or "").replace("\\", "/").rstrip("/").endswith("/" + INDEX_NAME.lower()):
+    index_name = INDEX_NAME.lower()
+    if _posix_lower_path(target).endswith("/" + index_name):
         return EVENT_CATALOG
     if INDEX_NAME in (target or ""):
         return EVENT_CATALOG
@@ -79,11 +112,7 @@ def classify_event(tool: str, target: str, retrieved_text: str) -> str:
         target or ""
     ):
         return EVENT_CATALOG
-    if tool in ("web_search", "mcp"):
-        return EVENT_OTHER
     if tool:
-        # Unknown items are tool telemetry, not evidence retrieval.  Counting
-        # them as retrieval hid failed Codex calls in the first live smoke.
         return EVENT_OTHER
     return EVENT_OTHER
 
@@ -98,10 +127,16 @@ def build_trajectory(
     usage = usage or {}
     required = [str(e).strip() for e in evidence_ids if str(e).strip()]
     retrieve_events = [e for e in events if e.kind == EVENT_RETRIEVE]
+    n_web_search = sum(1 for e in events if e.kind == EVENT_WEB_SEARCH)
+    n_mcp = sum(1 for e in events if e.kind == EVENT_MCP)
     hit_ids: list[str] = []
     for event in events:
         found = evidence_ids_in_text(event.retrieved_text, required)
         event.evidence_ids_hit = found
+        # Only workspace retrieve counts toward recall. Hits on web_search
+        # / mcp stay on the event row for audit, not as evidence_retrieved.
+        if event.kind != EVENT_RETRIEVE:
+            continue
         for eid in found:
             if eid not in hit_ids:
                 hit_ids.append(eid)
@@ -130,6 +165,9 @@ def build_trajectory(
         memory_recall=recall,
         memory_precision=precision,
         unnecessary_retrievals=max(0, unnecessary),
+        n_web_search=n_web_search,
+        n_mcp=n_mcp,
+        used_non_workspace_tools=(n_web_search + n_mcp) > 0,
         events=events,
     )
 
@@ -281,12 +319,14 @@ def parse_structured_answer(text: str) -> str:
 
 
 def load_answer_file(path: Path) -> str:
+    """Read Codex ``-o`` JSON if present; empty string when the file is missing."""
     if not path.is_file():
         return ""
     return parse_structured_answer(path.read_text(encoding="utf-8"))
 
 
 def _codex_item_fields(item: dict[str, Any]) -> tuple[str, str, str]:
+    """Map a Codex JSONL item onto (tool, target, output text)."""
     item_type = str(item.get("type") or "")
     command = str(item.get("command") or item.get("cmd") or "")
     output = str(

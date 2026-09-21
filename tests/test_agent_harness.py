@@ -20,6 +20,7 @@ from src.config import load_config
 from src.locomo_eval.agents import get_agent_runner, render_agent_prompt, resolve_codex_bin
 from src.locomo_eval.agents.adapters.codex import (
     ANSWER_BASENAME,
+    WEB_SEARCH_DISABLED,
     CodexAgentRunner,
     _codex_in_dir,
     _codex_subprocess_env,
@@ -27,7 +28,9 @@ from src.locomo_eval.agents.adapters.codex import (
 from src.locomo_eval.agents.protocol import (
     EVENT_CATALOG,
     EVENT_ERROR,
+    EVENT_MCP,
     EVENT_RETRIEVE,
+    EVENT_WEB_SEARCH,
     AgentRequest,
     RetrievalEvent,
 )
@@ -132,6 +135,31 @@ class TestTrajectoryFailureModes(unittest.TestCase):
     def test_classify_reasoning_and_errors_as_non_retrieval_events(self):
         self.assertEqual(classify_event("reasoning", "reasoning", "text"), EVENT_ERROR)
         self.assertEqual(classify_event("error", "error", ""), EVENT_ERROR)
+
+    def test_classify_web_search_and_mcp_as_outside_workspace_tools(self):
+        self.assertEqual(
+            classify_event("web_search", "who is Alice", "Alice paints (D1:1)"),
+            EVENT_WEB_SEARCH,
+        )
+        self.assertEqual(classify_event("mcp", "browser", ""), EVENT_MCP)
+
+    def test_web_search_hit_does_not_count_as_evidence_retrieved(self):
+        events = [
+            RetrievalEvent(
+                step=1,
+                kind=EVENT_WEB_SEARCH,
+                tool="web_search",
+                target="Alice painting",
+                retrieved_text="Alice: I started painting. (D1:1)",
+                retrieved_tokens=8,
+            )
+        ]
+        traj = build_trajectory(events, evidence_ids=["D1:1"], usage={})
+        self.assertEqual(traj.n_web_search, 1)
+        self.assertTrue(traj.used_non_workspace_tools)
+        self.assertEqual(traj.n_retrieval_calls, 0)
+        self.assertFalse(traj.evidence_retrieved)
+        self.assertEqual(events[0].evidence_ids_hit, ["D1:1"])
 
     def test_evidence_hit_is_reasoning_failure_when_answer_is_wrong(self):
         events = [
@@ -322,6 +350,10 @@ class TestCodexArgv(unittest.TestCase):
         self.assertFalse(last_message.startswith("experiments"))
         self.assertIn("--ephemeral", argv)
         self.assertIn("read-only", argv)
+        self.assertIn("--ignore-user-config", argv)
+        self.assertIn("-c", argv)
+        self.assertEqual(argv[argv.index("-c") + 1], WEB_SEARCH_DISABLED)
+        self.assertNotIn("--search", argv)
 
     def test_persist_on_uses_workspace_write_and_skips_ephemeral(self):
         runner = CodexAgentRunner(model_name="gpt-5", persist_memory=True)
@@ -330,6 +362,17 @@ class TestCodexArgv(unittest.TestCase):
             argv = runner._argv("codex", workspace, "q")
         self.assertIn("workspace-write", argv)
         self.assertNotIn("--ephemeral", argv)
+        self.assertIn("--ignore-user-config", argv)
+        self.assertEqual(argv[argv.index("-c") + 1], WEB_SEARCH_DISABLED)
+
+    def test_argv_drops_search_flag_from_extra_args(self):
+        runner = CodexAgentRunner(
+            model_name="gpt-5", extra_args=["--search", "--foo"]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = runner._argv("codex", Path(tmp), "q")
+        self.assertNotIn("--search", argv)
+        self.assertIn("--foo", argv)
 
     def test_subprocess_env_copies_openai_key_when_codex_key_missing(self):
         with mock.patch.dict(
@@ -458,6 +501,10 @@ class TestMockAgentPipelineSmoke(unittest.TestCase):
             )
             summary = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["agent"]["failure_modes"]["reasoning_failure"], 1)
+            self.assertEqual(summary["agent"]["n_web_search_sum"], 0)
+            self.assertEqual(summary["agent"]["n_mcp_sum"], 0)
+            self.assertEqual(summary["agent"]["used_non_workspace_tools_rate"], 0.0)
+            self.assertFalse(pred["used_non_workspace_tools"])
             attr = json.loads(
                 (run_dir / "attribution.jsonl").read_text(encoding="utf-8").splitlines()[0]
             )

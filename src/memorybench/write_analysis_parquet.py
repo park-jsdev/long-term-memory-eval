@@ -56,6 +56,9 @@ EXAMPLE_COLUMNS = (
     "memory_precision",
     "unnecessary_retrievals",
     "failure_mode",
+    "n_web_search",
+    "n_mcp",
+    "used_non_workspace_tools",
 )
 
 
@@ -191,6 +194,9 @@ def _example_record(
         "memory_precision": _as_float(row.get("memory_precision")),
         "unnecessary_retrievals": _as_int(row.get("unnecessary_retrievals")),
         "failure_mode": _as_str(row.get("failure_mode")),
+        "n_web_search": _as_int(row.get("n_web_search")),
+        "n_mcp": _as_int(row.get("n_mcp")),
+        "used_non_workspace_tools": row.get("used_non_workspace_tools"),
     }
 
 
