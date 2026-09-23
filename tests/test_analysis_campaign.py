@@ -21,10 +21,17 @@ from src.memorybench.analysis.load_campaign import (
     load_campaign_yaml,
 )
 from src.memorybench.analysis.plots import _place_legend_outside
+from src.memorybench.analysis.notebook_protocol import notebook_posttest
 from src.memorybench.analysis.report import (
+    ReportResult,
     _plot_stem,
     _plot_title,
+    _takeaway_sections,
+    _takeaways_markdown,
+    _write_plot,
     annotate_model_family,
+    dataframe_html,
+    dataframe_markdown,
     load_pack,
     mean_table,
     render_analysis,
@@ -33,11 +40,24 @@ from src.memorybench.analysis.report import (
     run_report,
 )
 from scripts.analysis.campaign_tables import (
+    COMPARE_SOURCE_CODEX,
     annotate_generation,
     annotate_mem0_latency,
+    annotate_paper_compare,
+    annotate_reader_stack,
     annotate_thinking,
+    annotate_writer_harness,
+    attach_run_agent_audit,
     attach_run_judge_score,
+    copy_run_identity_to_examples,
     join_search_latency,
+    mean_table,
+    repair_run_harness_status,
+    annotate_workspace_diagnostics,
+)
+from src.locomo_eval.mem0_baselines import (
+    LOCOMO_2024_SUMMARY_RAG_F1,
+    LOCOMO_2024_SUMMARY_RAG_N,
 )
 
 CAMPAIGN = ROOT / "configs" / "analysis" / "campaign_2025_live.yaml"
@@ -317,6 +337,38 @@ class TestGroupedBarKeepsReaderAndMemory(unittest.TestCase):
         ].iloc[0]
         self.assertAlmostEqual(float(gpt_full["locomo_f1"]), 1.0)
 
+    def test_grouped_bar_keeps_scores_when_hue_is_boolean_persist(self):
+        from scripts.analysis.campaign_plots import _pivot_grouped, write_grouped_bar
+
+        df = pd.DataFrame(
+            {
+                "agent_sessions": ["full", "full", "notes_only"],
+                "agent_persist": [False, True, True],
+                "judge_score": [0.58, 0.57, 0.12],
+            }
+        )
+        xs, hues, pivot = _pivot_grouped(
+            df, x_col="agent_sessions", hue_col="agent_persist", metric="judge_score"
+        )
+        self.assertEqual(xs, ["full", "notes_only"])
+        self.assertEqual(set(hues), {"False", "True"})
+        self.assertAlmostEqual(float(pivot.loc["full", "False"]), 0.58)
+        self.assertAlmostEqual(float(pivot.loc["full", "True"]), 0.57)
+        self.assertAlmostEqual(float(pivot.loc["notes_only", "True"]), 0.12)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "persist.png"
+            written = write_grouped_bar(
+                df,
+                x_col="agent_sessions",
+                hue_col="agent_persist",
+                metric="judge_score",
+                path=dest,
+                title="judge score",
+            )
+            self.assertEqual(written, dest)
+            self.assertTrue(dest.is_file())
+            self.assertGreater(dest.stat().st_size, 1000)
+
 
 class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
     def test_missing_judge_score_skips_instead_of_drawing_locomo_f1(self):
@@ -391,6 +443,44 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
         out = attach_run_judge_score(runs, examples)
         self.assertAlmostEqual(float(out.iloc[0]["judge_score"]), 0.5)
 
+    def test_runs_locomo_f1_token_f1_and_em_drop_category_five(self):
+        runs = pd.DataFrame(
+            [
+                {
+                    "run_id": "cell-a",
+                    "memory_method": "workspace_files",
+                    "locomo_f1": 0.211,
+                    "token_f1": 0.200,
+                    "exact_match": 0.100,
+                }
+            ]
+        )
+        examples = pd.DataFrame(
+            [
+                {
+                    "run_id": "cell-a",
+                    "question_category": 1,
+                    "locomo_f1": 1.0,
+                    "token_f1": 1.0,
+                    "exact_match": 1.0,
+                    "judge_score": 1.0,
+                },
+                {
+                    "run_id": "cell-a",
+                    "question_category": 5,
+                    "locomo_f1": 0.0,
+                    "token_f1": 0.0,
+                    "exact_match": 0.0,
+                    "judge_score": 0.0,
+                },
+            ]
+        )
+        out = attach_run_judge_score(runs, examples)
+        self.assertAlmostEqual(float(out.iloc[0]["locomo_f1"]), 1.0)
+        self.assertAlmostEqual(float(out.iloc[0]["token_f1"]), 1.0)
+        self.assertAlmostEqual(float(out.iloc[0]["exact_match"]), 1.0)
+        self.assertAlmostEqual(float(out.iloc[0]["judge_score"]), 1.0)
+
     def test_load_pack_copies_example_j_onto_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -412,6 +502,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                         "run_id": "cell-a",
                         "question_category": 1,
                         "judge_score": 0.5,
+                        "locomo_f1": 0.8,
                         "reader_provider": "openai",
                         "writer_model": "gpt-4o-mini",
                     },
@@ -419,6 +510,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                         "run_id": "cell-a",
                         "question_category": 5,
                         "judge_score": 0.0,
+                        "locomo_f1": 0.0,
                         "reader_provider": "openai",
                         "writer_model": "gpt-4o-mini",
                     },
@@ -438,6 +530,379 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
         self.assertIsNotNone(loaded)
         runs, _examples = loaded
         self.assertAlmostEqual(float(runs.iloc[0]["judge_score"]), 0.5)
+        self.assertAlmostEqual(float(runs.iloc[0]["locomo_f1"]), 0.8)
+
+    def test_runs_receive_tool_audit_means_including_category_five(self):
+        runs = pd.DataFrame(
+            [{"run_id": "cell-a", "memory_method": "workspace_files", "locomo_f1": 0.3}]
+        )
+        examples = pd.DataFrame(
+            [
+                {
+                    "run_id": "cell-a",
+                    "question_category": 1,
+                    "n_web_search": 0,
+                    "n_mcp": 0,
+                    "used_non_workspace_tools": 0,
+                    "n_retrieval_calls": 2,
+                    "memory_recall": 1.0,
+                },
+                {
+                    "run_id": "cell-a",
+                    "question_category": 5,
+                    "n_web_search": 2,
+                    "n_mcp": 0,
+                    "used_non_workspace_tools": 1,
+                    "n_retrieval_calls": 0,
+                    "memory_recall": 0.0,
+                },
+            ]
+        )
+        out = attach_run_agent_audit(runs, examples)
+        self.assertAlmostEqual(float(out.iloc[0]["n_web_search"]), 1.0)
+        self.assertAlmostEqual(float(out.iloc[0]["used_non_workspace_tools"]), 0.5)
+        self.assertAlmostEqual(float(out.iloc[0]["n_retrieval_calls"]), 1.0)
+
+    def test_load_pack_backfills_agent_identity_and_audit_from_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pack = root / "experiments" / "pack"
+            agg = pack / "aggregate"
+            agg.mkdir(parents=True)
+            manifest = pack / "manifest"
+            manifest.mkdir()
+            (manifest / "runs.jsonl").write_text(
+                json.dumps(
+                    {
+                        "run_id": "cell-a",
+                        "agent": "codex",
+                        "agent_persist": True,
+                        "agent_tools": "native",
+                        "writer": {"provider": "codex", "api_model_id": "gpt-4o-mini"},
+                        "comparison_contract": {"status": "incomparable"},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "experiment_name": "locomo-openai-codex-poc-writers",
+                        "memory_method": "workspace_files",
+                        "writer_model": "gpt-4o-mini",
+                        "locomo_f1": 0.3,
+                    }
+                ]
+            ).to_parquet(agg / "runs.parquet", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "question_category": 1,
+                        "n_web_search": 0,
+                        "n_mcp": 0,
+                        "used_non_workspace_tools": 0,
+                        "n_retrieval_calls": 3,
+                        "memory_recall": 1.0,
+                        "judge_score": 1.0,
+                        "reader_provider": "openai",
+                        "writer_model": "gpt-4o-mini",
+                    }
+                ]
+            ).to_parquet(agg / "examples.parquet", index=False)
+            ref = ExperimentAnalysisRef(
+                id="readers",
+                name="pack",
+                pack=Path("experiments/pack"),
+                notebook=None,
+                role="agent_reader",
+                family_from="reader",
+                subset=None,
+                analyses=(),
+            )
+            loaded = load_pack(root, ref)
+        self.assertIsNotNone(loaded)
+        runs, _examples = loaded
+        self.assertEqual(str(runs.iloc[0]["agent"]), "codex")
+        self.assertEqual(bool(runs.iloc[0]["agent_persist"]), True)
+        self.assertEqual(str(runs.iloc[0]["comparison_status"]), "incomparable")
+        self.assertEqual(str(runs.iloc[0]["writer_harness"]), "codex")
+        self.assertAlmostEqual(float(runs.iloc[0]["n_retrieval_calls"]), 3.0)
+
+    def test_annotate_writer_harness_labels_chat_completions_teachers(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "experiment_name": "locomo-openai-agent-writers",
+                    "writer_model": "gpt-5",
+                    "writer_provider": "openai",
+                },
+                {
+                    "experiment_name": "locomo-openai-codex-writers",
+                    "writer_model": "gpt-5",
+                    "writer_provider": "codex",
+                },
+            ]
+        )
+        out = annotate_writer_harness(df)
+        self.assertEqual(list(out["writer_harness"]), ["chat_completions", "codex"])
+
+
+class TestHarnessStatusRepair(unittest.TestCase):
+    def test_partial_harness_failures_are_incomparable_not_cell_failed(self):
+        runs = pd.DataFrame(
+            [
+                {
+                    "run_id": "cell-a",
+                    "comparison_status": "harness_failed",
+                    "locomo_f1": 0.2,
+                }
+            ]
+        )
+        examples = pd.DataFrame(
+            [
+                {
+                    "run_id": "cell-a",
+                    "failure_mode": "reasoning_failure",
+                    "question_category": 1,
+                },
+                {
+                    "run_id": "cell-a",
+                    "failure_mode": "harness_execution_failure",
+                    "question_category": 1,
+                },
+            ]
+        )
+        out = repair_run_harness_status(runs, examples)
+        self.assertEqual(str(out.iloc[0]["comparison_status"]), "incomparable")
+        self.assertEqual(int(out.iloc[0]["n_harness_failed"]), 1)
+        self.assertAlmostEqual(float(out.iloc[0]["harness_failed_rate"]), 0.5)
+
+    def test_all_failed_keeps_harness_failed_status(self):
+        runs = pd.DataFrame(
+            [{"run_id": "cell-a", "comparison_status": "harness_failed"}]
+        )
+        examples = pd.DataFrame(
+            [
+                {"run_id": "cell-a", "failure_mode": "harness_execution_failure"},
+                {"run_id": "cell-a", "failure_mode": "harness_execution_failure"},
+            ]
+        )
+        out = repair_run_harness_status(runs, examples)
+        self.assertEqual(str(out.iloc[0]["comparison_status"]), "harness_failed")
+        self.assertAlmostEqual(float(out.iloc[0]["harness_failed_rate"]), 1.0)
+
+    def test_load_pack_repairs_stored_any_failed_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pack = root / "experiments" / "pack"
+            agg = pack / "aggregate"
+            agg.mkdir(parents=True)
+            pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "memory_method": "workspace_files",
+                        "comparison_status": "harness_failed",
+                        "locomo_f1": 0.2,
+                    }
+                ]
+            ).to_parquet(agg / "runs.parquet", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "question_category": 1,
+                        "failure_mode": "reasoning_failure",
+                        "judge_score": 1.0,
+                        "n_retrieval_calls": 4,
+                        "memory_recall": 1.0,
+                    },
+                    {
+                        "run_id": "cell-a",
+                        "question_category": 1,
+                        "failure_mode": "harness_execution_failure",
+                        "judge_score": 0.0,
+                        "n_retrieval_calls": 0,
+                        "memory_recall": 0.0,
+                    },
+                ]
+            ).to_parquet(agg / "examples.parquet", index=False)
+            ref = ExperimentAnalysisRef(
+                id="readers",
+                name="pack",
+                pack=Path("experiments/pack"),
+                notebook=None,
+                role="agent_reader",
+                family_from="reader",
+                subset=None,
+                analyses=(),
+            )
+            loaded = load_pack(root, ref)
+        self.assertIsNotNone(loaded)
+        runs, _examples = loaded
+        self.assertEqual(str(runs.iloc[0]["comparison_status"]), "incomparable")
+        self.assertAlmostEqual(float(runs.iloc[0]["harness_failed_rate"]), 0.5)
+
+    def test_failure_mode_count_table_labels_and_keeps_category_five(self):
+        spec = AnalysisSpec(
+            id="failure_modes",
+            title="Failure modes",
+            group_by=("failure_mode",),
+            metrics=("n",),
+            plots=(PlotSpec(kind="grouped_bar", x="failure_mode", y="n"),),
+            source="examples",
+        )
+        df = pd.DataFrame(
+            [
+                {"failure_mode": "reasoning_failure", "question_category": 1},
+                {"failure_mode": "harness_execution_failure", "question_category": 5},
+            ]
+        )
+        table = mean_table(df, ["failure_mode"], ["n"])
+        self.assertEqual(int(table["n"].sum()), 2)
+        self.assertIn("wrong after retrieve", list(table["failure_mode"]))
+        self.assertIn("no workspace read", list(table["failure_mode"]))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp))
+        self.assertEqual(int(result.table["n"].sum()), 2)
+
+    def test_workspace_diagnostics_bin_recall_and_judge_vs_f1(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "generated_answer": "Melanie is going camping next month.",
+                    "reference_answer": "June 2023",
+                    "memory_recall": 1.0,
+                    "n_retrieval_calls": 1,
+                    "judge_score": 1.0,
+                    "locomo_f1": 0.0,
+                    "evidence_retrieved": True,
+                    "failure_mode": "reasoning_failure",
+                },
+                {
+                    "generated_answer": "June 2023",
+                    "reference_answer": "June 2023",
+                    "memory_recall": 0.5,
+                    "n_retrieval_calls": 12,
+                    "judge_score": 1.0,
+                    "locomo_f1": 1.0,
+                    "evidence_retrieved": False,
+                    "failure_mode": "parametric_success",
+                },
+            ]
+        )
+        out = annotate_workspace_diagnostics(df)
+        self.assertEqual(out.iloc[0]["recall_bin"], "full")
+        self.assertEqual(out.iloc[1]["recall_bin"], "partial")
+        self.assertEqual(out.iloc[0]["judge_vs_f1"], "j_only")
+        self.assertEqual(out.iloc[1]["judge_vs_f1"], "both_correct")
+        self.assertEqual(out.iloc[0]["failure_mode_judge"], "none")
+        self.assertEqual(out.iloc[1]["failure_mode_judge"], "parametric_success")
+        self.assertEqual(int(out.iloc[0]["answer_n_words"]), 6)
+        self.assertEqual(out.iloc[1]["retrieval_calls_bin"], "9-20")
+        table = mean_table(out, ["recall_bin"], ["n"])
+        self.assertIn("all gold ids retrieved", list(table["recall_bin"]))
+        self.assertIn("partial gold-id chain", list(table["recall_bin"]))
+
+    def test_annotate_hop_qidx_and_notes_bins(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "question_id": "conv-26-q-0",
+                    "hop_to_evidence": 2,
+                    "notes_bytes": 128,
+                    "judge_score": 1.0,
+                    "locomo_f1": 0.4,
+                },
+                {
+                    "question_id": "conv-26-q-12",
+                    "hop_to_evidence": None,
+                    "notes_bytes": 0,
+                    "judge_score": 0.0,
+                    "locomo_f1": 0.0,
+                },
+            ]
+        )
+        out = annotate_workspace_diagnostics(df)
+        self.assertEqual(int(out.iloc[0]["qidx"]), 0)
+        self.assertEqual(out.iloc[0]["qidx_bin"], "0-4")
+        self.assertEqual(out.iloc[1]["qidx_bin"], "10-19")
+        self.assertEqual(out.iloc[0]["hop_bin"], "2")
+        self.assertEqual(out.iloc[1]["hop_bin"], "never")
+        self.assertEqual(out.iloc[0]["notes_bytes_bin"], "1-256")
+        self.assertEqual(out.iloc[1]["notes_bytes_bin"], "empty")
+
+    def test_overlay_collected_agent_audit_fills_hop_from_trajectory(self):
+        from scripts.analysis.agent_harness import overlay_collected_agent_audit
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            agent = pack / "collected" / "runs" / "cell-a" / "agent"
+            agent.mkdir(parents=True)
+            (agent / "trajectory.jsonl").write_text(
+                json.dumps(
+                    {
+                        "question_id": "conv-26-q-0",
+                        "evidence_ids_required": ["D1:1"],
+                        "events": [
+                            {
+                                "step": 1,
+                                "kind": "catalog",
+                                "target": "INDEX.md",
+                                "retrieved_text": "Sessions",
+                            },
+                            {
+                                "step": 2,
+                                "kind": "retrieve",
+                                "target": "sessions/session_1.md",
+                                "retrieved_text": "painting (D1:1)",
+                                "evidence_ids_hit": ["D1:1"],
+                            },
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (agent / "notes_ledger.jsonl").write_text(
+                json.dumps(
+                    {
+                        "question_id": "conv-26-q-0",
+                        "notes_bytes": 220,
+                        "notes_words": 40,
+                        "notes_grew": True,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            examples = pd.DataFrame(
+                [
+                    {
+                        "run_id": "cell-a",
+                        "question_id": "conv-26-q-0",
+                        "locomo_f1": 0.2,
+                    }
+                ]
+            )
+            out = overlay_collected_agent_audit(examples, pack)
+        self.assertEqual(int(out.iloc[0]["hop_to_evidence"]), 2)
+        self.assertEqual(int(out.iloc[0]["notes_bytes"]), 220)
+        self.assertTrue(bool(out.iloc[0]["notes_grew"]))
+
+    def test_copy_run_persist_onto_examples(self):
+        examples = pd.DataFrame(
+            [{"run_id": "cell-a", "generated_answer": "hi", "locomo_f1": 0.2}]
+        )
+        runs = pd.DataFrame(
+            [{"run_id": "cell-a", "agent": "codex", "agent_persist": True}]
+        )
+        out = copy_run_identity_to_examples(examples, runs)
+        self.assertEqual(str(out.iloc[0]["agent"]), "codex")
+        self.assertEqual(bool(out.iloc[0]["agent_persist"]), True)
 
 
 class TestAdversarialExcludedFromOverall(unittest.TestCase):
@@ -556,6 +1021,84 @@ class TestAnalysisYamlContract(unittest.TestCase):
                     self.assertEqual(len(ids), len(set(ids)))
 
 
+class TestNotebookMarkdownTables(unittest.TestCase):
+    def test_dataframe_markdown_keeps_columns_as_pipe_table(self):
+        table = pd.DataFrame(
+            [
+                {
+                    "memory_method": "workspace_files",
+                    "agent_persist": False,
+                    "n": 1540,
+                    "locomo_f1": 0.24815758,
+                    "judge_score": 0.67824675,
+                }
+            ]
+        )
+        text = dataframe_markdown(table)
+        self.assertIn("| memory_method | agent_persist | n | locomo_f1 | judge_score |", text)
+        self.assertIn("| --- | --- | --- | --- | --- |", text)
+        self.assertIn("workspace_files", text)
+        self.assertIn("false", text)
+        self.assertIn("| 1540 |", text)
+        self.assertIn("0.2482", text)
+        self.assertNotIn("0.24815758", text)
+
+    def test_takeaways_markdown_uses_pipe_table_not_to_string(self):
+        table = pd.DataFrame(
+            [
+                {
+                    "takeaway_id": "harness_reader_vs_chat_reader",
+                    "title": "Codex vs full_context",
+                    "claim": "harness_reader_weaker_than_chat_reader",
+                    "finding": "J drops a little.",
+                    "left_label": "workspace_codex",
+                    "right_label": "chat_full_context",
+                    "metric": "judge_score",
+                    "n_left": 3080.0,
+                    "n_right": 1540.0,
+                    "left_value": 0.678247,
+                    "right_value": 0.743506,
+                    "delta": -0.065259,
+                }
+            ]
+        )
+        lines = _takeaways_markdown(table, csv_path=None)
+        text = "\n".join(lines)
+        self.assertIn("| left_label | right_label | metric |", text)
+        self.assertIn("workspace_codex", text)
+        self.assertNotIn("     left_label", text)
+
+    def test_takeaway_sections_keep_metric_table_out_of_heading_markdown(self):
+        table = pd.DataFrame(
+            [
+                {
+                    "takeaway_id": "harness_retrieval_not_persist",
+                    "title": "Harness value is retrieval, not persist-on notes",
+                    "claim": "harness_retrieval_not_memory_method",
+                    "finding": "J barely moves.",
+                    "left_label": "persist_on",
+                    "right_label": "persist_off",
+                    "metric": "judge_score",
+                    "n_left": 1.0,
+                    "n_right": 1.0,
+                    "left_value": 0.683766,
+                    "right_value": 0.672727,
+                    "delta": 0.011039,
+                }
+            ]
+        )
+        sections = _takeaway_sections(table, csv_path=None)
+        headings = [heading for heading, _metrics in sections]
+        self.assertTrue(any("J barely moves." in h for h in headings))
+        self.assertFalse(any("| left_label |" in h for h in headings))
+        metrics = [frame for _heading, frame in sections if frame is not None]
+        self.assertEqual(len(metrics), 1)
+        html = dataframe_html(metrics[0])
+        self.assertIn("<table", html)
+        self.assertIn("persist_on", html)
+        self.assertIn("<td>0.6838</td>", html)
+
+
 class TestAnalysisNotebookContract(unittest.TestCase):
     def test_configured_experiment_notebooks_are_thin_yaml_wrappers(self):
         cfg = load_campaign_yaml(CAMPAIGN)
@@ -581,6 +1124,32 @@ class TestAnalysisNotebookContract(unittest.TestCase):
         self.assertIn("notebook_posttest(camp,", code)
         self.assertNotIn("matplotlib", code)
         self.assertNotIn("groupby(", code)
+
+    def test_openai_agent_notebooks_are_thin_yaml_wrappers(self):
+        pairs = (
+            (
+                "campaign_openai_codex_poc.yaml",
+                "17_openai_codex_poc_analysis.ipynb",
+            ),
+            (
+                "campaign_openai_agents.yaml",
+                "17_openai_agent_reader_writer_analysis.ipynb",
+            ),
+            (
+                "campaign_openai_codex_persist_memory.yaml",
+                "17_openai_codex_persist_memory_analysis.ipynb",
+            ),
+        )
+        for yaml_name, notebook_name in pairs:
+            with self.subTest(notebook=notebook_name):
+                code = _notebook_code(ROOT / "notebooks" / notebook_name)
+                self.assertIn(yaml_name, code)
+                self.assertIn("notebook_pretest(camp, root=ROOT)", code)
+                self.assertIn("notebook_posttest(camp,", code)
+                self.assertIn("report=", code)
+                self.assertIn("run_report(YAML, root=ROOT)", code)
+                self.assertNotIn("matplotlib", code)
+                self.assertNotIn("groupby(", code)
 
     def test_openai_deepseek_notebooks_state_thinking_within_family(self):
         names = (
@@ -978,6 +1547,14 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         self.assertFalse(unbounded_metric("judge_score"))
         self.assertTrue(unbounded_metric("judge_score_per_usd"))
         self.assertTrue(unbounded_metric("locomo_f1_per_second"))
+        self.assertTrue(unbounded_metric("n_web_search"))
+        self.assertTrue(unbounded_metric("n_mcp"))
+        self.assertTrue(unbounded_metric("n_retrieval_calls"))
+        self.assertFalse(unbounded_metric("used_non_workspace_tools"))
+        self.assertFalse(unbounded_metric("memory_recall"))
+        self.assertTrue(unbounded_metric("n"))
+        self.assertTrue(unbounded_metric("answer_n_words"))
+        self.assertFalse(unbounded_metric("harness_failed_rate"))
 
 
 class TestSmokeReportWhenPackPresent(unittest.TestCase):
@@ -1040,6 +1617,474 @@ class TestYearFamilyCampaign(unittest.TestCase):
         )
         self.assertEqual(list(writers["generation"]), ["2025", "2025", "2024"])
 
+    def test_annotate_reader_stack_keeps_persist_off_codex_and_year_model_only(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "generation": "2024",
+                    "memory_method": "full_context",
+                    "reader_model": "gpt-4o-mini",
+                    "model_family": "OpenAI",
+                    "thinking": None,
+                    "agent_persist": None,
+                },
+                {
+                    "generation": "2024",
+                    "memory_method": "workspace_files",
+                    "reader_model": "gpt-4o-mini",
+                    "model_family": "OpenAI",
+                    "thinking": None,
+                    "agent_persist": False,
+                },
+                {
+                    "generation": "2024",
+                    "memory_method": "workspace_files",
+                    "reader_model": "gpt-4o-mini",
+                    "model_family": "OpenAI",
+                    "thinking": None,
+                    "agent_persist": True,
+                },
+                {
+                    "generation": "2025",
+                    "memory_method": "full_context",
+                    "reader_model": "gpt-5",
+                    "model_family": "OpenAI",
+                    "thinking": "off",
+                    "agent_persist": None,
+                },
+                {
+                    "generation": "2025",
+                    "memory_method": "full_context",
+                    "reader_model": "gpt-5",
+                    "model_family": "OpenAI",
+                    "thinking": "on",
+                    "agent_persist": None,
+                },
+                {
+                    "generation": "2026",
+                    "memory_method": "full_context",
+                    "reader_model": "gpt-5.6-terra",
+                    "model_family": "OpenAI",
+                    "thinking": "off",
+                    "agent_persist": None,
+                },
+                {
+                    "generation": "2025",
+                    "memory_method": "full_context",
+                    "reader_model": "deepseek-chat",
+                    "model_family": "DeepSeek",
+                    "thinking": "off",
+                    "agent_persist": None,
+                },
+            ]
+        )
+        out = annotate_reader_stack(df)
+        self.assertEqual(
+            list(out["reader_stack"]),
+            [
+                "2024 mini model-only",
+                "2024 mini + Codex",
+                None,
+                "2025 GPT-5 model-only",
+                None,
+                "2026 Terra model-only",
+                None,
+            ],
+        )
+
+    def test_annotate_paper_compare_keeps_live_model_codex_and_year_bars(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "result_source": "live",
+                    "agent_persist": None,
+                    "writer_harness": None,
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "result_source": "live",
+                    "agent_persist": False,
+                    "writer_harness": None,
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "result_source": "live",
+                    "agent_persist": True,
+                    "writer_harness": None,
+                },
+                {
+                    "memory_method": "agent_codex_mem0_facts",
+                    "result_source": "live",
+                    "agent_persist": None,
+                    "writer_harness": "codex",
+                },
+                {
+                    "memory_method": "teacher_graph",
+                    "result_source": "live",
+                    "agent_persist": None,
+                    "writer_harness": "codex",
+                    "experiment_name": "locomo-openai-codex-poc-writers",
+                },
+                {
+                    "memory_method": "teacher_graph",
+                    "result_source": "live",
+                    "agent_persist": None,
+                    "writer_harness": "chat_completions",
+                },
+                {
+                    "memory_method": "full_context",
+                    "result_source": "paper",
+                    "agent_persist": None,
+                    "writer_harness": None,
+                },
+                {
+                    "memory_method": "mem0",
+                    "result_source": "local_clone",
+                    "agent_persist": None,
+                    "writer_harness": None,
+                },
+            ]
+        )
+        out = annotate_paper_compare(df)
+        self.assertEqual(
+            list(out["paper_method"]),
+            [
+                "full_context",
+                "full_context",
+                "workspace_files",
+                "mem0",
+                "mem0g",
+                "teacher_graph",
+                "full_context",
+                "mem0",
+            ],
+        )
+        self.assertEqual(
+            list(out["compare_source"]),
+            [
+                "live model",
+                COMPARE_SOURCE_CODEX,
+                None,
+                COMPARE_SOURCE_CODEX,
+                COMPARE_SOURCE_CODEX,
+                None,
+                "paper",
+                "local clone",
+            ],
+        )
+        self.assertEqual(
+            list(out["live_source"]),
+            [
+                "live model",
+                COMPARE_SOURCE_CODEX,
+                None,
+                COMPARE_SOURCE_CODEX,
+                COMPARE_SOURCE_CODEX,
+                None,
+                "paper",
+                "live model",
+            ],
+        )
+        years = annotate_paper_compare(
+            pd.DataFrame(
+                [
+                    {
+                        "memory_method": "full_context",
+                        "result_source": "live",
+                        "generation": "2025",
+                        "reader_model": "gpt-5",
+                        "model_family": "OpenAI",
+                        "thinking": "off",
+                    },
+                    {
+                        "memory_method": "full_context",
+                        "result_source": "live",
+                        "generation": "2025",
+                        "reader_model": "gpt-5",
+                        "model_family": "OpenAI",
+                        "thinking": "on",
+                    },
+                    {
+                        "memory_method": "full_context",
+                        "result_source": "live",
+                        "generation": "2026",
+                        "reader_model": "gpt-5.6-terra",
+                        "model_family": "OpenAI",
+                        "thinking": "off",
+                    },
+                    {
+                        "memory_method": "full_context",
+                        "result_source": "live",
+                        "generation": "2025",
+                        "reader_model": "deepseek-chat",
+                        "model_family": "DeepSeek",
+                        "thinking": "off",
+                    },
+                ]
+            )
+        )
+        self.assertEqual(
+            list(years["compare_source"]),
+            [
+                "2025 GPT-5 model-only",
+                None,
+                "2026 Terra model-only",
+                None,
+            ],
+        )
+
+    def test_paper_compare_keeps_live_model_and_does_not_average_methods(self):
+        spec = AnalysisSpec(
+            id="methods_vs_paper_j",
+            title="Memory methods J",
+            group_by=("paper_method", "live_source"),
+            metrics=("judge_score",),
+            plots=(
+                PlotSpec(kind="grouped_bar", x="paper_method", hue="live_source", y="judge_score"),
+                PlotSpec(
+                    kind="grouped_bar",
+                    x="live_source",
+                    y="judge_score",
+                    split_by="paper_method",
+                ),
+            ),
+            source="examples",
+            where=(
+                ("paper_method", ("full_context", "mem0")),
+                ("live_source", ("paper", "live model", COMPARE_SOURCE_CODEX)),
+            ),
+            include_pins=True,
+        )
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "result_source": "live",
+                    "judge_score": 0.74,
+                    "question_category": 1,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "result_source": "live",
+                    "agent_persist": False,
+                    "judge_score": 0.67,
+                    "question_category": 1,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+                {
+                    "memory_method": "agent_codex_mem0_facts",
+                    "result_source": "live",
+                    "writer_harness": "codex",
+                    "judge_score": 0.50,
+                    "question_category": 1,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+            ]
+        )
+        pins = [
+            {
+                "memory_method": "full_context",
+                "result_source": "paper",
+                "judge_score": 0.729,
+                "n": 1540,
+                "generation": "2024",
+                "model_family": "OpenAI",
+            },
+            {
+                "memory_method": "full_context",
+                "result_source": "local_clone",
+                "judge_score": 0.7468,
+                "n": 1540,
+                "generation": "2024",
+                "model_family": "OpenAI",
+            },
+            {
+                "memory_method": "mem0",
+                "result_source": "paper",
+                "judge_score": 0.6688,
+                "n": 1540,
+                "generation": "2024",
+                "model_family": "OpenAI",
+            },
+            {
+                "memory_method": "mem0",
+                "result_source": "local_clone",
+                "judge_score": 0.4838,
+                "n": 1540,
+                "generation": "2024",
+                "model_family": "OpenAI",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(spec, df, Path(tmp), pins=pins)
+        self.assertIn("live_source", result.table.columns)
+        self.assertIn("paper_method", result.table.columns)
+        sources = {
+            (str(row.paper_method), str(row.live_source)): (
+                float(row.judge_score),
+                int(row.n),
+            )
+            for row in result.table.itertuples()
+        }
+        self.assertEqual(sources[("full_context", "live model")][0], 0.74)
+        self.assertEqual(sources[("full_context", "live model")][1], 1)
+        self.assertAlmostEqual(sources[("full_context", COMPARE_SOURCE_CODEX)][0], 0.67)
+        self.assertAlmostEqual(sources[("full_context", "paper")][0], 0.729)
+        self.assertNotIn(("full_context", "local clone"), sources)
+        self.assertAlmostEqual(sources[("mem0", "live model")][0], 0.4838)
+        self.assertEqual(int(result.table["n"].max()), 1540)
+
+    def test_mean_table_reannotates_missing_live_source_instead_of_averaging(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "result_source": "live",
+                    "judge_score": 0.74,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "result_source": "live",
+                    "agent_persist": False,
+                    "judge_score": 0.67,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+            ]
+        )
+        table = mean_table(
+            df, ["generation", "model_family", "paper_method", "live_source"], ["judge_score"]
+        )
+        self.assertIn("paper_method", table.columns)
+        self.assertIn("live_source", table.columns)
+        self.assertEqual(len(table), 2)
+        self.assertEqual(int(table["n"].max()), 1)
+
+    def test_write_plot_skips_when_requested_x_is_missing(self):
+        spec = AnalysisSpec(
+            id="methods_vs_paper_j",
+            title="Memory methods J",
+            group_by=("generation", "model_family"),
+            metrics=("judge_score",),
+            plots=(
+                PlotSpec(
+                    kind="grouped_bar",
+                    x="paper_method",
+                    hue="live_source",
+                    y="judge_score",
+                ),
+            ),
+            source="examples",
+        )
+        table = pd.DataFrame(
+            {
+                "generation": ["2024"],
+                "model_family": ["OpenAI"],
+                "n": [9240],
+                "judge_score": [0.5705],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            written = _write_plot(
+                spec.plots[0], spec, table, Path(tmp) / "methods_vs_paper_j.png"
+            )
+        self.assertIsNone(written)
+
+    def test_concat_without_live_source_still_groups_methods_after_prepare(self):
+        spec = AnalysisSpec(
+            id="methods_vs_paper_j",
+            title="Memory methods J",
+            group_by=("paper_method", "live_source"),
+            metrics=("judge_score",),
+            plots=(
+                PlotSpec(
+                    kind="grouped_bar",
+                    x="paper_method",
+                    hue="live_source",
+                    y="judge_score",
+                ),
+            ),
+            source="examples",
+            where=(
+                ("paper_method", ("full_context", "mem0")),
+                ("live_source", ("paper", "live model", COMPARE_SOURCE_CODEX)),
+            ),
+            include_pins=True,
+        )
+        readers = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "result_source": "live",
+                    "judge_score": 0.74,
+                    "question_category": 1,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "result_source": "live",
+                    "agent_persist": False,
+                    "judge_score": 0.67,
+                    "question_category": 1,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                },
+            ]
+        )
+        writers = pd.DataFrame(
+            [
+                {
+                    "memory_method": "agent_codex_mem0_facts",
+                    "result_source": "live",
+                    "writer_harness": "codex",
+                    "judge_score": 0.50,
+                    "question_category": 1,
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                }
+            ]
+        )
+        pins = [
+            {
+                "memory_method": "full_context",
+                "result_source": "paper",
+                "judge_score": 0.729,
+                "n": 1540,
+                "generation": "2024",
+                "model_family": "OpenAI",
+            },
+            {
+                "memory_method": "mem0",
+                "result_source": "local_clone",
+                "judge_score": 0.4838,
+                "n": 1540,
+                "generation": "2024",
+                "model_family": "OpenAI",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = render_analysis(
+                spec, pd.concat([readers, writers], ignore_index=True), Path(tmp), pins=pins
+            )
+        self.assertIn("paper_method", result.table.columns)
+        self.assertIn("live_source", result.table.columns)
+        keys = {
+            (str(row.paper_method), str(row.live_source))
+            for row in result.table.itertuples()
+        }
+        self.assertIn(("full_context", "live model"), keys)
+        self.assertIn(("full_context", COMPARE_SOURCE_CODEX), keys)
+        self.assertIn(("mem0", COMPARE_SOURCE_CODEX), keys)
+        self.assertEqual(int(result.table["n"].max()), 1540)
+
     def test_pins_are_not_averaged_into_live_rows_and_cat5_is_dropped(self):
         spec = AnalysisSpec(
             id="j_full_context",
@@ -1100,6 +2145,133 @@ class TestYearFamilyCampaign(unittest.TestCase):
         self.assertAlmostEqual(float(paper["judge_score"]), 0.729)
         self.assertEqual(int(paper["n"]), 1540)
         self.assertEqual(list(result.table["generation"]), ["2024", "2025"])
+
+
+class TestOpenAIAgentCampaigns(unittest.TestCase):
+    def test_poc_campaign_has_audit_metrics_and_paper_pins(self):
+        cfg = load_campaign_yaml(ROOT / "configs" / "analysis" / "campaign_openai_codex_poc.yaml")
+        self.assertEqual(cfg.id, "openai_codex_poc")
+        self.assertGreaterEqual(len(cfg.pins), 8)
+        sources = {str(row.get("result_source")) for row in cfg.pins}
+        self.assertEqual(sources, {"paper", "local_clone"})
+        methods = {str(row.get("memory_method")) for row in cfg.pins}
+        self.assertTrue({"full_context", "rag", "openai_memory", "mem0", "mem0g", "session_summaries"} <= methods)
+        summary_pin = next(
+            row
+            for row in cfg.pins
+            if row.get("memory_method") == "session_summaries" and row.get("result_source") == "paper"
+        )
+        self.assertIsNone(summary_pin.get("judge_score"))
+        self.assertAlmostEqual(float(summary_pin["locomo_f1"]), LOCOMO_2024_SUMMARY_RAG_F1)
+        self.assertEqual(int(summary_pin["n"]), LOCOMO_2024_SUMMARY_RAG_N)
+        ids = [spec.id for spec in cfg.campaign_analyses]
+        self.assertIn("reader_audit", ids)
+        self.assertIn("reader_failure_modes", ids)
+        self.assertIn("reader_j_vs_f1", ids)
+        self.assertIn("reader_recall_bins", ids)
+        self.assertIn("reader_failure_modes_judge", ids)
+        self.assertIn("reader_hop_to_evidence", ids)
+        self.assertIn("reader_qidx_by_category", ids)
+        hop = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_hop_to_evidence")
+        self.assertIn("hop_bin", hop.group_by)
+        self.assertIn("reader_vs_paper_j", ids)
+        self.assertIn("methods_vs_paper_j", ids)
+        self.assertIn("reader_stack_vs_paper_j", ids)
+        vs_paper = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_vs_paper_j")
+        self.assertEqual(vs_paper.source, "examples")
+        self.assertEqual(set(vs_paper.experiments), {"readers", "year_2025", "year_2026"})
+        self.assertIn("compare_source", vs_paper.group_by)
+        self.assertEqual(vs_paper.plots[0].x, "compare_source")
+        methods = next(spec for spec in cfg.campaign_analyses if spec.id == "methods_vs_paper_j")
+        self.assertEqual(set(methods.experiments), {"readers", "writers"})
+        self.assertIn("live_source", methods.group_by)
+        self.assertIn("locomo_f1", methods.metrics)
+        self.assertTrue(any(p.split_by == "paper_method" for p in methods.plots))
+        self.assertTrue(any(p.y == "locomo_f1" for p in methods.plots))
+        stack = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_stack_vs_paper_j")
+        self.assertEqual(set(stack.experiments), {"readers", "year_2025", "year_2026"})
+        self.assertIn("reader_stack", stack.group_by)
+        self.assertTrue(stack.include_pins)
+        audit = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_audit")
+        self.assertIn("n_web_search", audit.metrics)
+        self.assertIn("n_mcp", audit.metrics)
+        self.assertIn("harness_failed_rate", audit.metrics)
+        self.assertNotIn("comparison_status", audit.group_by)
+        controls = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_controls")
+        self.assertNotIn("comparison_status", controls.group_by)
+        modes = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_failure_modes")
+        self.assertEqual(modes.source, "examples")
+        self.assertIn("failure_mode", modes.group_by)
+        self.assertEqual(set(cfg.experiments), {"readers", "writers", "year_2025", "year_2026"})
+        insight_ids = [item.id for item in cfg.insights]
+        self.assertIn("pin_vs_poc_full_context", insight_ids)
+        self.assertIn("workspace_j_minus_f1", insight_ids)
+        pin = next(item for item in cfg.insights if item.id == "pin_vs_poc_full_context")
+        self.assertEqual(pin.live_generation, "2024")
+        takeaway_ids = [item.id for item in cfg.takeaways]
+        self.assertIn("harness_reader_vs_chat_reader", takeaway_ids)
+        self.assertIn("harness_writer_vs_chat_reader", takeaway_ids)
+        self.assertIn("layers_are_different_claims", takeaway_ids)
+
+    def test_agents_campaign_has_year_axis_audit_and_chat_writers(self):
+        cfg = load_campaign_yaml(ROOT / "configs" / "analysis" / "campaign_openai_agents.yaml")
+        self.assertEqual(cfg.id, "openai_agents")
+        self.assertEqual(
+            set(cfg.experiments),
+            {"readers", "writers", "codex_readers", "codex_writers", "codex_end_to_end"},
+        )
+        ids = [spec.id for spec in cfg.campaign_analyses]
+        self.assertIn("chat_readers_vs_paper_j", ids)
+        self.assertIn("chat_readers_year", ids)
+        self.assertIn("sandwich_writers_year", ids)
+        self.assertIn("codex_readers_audit", ids)
+        self.assertIn("codex_readers_failure_modes", ids)
+        self.assertIn("codex_readers_j_vs_f1", ids)
+        self.assertIn("codex_readers_recall_bins", ids)
+        self.assertIn("codex_end_to_end_audit", ids)
+        self.assertIn("codex_end_to_end_failure_modes", ids)
+        self.assertIn("codex_end_to_end_hop", ids)
+        self.assertIn("codex_end_to_end_qidx", ids)
+        year = next(spec for spec in cfg.campaign_analyses if spec.id == "codex_readers_year")
+        self.assertIn("generation", year.group_by)
+        audit = next(spec for spec in cfg.campaign_analyses if spec.id == "codex_readers_audit")
+        self.assertNotIn("comparison_status", audit.group_by)
+        self.assertIn("harness_failed_rate", audit.metrics)
+        insight_gens = {item.live_generation for item in cfg.insights if item.kind == "pin_gaps"}
+        self.assertEqual(insight_gens, {"2024", "2025", "2026"})
+
+    def test_persist_memory_campaign_has_notes_only_vs_summaries_takeaway(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_codex_persist_memory.yaml"
+        )
+        self.assertEqual(cfg.id, "openai_codex_persist_memory")
+        self.assertEqual(set(cfg.experiments), {"persist", "summaries"})
+        ids = [spec.id for spec in cfg.campaign_analyses]
+        self.assertIn("persist_hop_to_evidence", ids)
+        self.assertIn("persist_qidx_by_category", ids)
+        self.assertIn("persist_notes_size", ids)
+        takeaway_ids = [item.id for item in cfg.takeaways]
+        self.assertIn("notes_only_is_the_memory_method", takeaway_ids)
+        self.assertIn("notes_only_vs_summaries", takeaway_ids)
+        hop = next(spec for spec in cfg.campaign_analyses if spec.id == "persist_hop_to_evidence")
+        self.assertIn("hop_bin", hop.group_by)
+        self.assertIn("hop_to_evidence", next(
+            spec for spec in cfg.campaign_analyses if spec.id == "persist_audit"
+        ).metrics)
+
+    def test_notebook_posttest_accepts_run_report_list_without_using_it_as_id(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_codex_persist_memory.yaml"
+        )
+        fake = ReportResult(
+            scope="campaign",
+            out_dir=ROOT / "experiments" / "_campaign" / "openai_codex_persist_memory",
+            results=[],
+            missing_packs=["locomo-openai-codex-persist-memory"],
+        )
+        table = notebook_posttest(cfg, [fake], root=ROOT)
+        self.assertFalse(table.empty)
+        self.assertIn("pack", " ".join(table["check"].astype(str)))
 
 
 if __name__ == "__main__":

@@ -8,7 +8,13 @@ import pandas as pd
 
 from src.memorybench.analysis.cost import CostReport, render_cost
 from src.memorybench.analysis.load_campaign import CampaignConfig
-from src.memorybench.analysis.report import ReportResult, ROOT, notebook_show
+from src.memorybench.analysis.report import (
+    ReportResult,
+    ROOT,
+    dataframe_html,
+    dataframe_markdown,
+    notebook_show,
+)
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -59,11 +65,22 @@ def notebook_posttest(
     cfg: CampaignConfig,
     experiment_id: str | None = None,
     *,
-    report: ReportResult | None = None,
+    report: ReportResult | list[ReportResult] | None = None,
     root: Path | None = None,
 ) -> pd.DataFrame:
-    """Score pre-test expectations against the finished pack + priced actuals."""
+    """Score pre-test expectations against the finished pack + priced actuals.
+
+    ``run_report`` returns a list (one result per experiment, campaign last).
+    Pass ``report=reports[-1]`` or the whole list. A list as the second
+    positional argument is that report list, not an experiment id.
+    """
     root = root or ROOT
+    if report is None and not isinstance(experiment_id, (str, type(None))):
+        report = experiment_id  # type: ignore[assignment]
+        experiment_id = None
+    report = _as_report(report)
+    if not isinstance(experiment_id, str):
+        experiment_id = None
     if report is not None:
         notebook_show(report)
     checks = _posttest_rows(cfg, experiment_id, report, root)
@@ -85,6 +102,17 @@ def notebook_posttest(
         for path in cost.plot_paths:
             _display_image(path)
     return table
+
+
+def _as_report(
+    report: ReportResult | list[ReportResult] | None,
+) -> ReportResult | None:
+    """``run_report`` yields a list; post-test uses the campaign (last) item."""
+    if report is None:
+        return None
+    if isinstance(report, list):
+        return report[-1] if report else None
+    return report
 
 
 def _pretest_markdown(cfg: CampaignConfig, experiment_id: str | None) -> str:
@@ -190,6 +218,39 @@ def _posttest_rows(
                 expected = stage.iloc[0].get("usd_expected")
                 actual = stage.iloc[0].get("usd_actual")
                 rows.append(_cost_check(label, expected, actual))
+    if report is not None:
+        rows.extend(_paper_compare_column_checks(report))
+    return rows
+
+
+_PAPER_COMPARE_GROUP_COLS = frozenset(
+    {"paper_method", "live_source", "compare_source", "reader_stack"}
+)
+
+
+def _paper_compare_column_checks(report: ReportResult) -> list[dict[str, str]]:
+    """Fail the notebook if a paper-compare table averaged methods together."""
+    rows: list[dict[str, str]] = []
+    for item in report.results:
+        if item.skipped or item.table is None or item.table.empty:
+            continue
+        missing = [
+            col
+            for col in item.spec.group_by
+            if col in _PAPER_COMPARE_GROUP_COLS and col not in item.table.columns
+        ]
+        if not missing:
+            continue
+        rows.append(
+            {
+                "check": f"{item.spec.id}.group_columns",
+                "result": FAIL,
+                "detail": (
+                    f"grouped table dropped {missing}; "
+                    "memory methods or sources were averaged together"
+                ),
+            }
+        )
     return rows
 
 
@@ -246,11 +307,11 @@ def _display_markdown(text: str) -> None:
 
 def _display_table(table: pd.DataFrame) -> None:
     try:
-        from IPython.display import display
+        from IPython.display import HTML, display
 
-        display(table)
+        display(HTML(dataframe_html(table)))
     except ImportError:
-        print(table.to_string(index=False))
+        print(dataframe_markdown(table))
 
 
 def _display_image(path: Path) -> None:

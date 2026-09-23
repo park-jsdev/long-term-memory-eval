@@ -6,6 +6,8 @@ Same roles as `configs/`. Filename stems stay the prompt **version** (`qa_mem0_v
 prompts/
   readers/       answer LLM  ← configs/layouts/*.yaml  pipeline.prompt_path
   agents/        coding-agent harness (workspace files) ← configs/agents/ + layouts/qa_workspace_v1.yaml
+                 qa_workspace_v1 persist-off; qa_workspace_persist_v1 append notes;
+                 qa_workspace_notes_only_v1 sessions hidden; ingest_notes_v1 write pass
   writers/       mem0 / mem0g / openai-memory extract  ← configs/writers/
   teachers/      session + graph teachers              ← configs/teachers/
   autoraters/    LLM-as-a-Judge                        ← configs/autoraters/

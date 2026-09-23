@@ -1,0 +1,182 @@
+# Codex persist as memory method vs session-summary sandwich writer.
+# Native Codex is audit-only unless comparison_status=comparable.
+# notes_only (sessions hidden after ingest) is the memory-method cell.
+#
+#   python -m src.memorybench report configs/analysis/campaign_openai_codex_persist_memory.yaml
+# Notebook: notebooks/17_openai_codex_persist_memory_analysis.ipynb
+
+campaign:
+  id: openai_codex_persist_memory
+  title: Codex persist-as-memory (notes_only vs summaries)
+  notebook: notebooks/17_openai_codex_persist_memory_analysis.ipynb
+  freeze_note: >
+    GPT-4o-mini backbone, thinking off. Persist-off is retrieval-only.
+    Persist-on + full sessions is a write ablation, not a memory method
+    (session haystack stays on disk). Persist-on + notes_only hides
+    sessions after ingest — that cell is the harness memory method.
+    Compare it to teacher_session_summaries from the PoC writers pack
+    (frozen mini Chat Completions reader). Native Codex stays audit-only
+    unless comparison_status is comparable. n_web_search / n_mcp should
+    be 0. Do not mix these scores into a stuffed-context reader table.
+
+defaults:
+  source: runs
+  metrics: [locomo_f1, judge_score]
+  output_subdir: analysis
+
+campaign_analyses:
+  - id: persist_cells
+    title: Persist-off / persist-on / notes_only
+    experiments: [persist]
+    group_by: [agent_persist, agent_sessions]
+    plots:
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: locomo_f1}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: judge_score}
+  - id: persist_audit
+    title: Persist-memory tool and notes audit
+    experiments: [persist]
+    source: runs
+    group_by: [agent_persist, agent_sessions]
+    metrics:
+      - n_web_search
+      - n_mcp
+      - used_non_workspace_tools
+      - n_retrieval_calls
+      - memory_recall
+      - n_write_events
+      - hop_to_evidence
+      - notes_retrieved
+      - notes_bytes
+      - harness_failed_rate
+    plots:
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: n_web_search}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: n_mcp}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: n_write_events}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: hop_to_evidence}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: notes_retrieved}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: notes_bytes}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: memory_recall}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: harness_failed_rate}
+  - id: persist_failure_modes
+    title: Persist-memory per-question failure modes
+    experiments: [persist]
+    source: examples
+    group_by: [agent_persist, agent_sessions, failure_mode]
+    metrics: [n]
+    plots:
+      - {kind: grouped_bar, x: failure_mode, hue: agent_sessions, y: n}
+  - id: persist_hop_to_evidence
+    title: First gold-id retrieve hop
+    experiments: [persist]
+    source: examples
+    group_by: [agent_sessions, hop_bin]
+    metrics: [n, judge_score, locomo_f1, memory_recall]
+    plots:
+      - {kind: grouped_bar, x: hop_bin, hue: agent_sessions, y: n}
+      - {kind: grouped_bar, x: hop_bin, hue: agent_sessions, y: judge_score}
+      - {kind: grouped_bar, x: hop_bin, hue: agent_sessions, y: locomo_f1}
+  - id: persist_qidx_by_category
+    title: Question index within conversation × LoCoMo category
+    experiments: [persist]
+    source: examples
+    group_by: [qidx_bin, question_category]
+    metrics: [n, judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: qidx_bin, hue: question_category, y: judge_score}
+      - {kind: grouped_bar, x: qidx_bin, hue: question_category, y: locomo_f1}
+  - id: persist_notes_size
+    title: Notes file size vs score
+    experiments: [persist]
+    source: examples
+    where:
+      agent_persist: [true]
+    group_by: [agent_sessions, notes_bytes_bin]
+    metrics: [n, judge_score, locomo_f1, notes_bytes]
+    plots:
+      - {kind: grouped_bar, x: notes_bytes_bin, hue: agent_sessions, y: n}
+      - {kind: grouped_bar, x: notes_bytes_bin, hue: agent_sessions, y: judge_score}
+  - id: persist_j_vs_f1
+    title: Same answers, Mem0 J vs LoCoMo F1
+    experiments: [persist]
+    source: examples
+    group_by: [agent_persist, agent_sessions]
+    metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: judge_score}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: locomo_f1}
+      - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: answer_n_words}
+  - id: summaries_writer
+    title: Codex session-summary sandwich writer (frozen mini reader)
+    experiments: [summaries]
+    where:
+      memory_method: [teacher_session_summaries]
+    group_by: [memory_method, writer_model]
+    plots:
+      - {kind: grouped_bar, x: memory_method, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, y: judge_score}
+
+insights:
+  - id: persist_j_minus_f1
+    title: Persist cells J minus F1 (verbosity / paraphrase)
+    kind: j_f1_gap
+    from: persist_j_vs_f1
+
+takeaways:
+  - id: notes_only_is_the_memory_method
+    title: notes_only vs persist-on with sessions still visible
+    claim: notes_only_not_write_ablation
+    from: persist_cells
+    left:
+      agent_persist: true
+      agent_sessions: notes_only
+    right:
+      agent_persist: true
+      agent_sessions: full
+    left_label: notes_only
+    right_label: persist_on_sessions_visible
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      Persist-on with sessions still on disk is a write ablation. notes_only
+      hides the haystack after ingest and is the memory-method cell.
+  - id: notes_only_vs_summaries
+    title: notes_only harness memory vs Codex session summaries
+    claim: harness_memory_vs_sandwich_writer
+    from: persist_j_vs_f1
+    from_right: summaries_writer
+    left:
+      agent_sessions: notes_only
+    right:
+      memory_method: teacher_session_summaries
+    left_label: notes_only
+    right_label: session_summaries
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      notes_only is an end-to-end harness memory method. Session summaries
+      are a sandwich writer with a frozen Chat Completions reader. Do not
+      rank them as one stuffed-context table. Native Codex stays
+      incomparable until comparison_status is comparable.
+
+experiments:
+  persist:
+    name: locomo-openai-codex-persist-memory
+    pack: experiments/locomo-openai-codex-persist-memory
+    role: agent_memory
+    family_from: reader
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Persist-off prompt never mentions notes.md.
+        - notes_only cannot read sessions/ after ingest.
+        - n_web_search and n_mcp stay at 0.
+        - notes_only vs persist-on/full is the memory-method contrast.
+  summaries:
+    name: locomo-openai-codex-poc-writers
+    pack: experiments/locomo-openai-codex-poc-writers
+    role: sandwich
+    family_from: writer
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Frozen mini Chat Completions reader; teacher_session_summaries is the writer pin.

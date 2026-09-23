@@ -45,6 +45,17 @@ trajectory scoring can join LoCoMo `Question.evidence`.
 `Memory.text` for this builder is a **manifest pointer**, not the transcript.
 Stuffed full-context lives in the `full_context` condition.
 
+Persist-on writes `memory/notes.md` (append-only structured `- (dia_id)
+speaker: fact` lines). After each question the run copies that file to
+`agent/notes_snapshots/<sample>/<qid>.md` and appends `agent/notes_ledger.jsonl`.
+`notes_only` runs one ingest pass (`ingest_notes_v1` or mock structured dump),
+then moves `sessions/` to `sessions_hidden/` so QA cannot read the haystack.
+
+Trajectory `write` events are notes mutations, not evidence retrieve.
+`hop_to_evidence` is the first retrieve step whose text contains a gold
+`dia_id`. `notes_retrieved` is true when a retrieve target is
+`memory/notes.md`.
+
 ## Audit pack extras
 
 ```text
@@ -53,6 +64,8 @@ experiments/<run_id>/agent/
   trajectory.jsonl     normalized retrieval events + recall/precision
   events.jsonl         raw adapter events (Codex JSONL items)
   metrics.json         run-level means + failure_mode counts
+  notes_ledger.jsonl   persist-on notes bytes / sha after each question
+  notes_snapshots/     per-question copies of memory/notes.md
   workspaces/          conversation files the harness saw
 ```
 
@@ -106,5 +119,8 @@ judge, and tool budget. Each value is either enforced, observed, or explicitly
 Only an adapter that declares it can enforce every requested hard tool limit
 may write `status: comparable`. Native Codex file tooling is presently
 audit-only (`incomparable`) because its CLI has no portable per-tool-call or
-retrieved-token cap. A run with no successful workspace read/search is
-`harness_failed`, not a retrieval failure.
+retrieved-token cap. A question with no successful workspace read/search is
+`harness_execution_failure`, not a retrieval failure. The run's
+`comparison_status` is `harness_failed` only when every question failed;
+otherwise the miss rate is `harness_failed_rate` and native Codex stays
+`incomparable`. Analysis report load repairs stored any-failed labels.

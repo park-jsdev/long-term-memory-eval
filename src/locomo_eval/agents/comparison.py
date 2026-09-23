@@ -166,10 +166,25 @@ def resolve_contract(
 def comparison_status(
     contract: dict[str, Any],
     *,
-    harness_failed: bool,
+    n_questions: int = 0,
+    n_harness_failed: int = 0,
+    harness_failed: bool | None = None,
 ) -> str:
-    """Map one run onto comparable / incomparable / harness_failed."""
-    if harness_failed:
+    """Map one run onto comparable / incomparable / harness_failed.
+
+    Per-question ``harness_failed`` stays on the row. The run label is
+    ``harness_failed`` only when the harness never produced a successful
+    workspace read (every question failed). A minority of failed reads is
+    ``harness_failed_rate``, not this cell status. The legacy
+    ``harness_failed=`` boolean is the all-failed flag when counts are 0.
+    """
+    if n_questions > 0:
+        all_failed = int(n_harness_failed) >= int(n_questions)
+    elif harness_failed is not None:
+        all_failed = bool(harness_failed)
+    else:
+        all_failed = False
+    if all_failed:
         return "harness_failed"
     if not contract.get("strict"):
         return "incomparable"

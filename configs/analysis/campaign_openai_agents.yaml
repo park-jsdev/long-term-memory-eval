@@ -1,61 +1,392 @@
+# OpenAI 2024–2026 Chat Completions memory vs Codex 2026 harness.
+# Native Codex is audit-only unless comparison_status=comparable.
+# Paper / local_clone pins are literature context, not OSS-clone Table 2 J.
+#
+#   python -m src.memorybench report configs/analysis/campaign_openai_agents.yaml
+# Notebook: notebooks/17_openai_agent_reader_writer_analysis.ipynb
+
 campaign:
   id: openai_agents
   title: OpenAI 2024–2026 memory and Codex agent campaign
   notebook: notebooks/17_openai_agent_reader_writer_analysis.ipynb
   freeze_note: >
-    Thinking is off. Codex reader workspace runs and Codex writer native-tool
-    runs are audit-only unless their comparison contract is comparable.
+    Thinking is off. Catalog generation is the answer/writer model year
+    (gpt-4o-mini=2024, gpt-5=2025, gpt-5.6-terra=2026). Codex CLI is a
+    2026 harness around those models — a Codex-mini cell is not paper
+    2024. Chat Completions reader-sweep and sandwich writers are
+    separate claims from native Codex workspace/tool cells. Native Codex
+    is audit-only unless comparison_status is comparable; harness_failed
+    is the all-failed cell label, not a 1–2% miss rate. Partial misses
+    stay incomparable with harness_failed_rate. n_web_search / n_mcp
+    should be 0.
+    teacher_session_summaries / teacher_graph / agent_codex_mem0_facts
+    are not paper Mem0 extract or Mem0g. Paper and local_clone rows are
+    Table 2 / clone pins (n=1540 judged subset). Do not mix stuffed
+    {memory} reader scores into Codex workspace bars.
+
 defaults:
   source: runs
   metrics: [locomo_f1, judge_score]
   output_subdir: analysis
+
+pins:
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: full_context
+    result_source: paper
+    judge_score: 0.7290
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Full-context
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: rag
+    result_source: paper
+    judge_score: 0.6097
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 RAG k=2 256
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: openai_memory
+    result_source: paper
+    judge_score: 0.5290
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 OpenAI
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0
+    result_source: paper
+    judge_score: 0.6688
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Mem0
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0g
+    result_source: paper
+    judge_score: 0.6844
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Mem0g
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: full_context
+    result_source: local_clone
+    judge_score: 0.7468
+    locomo_f1: 0.534
+    n: 1540
+    note: experiments/full_context_qa gpt-4o-mini
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: rag
+    result_source: local_clone
+    judge_score: 0.5799
+    locomo_f1: 0.4225
+    n: 1540
+    note: experiments/rag_k2_256_qa best live-judge seed
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0
+    result_source: local_clone
+    judge_score: 0.4838
+    locomo_f1: 0.3502
+    n: 1540
+    note: experiments/mem0_qa OSS extract/update clone
+
 campaign_analyses:
   - id: standard_memory_readers
-    title: OpenAI reader years across fixed memory conditions
+    title: OpenAI Chat Completions readers across fixed memory
     experiments: [readers]
-    group_by: [reader_model, memory_method, thinking]
+    group_by: [generation, reader_model, memory_method, thinking]
     plots:
       - {kind: grouped_bar, x: memory_method, hue: reader_model, y: locomo_f1}
       - {kind: grouped_bar, x: memory_method, hue: reader_model, y: judge_score}
-  - id: codex_no_memory_readers
-    title: Codex reader with workspace files and no memory artifact
-    experiments: [codex_readers]
-    group_by: [reader_model, memory_method]
+      - {kind: line, x: generation, y: judge_score}
+  - id: chat_readers_vs_paper_j
+    title: Chat Completions paper methods vs 2024 Table 2 pins
+    experiments: [readers]
+    include_pins: true
+    where:
+      memory_method: [full_context, rag, openai_memory, mem0, mem0g]
+    group_by: [generation, model_family, memory_method, result_source]
+    metrics: [judge_score]
     plots:
-      - {kind: grouped_bar, x: reader_model, y: locomo_f1}
-      - {kind: grouped_bar, x: reader_model, y: judge_score}
-  - id: codex_memory_writers
-    title: Codex summary and graph writers with frozen GPT-4o-mini reader
-    experiments: [codex_writers]
-    group_by: [writer_model, memory_method]
+      - {kind: grouped_bar, x: generation, hue: result_source, y: judge_score}
+      - {kind: grouped_bar, x: memory_method, hue: result_source, y: judge_score}
+      - {kind: line, x: generation, y: judge_score}
+  - id: chat_readers_year
+    title: Chat Completions reader year moves (model year, not Codex)
+    experiments: [readers]
+    group_by: [generation, memory_method]
+    plots:
+      - {kind: line, x: generation, y: judge_score}
+      - {kind: line, x: generation, y: locomo_f1}
+  - id: chat_memory_writers
+    title: Chat Completions teachers with frozen GPT-4o-mini reader
+    experiments: [writers]
+    group_by: [generation, writer_model, memory_method]
     plots:
       - {kind: grouped_bar, x: memory_method, hue: writer_model, y: locomo_f1}
       - {kind: grouped_bar, x: memory_method, hue: writer_model, y: judge_score}
+      - {kind: line, x: generation, y: judge_score}
+  - id: sandwich_writers_year
+    title: Chat vs Codex teachers (frozen mini reader; overlapping methods)
+    experiments: [writers, codex_writers]
+    where:
+      memory_method: [teacher_session_summaries, teacher_graph]
+    group_by: [generation, memory_method, writer_harness]
+    plots:
+      - {kind: grouped_bar, x: generation, hue: writer_harness, y: judge_score}
+      - {kind: grouped_bar, x: memory_method, hue: writer_harness, y: judge_score}
+      - {kind: line, x: generation, y: judge_score}
+  - id: sandwich_vs_paper_j
+    title: Sandwich writers vs 2024 Mem0/Mem0g pins (not matched)
+    experiments: [writers, codex_writers]
+    include_pins: true
+    where:
+      memory_method:
+        - teacher_session_summaries
+        - teacher_graph
+        - agent_codex_mem0_facts
+        - mem0
+        - mem0g
+    group_by: [generation, memory_method, result_source, writer_harness]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: result_source, y: judge_score}
+  - id: codex_no_memory_readers
+    title: Codex reader with workspace files and no memory artifact
+    experiments: [codex_readers]
+    group_by: [generation, reader_model]
+    plots:
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: locomo_f1}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: judge_score}
+  - id: codex_readers_year
+    title: Codex workspace reader year moves (2026 harness × model year)
+    experiments: [codex_readers]
+    group_by: [generation, reader_model]
+    plots:
+      - {kind: line, x: generation, y: judge_score}
+      - {kind: line, x: generation, y: locomo_f1}
+  - id: codex_readers_audit
+    title: Codex reader tool-calling audit
+    experiments: [codex_readers]
+    source: runs
+    group_by: [generation, reader_model]
+    metrics:
+      - n_web_search
+      - n_mcp
+      - used_non_workspace_tools
+      - n_retrieval_calls
+      - memory_recall
+      - harness_failed_rate
+    plots:
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: n_web_search}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: n_mcp}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: used_non_workspace_tools}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: n_retrieval_calls}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: memory_recall}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: harness_failed_rate}
+  - id: codex_readers_failure_modes
+    title: Codex workspace reader per-question failure modes
+    experiments: [codex_readers]
+    source: examples
+    group_by: [generation, reader_model, failure_mode]
+    metrics: [n]
+    plots:
+      - {kind: grouped_bar, x: failure_mode, hue: reader_model, y: n}
+  - id: codex_readers_j_vs_f1
+    title: Codex workspace J vs LoCoMo F1 vs token F1
+    experiments: [codex_readers]
+    source: examples
+    group_by: [generation, reader_model]
+    metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: judge_score}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: locomo_f1}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: answer_n_words}
+  - id: codex_readers_judge_vs_f1_cells
+    title: Codex workspace judge vs F1 disagreement
+    experiments: [codex_readers]
+    source: examples
+    group_by: [generation, judge_vs_f1]
+    metrics: [n, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: judge_vs_f1, hue: generation, y: n}
+  - id: codex_readers_recall_bins
+    title: Codex workspace gold-id coverage (chains)
+    experiments: [codex_readers]
+    source: examples
+    group_by: [generation, recall_bin]
+    metrics: [n, judge_score, locomo_f1, memory_recall]
+    plots:
+      - {kind: grouped_bar, x: recall_bin, hue: generation, y: n}
+      - {kind: grouped_bar, x: recall_bin, hue: generation, y: judge_score}
+  - id: codex_memory_writers
+    title: Codex summary/fact/graph writers with frozen GPT-4o-mini reader
+    experiments: [codex_writers]
+    group_by: [generation, writer_model, memory_method]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: writer_model, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, hue: writer_model, y: judge_score}
+      - {kind: line, x: generation, y: judge_score}
+  - id: codex_writers_year
+    title: Codex writer year moves (2026 harness × model year)
+    experiments: [codex_writers]
+    group_by: [generation, memory_method]
+    plots:
+      - {kind: line, x: generation, y: judge_score}
+      - {kind: line, x: generation, y: locomo_f1}
   - id: codex_end_to_end
     title: End-to-end persistent Codex workspace
     experiments: [codex_end_to_end]
-    group_by: [reader_model, memory_method]
+    group_by: [generation, reader_model]
     plots:
-      - {kind: grouped_bar, x: reader_model, y: locomo_f1}
-      - {kind: grouped_bar, x: reader_model, y: judge_score}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: locomo_f1}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: judge_score}
+  - id: codex_end_to_end_year
+    title: End-to-end Codex year moves (2026 harness × model year)
+    experiments: [codex_end_to_end]
+    group_by: [generation, reader_model]
+    plots:
+      - {kind: line, x: generation, y: judge_score}
+      - {kind: line, x: generation, y: locomo_f1}
+  - id: codex_end_to_end_audit
+    title: End-to-end Codex tool-calling audit
+    experiments: [codex_end_to_end]
+    source: runs
+    group_by: [generation, reader_model]
+    metrics:
+      - n_web_search
+      - n_mcp
+      - used_non_workspace_tools
+      - n_retrieval_calls
+      - memory_recall
+      - harness_failed_rate
+    plots:
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: n_web_search}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: n_mcp}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: used_non_workspace_tools}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: n_retrieval_calls}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: memory_recall}
+      - {kind: grouped_bar, x: generation, hue: reader_model, y: harness_failed_rate}
+  - id: codex_end_to_end_failure_modes
+    title: End-to-end Codex per-question failure modes
+    experiments: [codex_end_to_end]
+    source: examples
+    group_by: [generation, reader_model, failure_mode]
+    metrics: [n]
+    plots:
+      - {kind: grouped_bar, x: failure_mode, hue: reader_model, y: n}
+  - id: codex_end_to_end_hop
+    title: End-to-end first gold-id retrieve hop
+    experiments: [codex_end_to_end]
+    source: examples
+    group_by: [generation, hop_bin]
+    metrics: [n, judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: hop_bin, hue: generation, y: n}
+      - {kind: grouped_bar, x: hop_bin, hue: generation, y: judge_score}
+  - id: codex_end_to_end_qidx
+    title: End-to-end question index × category
+    experiments: [codex_end_to_end]
+    source: examples
+    group_by: [qidx_bin, question_category]
+    metrics: [n, judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: qidx_bin, hue: question_category, y: judge_score}
+
+insights:
+  - id: pin_vs_chat_2024
+    title: 2024 pins vs gpt-4o-mini Chat Completions (not a matched stack)
+    kind: pin_gaps
+    from: chat_readers_vs_paper_j
+    metric: judge_score
+    live_generation: "2024"
+  - id: pin_vs_chat_2025
+    title: 2024 pins vs gpt-5 Chat Completions (not a matched stack)
+    kind: pin_gaps
+    from: chat_readers_vs_paper_j
+    metric: judge_score
+    live_generation: "2025"
+  - id: pin_vs_chat_2026
+    title: 2024 pins vs GPT-5.6 Terra Chat Completions (not a matched stack)
+    kind: pin_gaps
+    from: chat_readers_vs_paper_j
+    metric: judge_score
+    live_generation: "2026"
+  - id: chat_reader_year_deltas
+    title: Chat Completions reader year moves
+    kind: year_deltas
+    from: chat_readers_year
+    metrics: [locomo_f1, judge_score]
+  - id: codex_reader_year_deltas
+    title: Codex workspace reader year moves (harness is 2026)
+    kind: year_deltas
+    from: codex_readers_year
+    metrics: [locomo_f1, judge_score]
+  - id: sandwich_writer_year_deltas
+    title: Sandwich writer year moves (Chat vs Codex harness)
+    kind: year_deltas
+    from: sandwich_writers_year
+    metrics: [locomo_f1, judge_score]
+
 experiments:
   readers:
     name: locomo-openai-agent-readers
     pack: experiments/locomo-openai-agent-readers
     role: reader_sweep
     family_from: reader
+    pretest:
+      n_cells: 21
+      scientific_claim: true
+      hypotheses:
+        - Mini / GPT-5 / Terra year moves on stuffed memory are a reader-sweep, not a sandwich.
+        - full_context / rag / openai_memory / mem0 / mem0g vs Table 2 is not a matched stack.
+  writers:
+    name: locomo-openai-agent-writers
+    pack: experiments/locomo-openai-agent-writers
+    role: sandwich
+    family_from: writer
+    pretest:
+      n_cells: 6
+      scientific_claim: true
+      hypotheses:
+        - Frozen mini reader; Chat Completions teachers vary by model year.
+        - teacher_session_summaries / teacher_graph are not paper Mem0 or Mem0g.
   codex_readers:
     name: locomo-openai-codex-readers
     pack: experiments/locomo-openai-codex-readers
     role: agent_reader
     family_from: reader
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Native Codex workspace answering is audit-only unless comparison_status is comparable.
+        - n_web_search and n_mcp stay at 0.
+        - Generation axis is backbone model year inside a 2026 Codex harness.
   codex_writers:
     name: locomo-openai-codex-writers
     pack: experiments/locomo-openai-codex-writers
     role: sandwich
     family_from: writer
+    pretest:
+      n_cells: 9
+      scientific_claim: false
+      hypotheses:
+        - Frozen mini Chat Completions reader; Codex writes summaries, facts, or graph.
+        - Overlapping methods vs Chat Completions teachers are a harness comparison, not paper Mem0.
   codex_end_to_end:
     name: locomo-openai-codex-end-to-end
     pack: experiments/locomo-openai-codex-end-to-end
     role: agent_end_to_end
     family_from: reader
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Persistent workspace is an agent-system baseline, not a frozen-reader sandwich.
+        - n_web_search and n_mcp stay at 0.

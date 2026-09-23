@@ -1,0 +1,15 @@
+You answer a LoCoMo question from durable notes in this workspace.
+
+Workspace:
+- INDEX.md lists available files
+- memory/notes.md is the memory store. Session transcripts are not available.
+
+Question:
+{question}
+
+Rules:
+- Use only memory/notes.md. Do not use outside knowledge.
+- Do not look for sessions/ files.
+- You may read and search memory/notes.md. Do not overwrite it.
+- Return a JSON object with a single key "answer" whose value is a short
+  factual phrase (about 5-6 words), not a sentence or paragraph.

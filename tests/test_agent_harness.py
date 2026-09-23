@@ -32,11 +32,13 @@ from src.locomo_eval.agents.protocol import (
     EVENT_MCP,
     EVENT_RETRIEVE,
     EVENT_WEB_SEARCH,
+    EVENT_WRITE,
     AgentRequest,
     RetrievalEvent,
 )
 from src.locomo_eval.agents.comparison import (
     NOT_APPLICABLE,
+    comparison_status,
     contract_sha256,
     resolve_contract,
     validate_strict_contract,
@@ -49,7 +51,12 @@ from src.locomo_eval.agents.trajectory import (
     parse_codex_jsonl,
     parse_structured_answer,
 )
-from src.locomo_eval.agents.workspace import write_conversation_workspace
+from src.locomo_eval.agents.workspace import (
+    hide_session_files,
+    ingest_structured_notes,
+    snapshot_notes,
+    write_conversation_workspace,
+)
 from src.locomo_eval.dataset import load_conversations
 from src.locomo_eval.run import run_locomo_pipeline_with_memory_config
 from src.memorybench.expand_run_matrix import expand_run_matrix
@@ -103,6 +110,7 @@ def _overrides(data_path: Path, output_dir: Path, run_id: str) -> Namespace:
         max_samples=1,
         agent="mock",
         agent_persist="off",
+        agent_sessions="full",
         agent_tools="native",
     )
 
@@ -444,6 +452,29 @@ class TestComparisonContract(unittest.TestCase):
                 model_snapshot="gpt-5-pinned",
             )
 
+    def test_comparison_status_is_harness_failed_only_when_every_question_failed(self):
+        contract = {"strict": False}
+        self.assertEqual(
+            comparison_status(
+                contract, n_questions=100, n_harness_failed=2
+            ),
+            "incomparable",
+        )
+        self.assertEqual(
+            comparison_status(
+                contract, n_questions=100, n_harness_failed=100
+            ),
+            "harness_failed",
+        )
+        self.assertEqual(
+            comparison_status({"strict": True}, n_questions=10, n_harness_failed=0),
+            "comparable",
+        )
+        self.assertEqual(
+            comparison_status(contract, harness_failed=True),
+            "harness_failed",
+        )
+
 
 class TestAgentMatrixExpansion(unittest.TestCase):
     def test_poc_expands_to_one_mock_workspace_cell(self):
@@ -508,12 +539,183 @@ class TestMockAgentPipelineSmoke(unittest.TestCase):
             self.assertEqual(summary["agent"]["n_web_search_sum"], 0)
             self.assertEqual(summary["agent"]["n_mcp_sum"], 0)
             self.assertEqual(summary["agent"]["used_non_workspace_tools_rate"], 0.0)
+            self.assertEqual(summary["agent"]["n_harness_failed"], 0)
+            self.assertEqual(summary["agent"]["harness_failed_rate"], 0.0)
             self.assertFalse(pred["used_non_workspace_tools"])
             attr = json.loads(
                 (run_dir / "attribution.jsonl").read_text(encoding="utf-8").splitlines()[0]
             )
             self.assertEqual(attr["role"], "agent")
             self.assertEqual(attr["layer"], "read")
+
+
+class TestPersistNotesAndIsolation(unittest.TestCase):
+    def test_classify_notes_append_as_write_not_retrieve(self):
+        self.assertEqual(
+            classify_event("shell", ">> memory/notes.md", "- (D1:1) Alice: paints"),
+            EVENT_WRITE,
+        )
+        self.assertEqual(
+            classify_event("write", "memory/notes.md", "- (D1:1) Alice: paints"),
+            EVENT_WRITE,
+        )
+
+    def test_hop_to_evidence_is_first_retrieve_step_with_gold_id(self):
+        events = [
+            RetrievalEvent(
+                step=1, kind="catalog", tool="read", target="INDEX.md", retrieved_text="Sessions"
+            ),
+            RetrievalEvent(
+                step=2,
+                kind="retrieve",
+                tool="read",
+                target="sessions/session_2.md",
+                retrieved_text="Alice adopted a cat (D2:1)",
+            ),
+            RetrievalEvent(
+                step=3,
+                kind="retrieve",
+                tool="read",
+                target="sessions/session_1.md",
+                retrieved_text="Alice started painting (D1:1)",
+            ),
+        ]
+        traj = build_trajectory(events, evidence_ids=["D1:1"])
+        self.assertEqual(traj.hop_to_evidence, 3)
+        self.assertFalse(traj.notes_retrieved)
+        self.assertEqual(traj.n_write_events, 0)
+
+    def test_persist_off_workspace_prompt_does_not_mention_notes(self):
+        text = (ROOT / "prompts" / "agents" / "qa_workspace_v1.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("notes.md", text.lower())
+        self.assertIn("5-6 words", text)
+
+    def test_notes_only_hides_sessions_and_keeps_dia_id_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "locomo.json"
+            _write_mini(data)
+            conv = load_conversations(data)[0]
+            dest = Path(tmp) / "ws"
+            write_conversation_workspace(conv, dest, persist_memory=True)
+            ingest_structured_notes(conv, dest)
+            hide_session_files(dest)
+            self.assertFalse((dest / "sessions").is_dir())
+            self.assertTrue((dest / "sessions_hidden" / "session_1.md").is_file())
+            notes = (dest / "memory" / "notes.md").read_text(encoding="utf-8")
+            self.assertIn("D1:1", notes)
+            self.assertIn("Alice: I started painting.", notes)
+            index = (dest / "INDEX.md").read_text(encoding="utf-8")
+            self.assertIn("memory/notes.md", index)
+            self.assertNotIn("sessions/session_1.md", index)
+
+    def test_snapshot_notes_records_growth_after_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "ws"
+            dest.mkdir()
+            notes = dest / "memory"
+            notes.mkdir()
+            (notes / "notes.md").write_text("# Harness memory\n\n", encoding="utf-8")
+            snap = Path(tmp) / "snaps"
+            first = snapshot_notes(dest, snap, question_id="q1")
+            (notes / "notes.md").write_text(
+                "# Harness memory\n\n- (D1:1) Alice: paints\n", encoding="utf-8"
+            )
+            second = snapshot_notes(
+                dest,
+                snap,
+                question_id="q2",
+                previous_sha256=str(first["notes_sha256"]),
+            )
+            self.assertFalse(first["notes_grew"])
+            self.assertTrue(second["notes_grew"])
+            self.assertGreater(int(second["notes_bytes"]), int(first["notes_bytes"]))
+            self.assertTrue((snap / "q2.md").is_file())
+
+    def test_persist_on_mock_run_writes_notes_ledger_and_write_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "locomo.json"
+            _write_mini(data)
+            out = Path(tmp) / "experiments"
+            cfg = load_config(ROOT / "configs" / "writers" / "workspace_files.yaml")
+            cfg["data"]["raw_path"] = str(data)
+            overrides = _overrides(data, out, "smoke_persist")
+            overrides.agent_persist = "on"
+            with redirect_stdout(io.StringIO()):
+                run_dir = run_locomo_pipeline_with_memory_config(cfg, overrides)
+            ledger = run_dir / "agent" / "notes_ledger.jsonl"
+            self.assertTrue(ledger.is_file())
+            rec = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+            self.assertGreater(int(rec["notes_bytes"]), 0)
+            pred = json.loads(
+                (run_dir / "predictions.jsonl").read_text(encoding="utf-8").splitlines()[0]
+            )
+            self.assertGreaterEqual(int(pred.get("n_write_events") or 0), 1)
+            self.assertTrue(pred.get("notes_retrieved"))
+            self.assertEqual(pred.get("agent_sessions"), "full")
+            self.assertTrue(
+                (run_dir / "agent" / "notes_snapshots" / "conv-agent" / "conv-agent-q-0.md").is_file()
+            )
+
+    def test_notes_only_mock_run_cannot_read_session_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "locomo.json"
+            _write_mini(data)
+            out = Path(tmp) / "experiments"
+            cfg = load_config(ROOT / "configs" / "writers" / "workspace_files.yaml")
+            cfg["data"]["raw_path"] = str(data)
+            overrides = _overrides(data, out, "smoke_notes_only")
+            overrides.agent_persist = "on"
+            overrides.agent_sessions = "notes_only"
+            with redirect_stdout(io.StringIO()):
+                run_dir = run_locomo_pipeline_with_memory_config(cfg, overrides)
+            ws = run_dir / "agent" / "workspaces" / "conv-agent"
+            self.assertFalse((ws / "sessions").is_dir())
+            self.assertTrue((ws / "memory" / "notes.md").is_file())
+            pred = json.loads(
+                (run_dir / "predictions.jsonl").read_text(encoding="utf-8").splitlines()[0]
+            )
+            self.assertEqual(pred.get("agent_sessions"), "notes_only")
+            self.assertTrue(pred.get("notes_retrieved"))
+            meta = json.loads((run_dir / "run_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta.get("agent_sessions"), "notes_only")
+            self.assertIn("qa_workspace_notes_only_v1", meta.get("prompt_path") or "")
+
+
+class TestPersistMemoryMatrix(unittest.TestCase):
+    def test_persist_memory_expands_to_three_cells_and_rejects_off_notes_only(self):
+        specs = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT / "configs" / "experiments" / "openai_codex_persist_memory.yaml"
+            )
+        )
+        self.assertEqual(len(specs), 3)
+        pairs = {(s.agent_persist, s.agent_sessions, s.prompt_path) for s in specs}
+        self.assertEqual(
+            pairs,
+            {
+                (
+                    False,
+                    "full",
+                    "prompts/agents/qa_workspace_v1.txt",
+                ),
+                (
+                    True,
+                    "full",
+                    "prompts/agents/qa_workspace_persist_v1.txt",
+                ),
+                (
+                    True,
+                    "notes_only",
+                    "prompts/agents/qa_workspace_notes_only_v1.txt",
+                ),
+            },
+        )
+        for spec in specs:
+            self.assertEqual(spec.memory_method, "workspace_files")
+            self.assertEqual(spec.agent, "codex")
+            self.assertEqual(spec.reader.catalog_id, "gpt-4o-mini")
 
 
 if __name__ == "__main__":

@@ -35,6 +35,9 @@ def score_agent_row(
         "unnecessary_retrievals": trajectory.unnecessary_retrievals,
         "n_web_search": trajectory.n_web_search,
         "n_mcp": trajectory.n_mcp,
+        "n_write_events": trajectory.n_write_events,
+        "hop_to_evidence": trajectory.hop_to_evidence,
+        "notes_retrieved": trajectory.notes_retrieved,
         "used_non_workspace_tools": trajectory.used_non_workspace_tools,
         "failure_mode": mode,
         "harness_failed": trajectory.harness_failed,
@@ -56,7 +59,12 @@ def summarize_agent_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "evidence_retrieved_rate": None,
             "n_web_search_sum": None,
             "n_mcp_sum": None,
+            "n_write_events_mean": None,
+            "hop_to_evidence_mean": None,
+            "notes_retrieved_rate": None,
             "used_non_workspace_tools_rate": None,
+            "n_harness_failed": 0,
+            "harness_failed_rate": None,
             "failure_modes": {},
         }
     n = len(rows)
@@ -65,12 +73,15 @@ def summarize_agent_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         r["memory_precision"] for r in rows if r.get("memory_precision") is not None
     ]
     hits = [r.get("evidence_retrieved") for r in rows if r.get("evidence_retrieved") is not None]
+    n_harness_failed = sum(1 for r in rows if r.get("harness_failed"))
     modes: dict[str, int] = {}
     for row in rows:
         key = str(row.get("failure_mode") or "unknown")
         modes[key] = modes.get(key, 0) + 1
     return {
         "n_questions": n,
+        "n_harness_failed": n_harness_failed,
+        "harness_failed_rate": n_harness_failed / n,
         "n_retrieval_calls_mean": _mean(
             [r.get("n_retrieval_calls") for r in rows]
         ),
@@ -85,6 +96,11 @@ def summarize_agent_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "n_web_search_sum": sum(int(r.get("n_web_search") or 0) for r in rows),
         "n_mcp_sum": sum(int(r.get("n_mcp") or 0) for r in rows),
+        "n_write_events_mean": _mean([r.get("n_write_events") for r in rows]),
+        "hop_to_evidence_mean": _mean([r.get("hop_to_evidence") for r in rows]),
+        "notes_retrieved_rate": _mean(
+            [bool(r.get("notes_retrieved")) for r in rows]
+        ),
         "used_non_workspace_tools_rate": _mean(
             [bool(r.get("used_non_workspace_tools")) for r in rows]
         ),

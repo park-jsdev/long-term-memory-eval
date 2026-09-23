@@ -26,6 +26,7 @@ FAILURE_HARNESS = "harness_execution_failure"
 # Navigation reads (INDEX.md) are not scored as evidence retrieval.
 EVENT_CATALOG = "catalog"
 EVENT_RETRIEVE = "retrieve"
+EVENT_WRITE = "write"
 EVENT_OTHER = "other"
 EVENT_ERROR = "error"
 # Hosted search / MCP are outside the workspace. Not evidence; audited.
@@ -75,6 +76,9 @@ class RetrievalTrajectory:
     unnecessary_retrievals: int = 0
     n_web_search: int = 0
     n_mcp: int = 0
+    n_write_events: int = 0
+    hop_to_evidence: int | None = None
+    notes_retrieved: bool = False
     used_non_workspace_tools: bool = False
     harness_failed: bool = False
     harness_failure_reason: str | None = None
@@ -139,6 +143,9 @@ class AgentResult:
             "evidence_retrieved": self.trajectory.evidence_retrieved,
             "n_web_search": self.trajectory.n_web_search,
             "n_mcp": self.trajectory.n_mcp,
+            "n_write_events": self.trajectory.n_write_events,
+            "hop_to_evidence": self.trajectory.hop_to_evidence,
+            "notes_retrieved": self.trajectory.notes_retrieved,
             "used_non_workspace_tools": self.trajectory.used_non_workspace_tools,
             "web_search": self.call_meta.get("web_search"),
             "argv": self.call_meta.get("argv"),

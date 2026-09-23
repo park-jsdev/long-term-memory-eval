@@ -184,6 +184,8 @@ def _qa_argv(
             argv.extend(["--agent-persist", "off"])
         elif spec.agent_persist is True:
             argv.extend(["--agent-persist", "on"])
+        if spec.agent_sessions:
+            argv.extend(["--agent-sessions", str(spec.agent_sessions)])
         if spec.agent_tools:
             argv.extend(["--agent-tools", str(spec.agent_tools)])
     return argv

@@ -13,7 +13,13 @@ from .protocol import (
     AgentResult,
     AgentRunner,
 )
-from .workspace import WorkspaceFilesMemoryBuilder, render_agent_prompt
+from .workspace import (
+    WorkspaceFilesMemoryBuilder,
+    hide_session_files,
+    ingest_structured_notes,
+    render_agent_prompt,
+    snapshot_notes,
+)
 
 
 def get_agent_runner(
@@ -29,7 +35,9 @@ def get_agent_runner(
     if key in ("", "none"):
         raise ValueError("get_agent_runner requires an adapter id (mock, codex, …)")
     if key == "mock":
-        return MockAgentRunner(model_name=model or "mock")
+        return MockAgentRunner(
+            model_name=model or "mock", persist_memory=persist_memory
+        )
     if key == "codex":
         return CodexAgentRunner(
             model_name=model,
@@ -53,6 +61,9 @@ __all__ = [
     "AgentRunner",
     "WorkspaceFilesMemoryBuilder",
     "get_agent_runner",
+    "hide_session_files",
+    "ingest_structured_notes",
     "render_agent_prompt",
     "resolve_codex_bin",
+    "snapshot_notes",
 ]

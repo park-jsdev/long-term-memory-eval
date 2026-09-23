@@ -1,6 +1,8 @@
 # End-to-end Codex: one persistent workspace per conversation, so the harness
-# may read session files, write durable notes, and answer. It is not a frozen-
-# reader sandwich condition; report it as an agent-system baseline.
+# may read session files, write durable notes, and answer. Sessions stay
+# visible — this is a write ablation, not notes_only. Memory-method isolation
+# is configs/experiments/openai_codex_persist_memory.yaml. Persist-on cells
+# auto-select prompts/agents/qa_workspace_persist_v1.txt.
 experiment:
   name: locomo-openai-codex-end-to-end
   type: sweep

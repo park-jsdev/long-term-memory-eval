@@ -52,7 +52,13 @@ from src.locomo_eval.memory import (
     is_question_independent,
     resolve_memory_name,
 )
-from src.locomo_eval.agents import get_agent_runner, render_agent_prompt
+from src.locomo_eval.agents import (
+    get_agent_runner,
+    hide_session_files,
+    ingest_structured_notes,
+    render_agent_prompt,
+    snapshot_notes,
+)
 from src.locomo_eval.agents.comparison import (
     comparison_status,
     contract_sha256,
@@ -82,7 +88,14 @@ from src.locomo_eval.memory_log import (
 )
 from src.locomo_eval.experiments.audit_layout import audit_layout_meta
 from src.locomo_eval.models import resolve_model
-from src.locomo_eval.prompts import load_prompt_template, locate_prompt_file
+from src.locomo_eval.prompts import (
+    INGEST_NOTES_V1,
+    QA_WORKSPACE_NOTES_ONLY_V1,
+    QA_WORKSPACE_PERSIST_V1,
+    QA_WORKSPACE_V1,
+    load_prompt_template,
+    locate_prompt_file,
+)
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
@@ -304,6 +317,14 @@ def _resolve_agent_run(
     else:
         persist = _as_bool(acfg.get("persist_memory"), False)
     tools = getattr(overrides, "agent_tools", None) or acfg.get("tools") or "native"
+    sessions_flag = getattr(overrides, "agent_sessions", None) or acfg.get("sessions") or "full"
+    sessions = str(sessions_flag).strip().lower()
+    if sessions in ("on", "true"):
+        sessions = "full"
+    if sessions not in ("full", "notes_only"):
+        raise SystemExit(f"agent sessions must be full or notes_only, got {sessions_flag!r}")
+    if sessions == "notes_only" and not persist:
+        raise SystemExit("agent_sessions=notes_only requires persist on")
     answer_mode = getattr(overrides, "answer_mode", None) or (
         (cfg.get("pipeline") or {}).get("answer_mode") or "reader"
     )
@@ -319,6 +340,7 @@ def _resolve_agent_run(
             "model": None,
             "persist_memory": persist,
             "tools": str(tools),
+            "sessions": "full",
         }
     adapter = str(adapter or acfg.get("adapter") or "mock").strip().lower()
     model = (
@@ -336,9 +358,19 @@ def _resolve_agent_run(
         "model": model,
         "persist_memory": persist,
         "tools": str(tools),
+        "sessions": sessions,
         "timeout_s": float(acfg.get("timeout_s") or 600),
         "codex_bin": acfg.get("codex_bin"),
     }
+
+
+def _select_workspace_prompt(agent_run: dict[str, Any], requested: Path) -> Path:
+    """Persist-off never mentions notes; notes_only uses the isolation prompt."""
+    if str(agent_run.get("sessions") or "full") == "notes_only":
+        return locate_prompt_file(QA_WORKSPACE_NOTES_ONLY_V1)
+    if agent_run.get("persist_memory"):
+        return locate_prompt_file(QA_WORKSPACE_PERSIST_V1)
+    return locate_prompt_file(QA_WORKSPACE_V1)
 
 
 def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
@@ -605,6 +637,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             "(conversation files). Use full_context for model-only one-shot."
         )
     prompt_path = locate_prompt_file(overrides.prompt or cfg["pipeline"]["prompt_path"])
+    if agent_run.get("enabled"):
+        prompt_path = _select_workspace_prompt(agent_run, prompt_path)
     max_questions = overrides.max_questions
     if max_questions is None:
         max_questions = cfg["pipeline"].get("max_questions")
@@ -640,6 +674,12 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         cfg_snapshot,
         config_entry=getattr(overrides, "config", None),
     )
+    if agent_run.get("enabled") and str(agent_run.get("sessions") or "full") == "notes_only":
+        ingest_src = locate_prompt_file(INGEST_NOTES_V1)
+        dest = run_dir / "prompts" / ingest_src.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.is_file():
+            shutil.copy2(ingest_src, dest)
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
@@ -810,6 +850,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     agent_trajectories: list[dict] = []
     agent_events: list[dict] = []
     trajectories_by_qid: dict[str, Any] = {}
+    notes_ledger: list[dict[str, Any]] = []
+    ingested_samples: set[str] = set()
+    notes_sha_by_sample: dict[str, str] = {}
     n_api = 0
     used_memories: dict[str, Memory] = {}
     used_memories_by_question: dict[str, Memory] = {}
@@ -838,10 +881,38 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                     raise RuntimeError(
                         f"workspace_files missing for sample {conv.sample_id}"
                     )
+                workspace_dir = Path(workspace_dir)
+                notes_only = str(agent_run.get("sessions") or "full") == "notes_only"
+                if notes_only and conv.sample_id not in ingested_samples:
+                    if agent_run.get("adapter") == "mock":
+                        ingest_structured_notes(conv, workspace_dir)
+                    else:
+                        _, ingest_template = load_prompt_template(INGEST_NOTES_V1)
+                        agent_runner.run(
+                            AgentRequest(
+                                workspace_dir=workspace_dir,
+                                sample_id=conv.sample_id,
+                                question_id=f"{conv.sample_id}-ingest",
+                                question="",
+                                prompt=ingest_template,
+                                evidence_ids=[],
+                                tool_budget=(comparison_contract or {}).get("tool_budget")
+                                or {},
+                            )
+                        )
+                    snap_dir = run_dir / "agent" / "notes_snapshots" / conv.sample_id
+                    rec = snapshot_notes(
+                        workspace_dir, snap_dir, question_id="_ingest"
+                    )
+                    rec["sample_id"] = conv.sample_id
+                    notes_ledger.append(rec)
+                    notes_sha_by_sample[conv.sample_id] = str(rec.get("notes_sha256") or "")
+                    hide_session_files(workspace_dir)
+                    ingested_samples.add(conv.sample_id)
                 filled = render_agent_prompt(prompt_template, q.question)
                 result = agent_runner.run(
                     AgentRequest(
-                        workspace_dir=Path(workspace_dir),
+                        workspace_dir=workspace_dir,
                         sample_id=conv.sample_id,
                         question_id=q.question_id,
                         question=q.question,
@@ -886,6 +957,22 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         prompt_version=prompt_version,
                     )
                 )
+                if agent_run.get("persist_memory"):
+                    snap_dir = run_dir / "agent" / "notes_snapshots" / conv.sample_id
+                    rec = snapshot_notes(
+                        Path(workspace_dir),
+                        snap_dir,
+                        question_id=q.question_id,
+                        previous_sha256=notes_sha_by_sample.get(conv.sample_id),
+                    )
+                    rec["sample_id"] = conv.sample_id
+                    notes_ledger.append(rec)
+                    notes_sha_by_sample[conv.sample_id] = str(
+                        rec.get("notes_sha256") or ""
+                    )
+                    last_notes_rec = rec
+                else:
+                    last_notes_rec = None
             else:
                 answer, meta = reader.answer(memory.text, q.question, prompt_template)
             n_api += 1
@@ -916,6 +1003,11 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 row["agent"] = answer_provider
                 row["agent_persist"] = agent_run.get("persist_memory")
                 row["agent_tools"] = agent_run.get("tools")
+                row["agent_sessions"] = agent_run.get("sessions")
+                if last_notes_rec is not None:
+                    row["notes_bytes"] = last_notes_rec.get("notes_bytes")
+                    row["notes_words"] = last_notes_rec.get("notes_words")
+                    row["notes_grew"] = last_notes_rec.get("notes_grew")
             prediction_rows.append(row)
             reader_traces.append(
                 {
@@ -1053,11 +1145,13 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             agent_metric_rows.append(extra)
         summary["agent"] = summarize_agent_rows(agent_metric_rows)
     if comparison_contract is not None:
+        n_harness_failed = sum(
+            1 for row in agent_metric_rows if row.get("harness_failed")
+        )
         comparison_contract["status"] = comparison_status(
             comparison_contract,
-            harness_failed=any(
-                bool(row.get("harness_failed")) for row in agent_metric_rows
-            ),
+            n_questions=len(agent_metric_rows),
+            n_harness_failed=n_harness_failed,
         )
         comparison_contract["sha256"] = contract_sha256(comparison_contract)
 
@@ -1118,6 +1212,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "agent": agent_run.get("adapter") if agent_runner is not None else None,
         "agent_persist": agent_run.get("persist_memory") if agent_runner is not None else None,
         "agent_tools": agent_run.get("tools") if agent_runner is not None else None,
+        "agent_sessions": agent_run.get("sessions") if agent_runner is not None else None,
         "agent_model": answer_model_name if agent_runner is not None else None,
         "agent_adapter": answer_provider if agent_runner is not None else None,
         "comparison_contract": comparison_contract,
@@ -1146,6 +1241,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         print("Agent audit:")
         for k, v in agent_paths.items():
             print(f"  {k}: {v}")
+        if notes_ledger:
+            ledger_path = run_dir / "agent" / "notes_ledger.jsonl"
+            write_jsonl(ledger_path, notes_ledger)
+            print(f"  notes_ledger: {ledger_path}")
     claim_paths = write_claim_audit(
         run_dir,
         prediction_rows=prediction_rows,
@@ -1203,6 +1302,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=("on", "off"),
         help="Agent-specific persistent memory (Codex ephemeral vs workspace notes)",
+    )
+    p.add_argument(
+        "--agent-sessions",
+        default=None,
+        choices=("full", "notes_only"),
+        help="full = session files visible; notes_only = ingest then hide sessions",
     )
     p.add_argument(
         "--agent-tools",

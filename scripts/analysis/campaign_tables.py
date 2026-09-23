@@ -18,7 +18,39 @@ from src.metrics.locomo_qa import CATEGORY_NAMES
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GENERATION_LOOKUP: dict[str, str] | None = None
 GENERATION_AXIS = ("2024", "2025", "2026")
-_RESULT_SOURCE_ORDER = {"paper": 0, "local_clone": 1, "live": 2}
+READER_STACK_AXIS = (
+    "2024 mini model-only",
+    "2024 mini + Codex",
+    "2025 GPT-5 model-only",
+    "2026 Terra model-only",
+)
+COMPARE_SOURCE_CODEX = "gpt-4o-mini + Codex"
+COMPARE_SOURCE_LIVE = "live model"
+COMPARE_SOURCE_AXIS = (
+    "paper",
+    "local clone",
+    COMPARE_SOURCE_LIVE,
+    COMPARE_SOURCE_CODEX,
+    "2025 GPT-5 model-only",
+    "2026 Terra model-only",
+)
+LIVE_SOURCE_AXIS = ("paper", COMPARE_SOURCE_LIVE, COMPARE_SOURCE_CODEX)
+PAPER_METHOD_AXIS = (
+    "full_context",
+    "rag",
+    "openai_memory",
+    "mem0",
+    "mem0g",
+    "session_summaries",
+)
+_RESULT_SOURCE_ORDER = {
+    "paper": 0,
+    "local_clone": 1,
+    "local clone": 1,
+    "live": 2,
+    COMPARE_SOURCE_LIVE: 2,
+    COMPARE_SOURCE_CODEX: 3,
+}
 
 
 def annotate_model_family(df: pd.DataFrame, family_from: str = "reader") -> pd.DataFrame:
@@ -88,6 +120,22 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
         order = {year: i for i, year in enumerate(GENERATION_AXIS)}
         out["_gen_ord"] = out["generation"].map(lambda v: order.get(str(v), 9))
         sort_cols.append("_gen_ord")
+    if "reader_stack" in out.columns:
+        order = {label: i for i, label in enumerate(READER_STACK_AXIS)}
+        out["_stack_ord"] = out["reader_stack"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_stack_ord")
+    if "paper_method" in out.columns:
+        order = {label: i for i, label in enumerate(PAPER_METHOD_AXIS)}
+        out["_paper_ord"] = out["paper_method"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_paper_ord")
+    if "compare_source" in out.columns:
+        order = {label: i for i, label in enumerate(COMPARE_SOURCE_AXIS)}
+        out["_cmp_ord"] = out["compare_source"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_cmp_ord")
+    if "live_source" in out.columns:
+        order = {label: i for i, label in enumerate(LIVE_SOURCE_AXIS)}
+        out["_live_ord"] = out["live_source"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_live_ord")
     if "model_family" in out.columns:
         sort_cols.append("model_family")
     if "memory_method" in out.columns:
@@ -106,7 +154,21 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
     if not sort_cols:
         return out
     out = out.sort_values(sort_cols, kind="mergesort").reset_index(drop=True)
-    return out.drop(columns=[c for c in ("_gen_ord", "_src_ord", "_think_ord") if c in out.columns])
+    return out.drop(
+        columns=[
+            c
+            for c in (
+                "_gen_ord",
+                "_src_ord",
+                "_think_ord",
+                "_stack_ord",
+                "_paper_ord",
+                "_cmp_ord",
+                "_live_ord",
+            )
+            if c in out.columns
+        ]
+    )
 
 
 def _thinking_token(value: Any) -> str | None:
@@ -384,52 +446,804 @@ def annotate_mem0_latency(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# Pack metrics.json includes category 5. Overall campaign tables follow Mem0.
+RUN_SCORE_METRICS = ("judge_score", "locomo_f1", "token_f1", "exact_match")
+
+
 def attach_run_judge_score(
     runs: pd.DataFrame, examples: pd.DataFrame
 ) -> pd.DataFrame:
-    """Copy cat-5-excluded mean J from examples onto each runs row.
+    """Copy cat-5-excluded mean J / F1 / EM from examples onto each runs row.
 
-    ``runs.parquet`` stores pack LoCoMo F1, not Mem0 J. Campaign recipes still
-    ask for ``judge_score`` on ``source: runs``. Do not leave J blank and let
-    plots fall back to locomo_f1.
+    ``runs.parquet`` stores pack LoCoMo F1 (all categories) and has no J.
+    Overall campaign tables follow Mem0: drop adversarial category 5 so
+    ``source: runs`` F1 matches ``source: examples`` overalls. Keep pack
+    values when a run has no example rows. Do not reuse this drop for
+    tool-audit counts.
     """
     if runs.empty or examples.empty:
         return runs
     if "run_id" not in runs.columns or "run_id" not in examples.columns:
         return runs
-    if "judge_score" not in examples.columns:
-        return runs
-    if "judge_score" in runs.columns and pd.to_numeric(
-        runs["judge_score"], errors="coerce"
-    ).notna().any():
-        return runs
     work = examples
     if "question_category" in work.columns:
         category = pd.to_numeric(work["question_category"], errors="coerce")
         work = work.loc[~category.isin({5})]
-    means = (
-        pd.to_numeric(work["judge_score"], errors="coerce")
-        .groupby(work["run_id"])
-        .mean()
-        .rename("judge_score")
+    out = runs.copy()
+    for col in RUN_SCORE_METRICS:
+        if col not in work.columns:
+            continue
+        means = pd.to_numeric(work[col], errors="coerce").groupby(work["run_id"]).mean()
+        if means.empty or int(means.notna().sum()) == 0:
+            continue
+        overlay = out["run_id"].map(means)
+        if col in out.columns:
+            out[col] = overlay.where(overlay.notna(), out[col])
+        else:
+            out[col] = overlay
+    return out
+
+
+AGENT_AUDIT_METRICS = (
+    "n_web_search",
+    "n_mcp",
+    "used_non_workspace_tools",
+    "n_retrieval_calls",
+    "memory_recall",
+    "n_write_events",
+    "hop_to_evidence",
+    "notes_retrieved",
+    "notes_bytes",
+)
+_IDENTITY_COLS = (
+    "agent",
+    "agent_persist",
+    "agent_sessions",
+    "agent_tools",
+    "comparison_status",
+    "writer_provider",
+)
+
+
+def attach_run_agent_audit(
+    runs: pd.DataFrame, examples: pd.DataFrame
+) -> pd.DataFrame:
+    """Copy per-run mean tool-audit columns from examples onto runs.
+
+    Counts include LoCoMo category 5. A web_search on an adversarial
+    question is still a policy breach. Do not reuse the J cat-5 drop.
+    """
+    if runs.empty or examples.empty:
+        return runs
+    if "run_id" not in runs.columns or "run_id" not in examples.columns:
+        return runs
+    cols = [c for c in AGENT_AUDIT_METRICS if c in examples.columns]
+    if not cols:
+        return runs
+    work = examples[["run_id", *cols]].copy()
+    for col in cols:
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    means = work.groupby("run_id", dropna=False)[cols].mean().reset_index()
+    out = runs.copy()
+    keep = ["run_id"]
+    for col in cols:
+        if col in out.columns and pd.to_numeric(out[col], errors="coerce").notna().any():
+            continue
+        if col in out.columns:
+            out = out.drop(columns=[col])
+        keep.append(col)
+    if keep == ["run_id"]:
+        return out
+    return out.merge(means[keep], on="run_id", how="left")
+
+
+FAILURE_HARNESS = "harness_execution_failure"
+FAILURE_MODE_LABELS = {
+    "none": "correct (with evidence)",
+    "parametric_success": "correct (no gold evidence)",
+    "reasoning_failure": "wrong after retrieve",
+    "retrieval_failure": "gold ids not retrieved",
+    "harness_execution_failure": "no workspace read",
+    "unjudged": "unjudged (no J)",
+}
+FAILURE_MODE_ORDER = (
+    "none",
+    "parametric_success",
+    "reasoning_failure",
+    "retrieval_failure",
+    "harness_execution_failure",
+    "unjudged",
+)
+RECALL_BIN_LABELS = {
+    "none": "no gold ids retrieved",
+    "partial": "partial gold-id chain",
+    "full": "all gold ids retrieved",
+    "no_gold_ids": "no gold evidence ids",
+}
+RECALL_BIN_ORDER = ("none", "partial", "full", "no_gold_ids")
+JUDGE_F1_LABELS = {
+    "both_correct": "J CORRECT and F1>0",
+    "j_only": "J CORRECT and F1=0 (paraphrase / verbose)",
+    "f1_only": "J WRONG and F1>0",
+    "both_wrong": "J WRONG and F1=0",
+    "unjudged": "unjudged (no J)",
+}
+JUDGE_F1_ORDER = (
+    "both_correct",
+    "j_only",
+    "f1_only",
+    "both_wrong",
+    "unjudged",
+)
+RETRIEVAL_CALLS_ORDER = ("0", "1", "2-3", "4-8", "9-20", "21+", "unknown")
+HOP_BIN_ORDER = ("1", "2", "3-4", "5-8", "9+", "never", "unknown")
+QIDX_BIN_ORDER = ("0-4", "5-9", "10-19", "20-39", "40+", "unknown")
+NOTES_BYTES_ORDER = ("empty", "1-256", "257-1k", "1k-4k", "4k+", "unknown")
+
+
+def repair_run_harness_status(
+    runs: pd.DataFrame, examples: pd.DataFrame
+) -> pd.DataFrame:
+    """Cell status is all-failed, not any-failed. Attach the per-question rate.
+
+    Finished packs may still store ``comparison_status=harness_failed`` from
+    the old ``any()`` rule. If any question had a successful workspace read,
+    relabel the cell ``incomparable`` (native Codex) and keep the rate.
+    """
+    if runs.empty or "run_id" not in runs.columns:
+        return runs
+    out = runs.copy()
+    if examples.empty or "run_id" not in examples.columns:
+        return out
+    failed = _harness_failed_mask(examples)
+    stats = (
+        pd.DataFrame(
+            {
+                "run_id": examples["run_id"],
+                "n_harness_failed": failed.astype(int),
+            }
+        )
+        .groupby("run_id", dropna=False)
+        .agg(n_harness_failed=("n_harness_failed", "sum"), n=("n_harness_failed", "size"))
         .reset_index()
     )
-    out = runs.copy()
-    if "judge_score" in out.columns:
-        out = out.drop(columns=["judge_score"])
-    return out.merge(means, on="run_id", how="left")
+    stats["harness_failed_rate"] = stats["n_harness_failed"] / stats["n"]
+    keep = ["run_id", "n_harness_failed", "harness_failed_rate"]
+    for col in ("n_harness_failed", "harness_failed_rate"):
+        if col in out.columns:
+            out = out.drop(columns=[col])
+    out = out.merge(stats[keep], on="run_id", how="left")
+    if "comparison_status" not in out.columns:
+        return out
+    status = out["comparison_status"].astype(str).str.strip().str.lower()
+    rate = pd.to_numeric(out["harness_failed_rate"], errors="coerce")
+    partial = status.eq("harness_failed") & rate.notna() & (rate < 1.0)
+    out.loc[partial, "comparison_status"] = "incomparable"
+    return out
+
+
+def copy_run_identity_to_examples(
+    examples: pd.DataFrame, runs: pd.DataFrame
+) -> pd.DataFrame:
+    """Copy persist / adapter from runs onto question rows.
+
+    ``examples.parquet`` often omits ``agent_persist`` even when the cell
+    row has it. Workspace recipes group on persist.
+    """
+    cols = [
+        c
+        for c in (
+            "agent",
+            "agent_persist",
+            "agent_sessions",
+            "agent_tools",
+            "comparison_status",
+        )
+        if c in runs.columns
+    ]
+    if examples.empty or runs.empty or not cols or "run_id" not in examples.columns:
+        return examples
+    ident = runs[["run_id", *cols]].drop_duplicates("run_id")
+    out = examples.merge(ident, on="run_id", how="left", suffixes=("", "_run"))
+    for col in cols:
+        run_col = f"{col}_run"
+        if run_col not in out.columns:
+            continue
+        if col not in out.columns:
+            out[col] = out[run_col]
+        else:
+            out[col] = out[col].where(_present(out[col]), out[run_col])
+        out = out.drop(columns=[run_col])
+    return out
+
+
+def annotate_workspace_diagnostics(df: pd.DataFrame) -> pd.DataFrame:
+    """Derived columns for harness J vs F1 and retrieval-chain tables.
+
+    LoCoMo F1 and Mem0 J use the same predicted string. F1 is token overlap
+    against short gold; J is a generous paraphrase judge. Packed JSON
+    wrappers are already stripped before scoring. ``recall_bin`` is gold
+    ``dia_id`` coverage across retrieve events (partial chains included).
+    ``failure_mode_judge`` reapplies the retrieve/reason split with J
+    instead of ``locomo_f1 > 0``.
+    """
+    if df.empty:
+        return df
+    out = df.copy()
+    if "generated_answer" in out.columns:
+        out["answer_n_words"] = [
+            len(str(v).split())
+            if v is not None and not (isinstance(v, float) and pd.isna(v))
+            else 0
+            for v in out["generated_answer"]
+        ]
+    if "reference_answer" in out.columns:
+        out["gold_n_words"] = [
+            len(str(v).split())
+            if v is not None and not (isinstance(v, float) and pd.isna(v))
+            else 0
+            for v in out["reference_answer"]
+        ]
+    if "memory_recall" in out.columns:
+        out["recall_bin"] = [
+            _recall_bin(v)
+            for v in pd.to_numeric(out["memory_recall"], errors="coerce")
+        ]
+    if "n_retrieval_calls" in out.columns:
+        out["retrieval_calls_bin"] = [
+            _retrieval_calls_bin(v)
+            for v in pd.to_numeric(out["n_retrieval_calls"], errors="coerce")
+        ]
+    if "judge_score" in out.columns or "locomo_f1" in out.columns:
+        judge = (
+            pd.to_numeric(out["judge_score"], errors="coerce")
+            if "judge_score" in out.columns
+            else pd.Series([float("nan")] * len(out), index=out.index)
+        )
+        f1 = (
+            pd.to_numeric(out["locomo_f1"], errors="coerce")
+            if "locomo_f1" in out.columns
+            else pd.Series([float("nan")] * len(out), index=out.index)
+        )
+        out["judge_vs_f1"] = [
+            _judge_vs_f1(j, s) for j, s in zip(judge.tolist(), f1.tolist())
+        ]
+        evidence = (
+            out["evidence_retrieved"]
+            if "evidence_retrieved" in out.columns
+            else pd.Series([None] * len(out), index=out.index)
+        )
+        harness = (
+            out["failure_mode"].astype(str).eq(FAILURE_HARNESS)
+            if "failure_mode" in out.columns
+            else pd.Series(False, index=out.index)
+        )
+        if "harness_failed" in out.columns:
+            harness = harness | out["harness_failed"].fillna(False).astype(bool)
+        out["failure_mode_judge"] = [
+            _failure_mode_judge(failed, ev, j)
+            for failed, ev, j in zip(
+                harness.tolist(), evidence.tolist(), judge.tolist()
+            )
+        ]
+    qids = (
+        out["question_id"]
+        if "question_id" in out.columns
+        else pd.Series([None] * len(out), index=out.index)
+    )
+    out["qidx"] = [_qidx_from_id(v) for v in qids]
+    out["qidx_bin"] = [_qidx_bin(v) for v in out["qidx"]]
+    if "hop_to_evidence" in out.columns:
+        out["hop_bin"] = [
+            _hop_bin(v) for v in pd.to_numeric(out["hop_to_evidence"], errors="coerce")
+        ]
+    if "notes_bytes" in out.columns:
+        out["notes_bytes_bin"] = [
+            _notes_bytes_bin(v)
+            for v in pd.to_numeric(out["notes_bytes"], errors="coerce")
+        ]
+    return out
+
+
+def _recall_bin(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "no_gold_ids"
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return "no_gold_ids"
+    if score <= 0:
+        return "none"
+    if score < 1:
+        return "partial"
+    return "full"
+
+
+def _hop_bin(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "never"
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if n <= 0:
+        return "never"
+    if n == 1:
+        return "1"
+    if n == 2:
+        return "2"
+    if n <= 4:
+        return "3-4"
+    if n <= 8:
+        return "5-8"
+    return "9+"
+
+
+def _qidx_from_id(question_id: Any) -> int | None:
+    qid = str(question_id or "")
+    marker = "-q-"
+    if marker in qid:
+        tail = qid.rsplit(marker, 1)[-1]
+        try:
+            return int(tail)
+        except ValueError:
+            return None
+    return None
+
+
+def _qidx_bin(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "unknown"
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if n < 0:
+        return "unknown"
+    if n <= 4:
+        return "0-4"
+    if n <= 9:
+        return "5-9"
+    if n <= 19:
+        return "10-19"
+    if n <= 39:
+        return "20-39"
+    return "40+"
+
+
+def _notes_bytes_bin(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "unknown"
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if n <= 0:
+        return "empty"
+    if n <= 256:
+        return "1-256"
+    if n <= 1024:
+        return "257-1k"
+    if n <= 4096:
+        return "1k-4k"
+    return "4k+"
+
+
+def _retrieval_calls_bin(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "unknown"
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if n <= 0:
+        return "0"
+    if n == 1:
+        return "1"
+    if n <= 3:
+        return "2-3"
+    if n <= 8:
+        return "4-8"
+    if n <= 20:
+        return "9-20"
+    return "21+"
+
+
+def _judge_vs_f1(judge: Any, f1: Any) -> str:
+    if judge is None or (isinstance(judge, float) and pd.isna(judge)):
+        return "unjudged"
+    j_ok = float(judge) >= 0.5
+    f1_ok = (
+        f1 is not None
+        and not (isinstance(f1, float) and pd.isna(f1))
+        and float(f1) > 0
+    )
+    if j_ok and f1_ok:
+        return "both_correct"
+    if j_ok:
+        return "j_only"
+    if f1_ok:
+        return "f1_only"
+    return "both_wrong"
+
+
+def _failure_mode_judge(harness_failed: Any, evidence: Any, judge: Any) -> str:
+    if bool(harness_failed):
+        return FAILURE_HARNESS
+    if judge is None or (isinstance(judge, float) and pd.isna(judge)):
+        return "unjudged"
+    if evidence is None or (isinstance(evidence, float) and pd.isna(evidence)):
+        ev = None
+    else:
+        ev = bool(evidence)
+    correct = float(judge) >= 0.5
+    if correct:
+        return "parametric_success" if ev is False else "none"
+    return "retrieval_failure" if ev is False else "reasoning_failure"
+
+
+def _harness_failed_mask(examples: pd.DataFrame) -> pd.Series:
+    if "failure_mode" in examples.columns:
+        return examples["failure_mode"].astype(str).eq(FAILURE_HARNESS)
+    if "harness_failed" in examples.columns:
+        return examples["harness_failed"].fillna(False).astype(bool)
+    return pd.Series(False, index=examples.index)
+
+
+def attach_agent_identity(
+    df: pd.DataFrame, pack: Path | None = None
+) -> pd.DataFrame:
+    """Fill agent / persist / comparison_status / writer_provider from the pack.
+
+    Older ``runs.parquet`` rows omit these even when the manifest and
+    ``run_meta.json`` recorded them. Backfill so audit recipes can group.
+    """
+    if df.empty or "run_id" not in df.columns:
+        return df
+    out = df.copy()
+    lookup = _agent_identity_lookup(pack) if pack is not None else {}
+    if lookup:
+        mapped = out["run_id"].map(lookup)
+        for col in _IDENTITY_COLS:
+            incoming = mapped.map(
+                lambda rec, c=col: (rec or {}).get(c) if isinstance(rec, dict) else None
+            )
+            if col not in out.columns:
+                out[col] = incoming
+            else:
+                out[col] = out[col].where(_present(out[col]), incoming)
+    if "agent" not in out.columns or not _present(out["agent"]).any():
+        if "agent_harness" in out.columns:
+            out["agent"] = out["agent_harness"]
+    if "agent" in out.columns:
+        out["agent"] = out["agent"].map(_agent_token)
+    return out
+
+
+def annotate_reader_stack(df: pd.DataFrame) -> pd.DataFrame:
+    """Label model-only vs Codex harness for the 2024–2026 J comparison.
+
+    Thinking-on year cells, DeepSeek, RAG, and persist-on workspace are
+    left unlabeled so YAML ``where: reader_stack`` drops them. Persist-off
+    Codex is the retrieval harness, not a memory-method cell.
+    """
+    if df.empty:
+        return df
+    out = df.copy()
+    n = len(out)
+    gens = out["generation"] if "generation" in out.columns else None
+    methods = out["memory_method"] if "memory_method" in out.columns else None
+    models = out["reader_model"] if "reader_model" in out.columns else None
+    families = out["model_family"] if "model_family" in out.columns else None
+    persist = out["agent_persist"] if "agent_persist" in out.columns else None
+    thinking = out["thinking"] if "thinking" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        if thinking is not None and _thinking_token(thinking.iloc[i]) == "on":
+            labels.append(None)
+            continue
+        family = None if families is None else families.iloc[i]
+        if (
+            family is not None
+            and not (isinstance(family, float) and pd.isna(family))
+            and str(family) not in ("", "nan", "None", "unknown")
+            and str(family) != "OpenAI"
+        ):
+            labels.append(None)
+            continue
+        method = "" if methods is None else str(methods.iloc[i] or "")
+        gen = "" if gens is None else str(gens.iloc[i] or "")
+        model = "" if models is None else str(models.iloc[i] or "").lower()
+        if method == "workspace_files":
+            flag = None if persist is None else persist.iloc[i]
+            if flag is True or str(flag).strip().lower() == "true":
+                labels.append(None)
+                continue
+            labels.append("2024 mini + Codex" if gen in {"2024", ""} or "mini" in model else f"{gen} + Codex")
+            continue
+        if method != "full_context":
+            labels.append(None)
+            continue
+        if gen == "2026" or "5.6" in model or "terra" in model:
+            labels.append("2026 Terra model-only")
+        elif gen == "2025" or model.startswith("gpt-5"):
+            labels.append("2025 GPT-5 model-only")
+        elif gen == "2024" or "mini" in model:
+            labels.append("2024 mini model-only")
+        else:
+            labels.append(None)
+    out["reader_stack"] = labels
+    return out
+
+
+def annotate_paper_compare(df: pd.DataFrame) -> pd.DataFrame:
+    """Align live cells to Table 2 method ids for paper / live / Codex plots.
+
+    ``compare_source`` keeps paper, local clone, live Chat Completions, Codex,
+    and 2025/2026 model-only as separate bars. ``live_source`` folds local
+    clone into live model for the methods plot (clone pins dropped when a
+    pack live-model row exists for that method). Persist-on workspace is
+    not the retrieval harness. Graph / summaries map only for Codex writers.
+    """
+    if df.empty:
+        return df
+    out = df.copy()
+    n = len(out)
+    methods = out["memory_method"] if "memory_method" in out.columns else None
+    persist = out["agent_persist"] if "agent_persist" in out.columns else None
+    harness = out["writer_harness"] if "writer_harness" in out.columns else None
+    providers = out["writer_provider"] if "writer_provider" in out.columns else None
+    names = out["experiment_name"] if "experiment_name" in out.columns else None
+    sources = out["result_source"] if "result_source" in out.columns else None
+    gens = out["generation"] if "generation" in out.columns else None
+    models = out["reader_model"] if "reader_model" in out.columns else None
+    families = out["model_family"] if "model_family" in out.columns else None
+    thinking = out["thinking"] if "thinking" in out.columns else None
+    paper_methods: list[str | None] = []
+    compare_sources: list[str | None] = []
+    for i in range(n):
+        method = "" if methods is None else str(methods.iloc[i] or "")
+        source = "" if sources is None else str(sources.iloc[i] or "")
+        pin = _pin_compare_source(source)
+        if pin is not None:
+            paper_methods.append(method or None)
+            compare_sources.append(pin)
+            continue
+        name = "" if names is None else str(names.iloc[i] or "")
+        mapped, live = _live_paper_compare(
+            method=method,
+            persist=None if persist is None else persist.iloc[i],
+            is_codex_writer=_is_codex_writer(
+                None if harness is None else harness.iloc[i]
+            )
+            or _is_codex_writer(
+                None if providers is None else providers.iloc[i]
+            )
+            or "codex" in name.lower(),
+            generation="" if gens is None else gens.iloc[i],
+            reader_model="" if models is None else models.iloc[i],
+            model_family="" if families is None else families.iloc[i],
+            thinking=None if thinking is None else thinking.iloc[i],
+        )
+        paper_methods.append(mapped)
+        compare_sources.append(live)
+    out["paper_method"] = paper_methods
+    out["compare_source"] = compare_sources
+    out["live_source"] = [
+        COMPARE_SOURCE_LIVE if src == "local clone" else src for src in compare_sources
+    ]
+    return out
+
+
+def _pin_compare_source(source: str) -> str | None:
+    key = str(source or "").strip()
+    if key == "paper":
+        return "paper"
+    if key in {"local_clone", "local clone"}:
+        return "local clone"
+    return None
+
+
+def _live_paper_compare(
+    *,
+    method: str,
+    persist: Any,
+    is_codex_writer: bool,
+    generation: Any,
+    reader_model: Any,
+    model_family: Any,
+    thinking: Any,
+) -> tuple[str | None, str | None]:
+    """Return (paper_method, compare_source) for a live pack cell."""
+    if method == "workspace_files":
+        if _truthy_flag(persist):
+            return method, None
+        return "full_context", COMPARE_SOURCE_CODEX
+    if method == "agent_codex_mem0_facts":
+        return "mem0", COMPARE_SOURCE_CODEX
+    if method == "full_context":
+        return "full_context", _full_context_live_source(
+            generation=generation,
+            reader_model=reader_model,
+            model_family=model_family,
+            thinking=thinking,
+        )
+    if not is_codex_writer:
+        return method or None, None
+    if method == "teacher_graph":
+        return "mem0g", COMPARE_SOURCE_CODEX
+    if method == "teacher_session_summaries":
+        return "session_summaries", COMPARE_SOURCE_CODEX
+    return method or None, None
+
+
+def _full_context_live_source(
+    *,
+    generation: Any,
+    reader_model: Any,
+    model_family: Any,
+    thinking: Any,
+) -> str | None:
+    if _thinking_token(thinking) == "on":
+        return None
+    family = "" if model_family is None else str(model_family)
+    if family not in ("", "nan", "None", "unknown", "OpenAI"):
+        return None
+    gen = "" if generation is None else str(generation or "")
+    model = "" if reader_model is None else str(reader_model or "").lower()
+    if gen == "2026" or "5.6" in model or "terra" in model:
+        return "2026 Terra model-only"
+    if gen == "2025" or model.startswith("gpt-5"):
+        return "2025 GPT-5 model-only"
+    return COMPARE_SOURCE_LIVE
+
+
+def _truthy_flag(value: Any) -> bool:
+    if value is True:
+        return True
+    if value is False or value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() in {"true", "1", "yes"}
+
+
+def _is_codex_writer(value: Any) -> bool:
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip().lower() == "codex"
+
+
+def annotate_writer_harness(df: pd.DataFrame) -> pd.DataFrame:
+    """``codex`` vs ``chat_completions`` for sandwich writer-family plots.
+
+    Codex sandwich cells use a frozen Chat Completions reader, so ``agent``
+    is none. The writer provider (or experiment name) is the harness.
+    """
+    out = df.copy()
+    if "writer_harness" in out.columns and _present(out["writer_harness"]).any():
+        return out
+    n = len(out)
+    providers = out["writer_provider"] if "writer_provider" in out.columns else None
+    names = out["experiment_name"] if "experiment_name" in out.columns else None
+    writers = out["writer_model"] if "writer_model" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        provider = None if providers is None else providers.iloc[i]
+        writer = None if writers is None else writers.iloc[i]
+        name = "" if names is None else str(names.iloc[i] or "")
+        has_writer = writer is not None and not (isinstance(writer, float) and pd.isna(writer)) and str(writer) != ""
+        if _is_codex_provider(provider):
+            labels.append("codex")
+        elif has_writer and "codex" in name.lower():
+            labels.append("codex")
+        elif has_writer:
+            labels.append("chat_completions")
+        else:
+            labels.append(None)
+    out["writer_harness"] = labels
+    return out
+
+
+def _present(series: pd.Series) -> pd.Series:
+    return series.notna() & ~series.astype(str).str.lower().isin(("", "none", "nan", "null"))
+
+
+def _agent_token(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "none"
+    text = str(value).strip().lower()
+    if text in ("", "none", "null", "nan"):
+        return "none"
+    return text
+
+
+def _is_codex_provider(value: Any) -> bool:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return False
+    return str(value).strip().lower() == "codex"
+
+
+def _agent_identity_lookup(pack: Path) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    manifest = pack / "manifest" / "runs.jsonl"
+    if manifest.is_file():
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            run_id = row.get("run_id")
+            if not run_id:
+                continue
+            writer = row.get("writer") if isinstance(row.get("writer"), dict) else {}
+            contract = row.get("comparison_contract") if isinstance(row.get("comparison_contract"), dict) else {}
+            out[str(run_id)] = {
+                "agent": row.get("agent"),
+                "agent_persist": row.get("agent_persist"),
+                "agent_sessions": row.get("agent_sessions"),
+                "agent_tools": row.get("agent_tools"),
+                "writer_provider": writer.get("provider"),
+                "comparison_status": contract.get("status"),
+            }
+    by_run = pack / "aggregate" / "by_run"
+    if by_run.is_dir():
+        for meta_path in by_run.glob("*/run_meta.json"):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            run_id = str(meta.get("run_id") or meta_path.parent.name)
+            rec = dict(out.get(run_id) or {})
+            if meta.get("agent") is not None:
+                rec["agent"] = meta.get("agent")
+            if "agent_persist" in meta:
+                rec["agent_persist"] = meta.get("agent_persist")
+            if meta.get("agent_sessions") is not None:
+                rec["agent_sessions"] = meta.get("agent_sessions")
+            if meta.get("agent_tools") is not None:
+                rec["agent_tools"] = meta.get("agent_tools")
+            contract = meta.get("comparison_contract") if isinstance(meta.get("comparison_contract"), dict) else {}
+            if contract.get("status"):
+                rec["comparison_status"] = contract.get("status")
+            out[run_id] = rec
+    return out
 
 
 def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.DataFrame:
-    cols = [c for c in group_by if c in df.columns]
+    work = df
+    if (not work.empty) and any(col not in work.columns for col in group_by):
+        work = annotate_paper_compare(work)
+        if (
+            "paper_method" in group_by
+            and "paper_method" not in work.columns
+            and "memory_method" in work.columns
+        ):
+            work = work.copy()
+            work["paper_method"] = work["memory_method"]
+    cols = [c for c in group_by if c in work.columns]
     specs = []
+    want_n = False
     for name in metrics:
+        if name == "n":
+            want_n = True
+            continue
         src, how = _metric_reduce(name)
-        if src in df.columns:
+        if src in work.columns:
             specs.append((name, src, how))
-    if not cols or not specs or df.empty:
+    if not cols or work.empty:
         return pd.DataFrame()
-    grouped = df.groupby(cols, dropna=False)
+    if not specs and not want_n:
+        return pd.DataFrame()
+    grouped = work.groupby(cols, dropna=False)
     out = grouped.size().reset_index(name="n")
     for name, src, how in specs:
         if how == "mean":
@@ -442,6 +1256,24 @@ def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.
         out = out.merge(piece, on=cols, how="left")
     if "question_category" in out.columns:
         out = _label_question_categories(out)
+    if "failure_mode" in out.columns:
+        out = _label_coded(out, "failure_mode", FAILURE_MODE_LABELS, FAILURE_MODE_ORDER)
+    if "failure_mode_judge" in out.columns:
+        out = _label_coded(
+            out, "failure_mode_judge", FAILURE_MODE_LABELS, FAILURE_MODE_ORDER
+        )
+    if "recall_bin" in out.columns:
+        out = _label_coded(out, "recall_bin", RECALL_BIN_LABELS, RECALL_BIN_ORDER)
+    if "judge_vs_f1" in out.columns:
+        out = _label_coded(out, "judge_vs_f1", JUDGE_F1_LABELS, JUDGE_F1_ORDER)
+    if "retrieval_calls_bin" in out.columns:
+        out = _label_coded(out, "retrieval_calls_bin", {}, RETRIEVAL_CALLS_ORDER)
+    if "hop_bin" in out.columns:
+        out = _label_coded(out, "hop_bin", {}, HOP_BIN_ORDER)
+    if "qidx_bin" in out.columns:
+        out = _label_coded(out, "qidx_bin", {}, QIDX_BIN_ORDER)
+    if "notes_bytes_bin" in out.columns:
+        out = _label_coded(out, "notes_bytes_bin", {}, NOTES_BYTES_ORDER)
     return out
 
 
@@ -462,3 +1294,23 @@ def _label_question_categories(table: pd.DataFrame) -> pd.DataFrame:
         category_axis_label(v) if v != 99 else v for v in out["_cat_ord"]
     ]
     return out.drop(columns=["_cat_ord"])
+
+
+def _label_coded(
+    table: pd.DataFrame,
+    col: str,
+    labels: dict[str, str],
+    order: tuple[str, ...],
+) -> pd.DataFrame:
+    out = table.copy()
+    raw = out[col].astype(str)
+    rank = {key: i for i, key in enumerate(order)}
+    out["_ord"] = raw.map(lambda v: rank.get(v, 99))
+    if labels:
+        out[col] = [labels.get(v, v) for v in raw]
+    out = out.sort_values("_ord", kind="mergesort").reset_index(drop=True)
+    return out.drop(columns=["_ord"])
+
+
+def _label_failure_modes(table: pd.DataFrame) -> pd.DataFrame:
+    return _label_coded(table, "failure_mode", FAILURE_MODE_LABELS, FAILURE_MODE_ORDER)

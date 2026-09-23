@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.analysis.campaign_tables import GENERATION_AXIS
+from scripts.analysis.campaign_tables import (
+    COMPARE_SOURCE_AXIS,
+    GENERATION_AXIS,
+    LIVE_SOURCE_AXIS,
+    PAPER_METHOD_AXIS,
+    READER_STACK_AXIS,
+)
 
 FAMILY_COLORS = {
     "OpenAI": "#4C78A8",
@@ -86,8 +92,14 @@ def _axis_title(col: str) -> str:
         return f"{_axis_title(col[:-4])} p95"
     if col == "question_category":
         return "LoCoMo question category"
-    if col == "generation":
-        return "Generation"
+    if col == "reader_stack":
+        return "Reader stack (model-only vs Codex harness)"
+    if col == "compare_source":
+        return "paper / local clone / live model / Codex"
+    if col == "live_source":
+        return "paper / live model / gpt-4o-mini + Codex"
+    if col == "paper_method":
+        return "Memory method (Table 2 id)"
     if col == "thinking":
         return "Thinking"
     if col == "agent_reasoning_tokens":
@@ -108,13 +120,39 @@ def _axis_title(col: str) -> str:
         return "Mean reader input tokens"
     if col == "judge_score_per_1k_input":
         return "J per 1k input tokens"
+    if col == "failure_mode":
+        return "Failure mode"
+    if col == "harness_failed_rate":
+        return "Harness-failed question rate"
+    if col == "n_harness_failed":
+        return "Harness-failed questions"
+    if col == "n":
+        return "Questions"
+    if col == "answer_n_words":
+        return "Predicted answer words"
+    if col == "gold_n_words":
+        return "Gold answer words"
+    if col == "recall_bin":
+        return "Gold-id retrieval coverage"
+    if col == "retrieval_calls_bin":
+        return "Retrieval calls"
+    if col == "judge_vs_f1":
+        return "Judge vs LoCoMo F1"
+    if col == "failure_mode_judge":
+        return "Failure mode (judge)"
     return col.replace("_", " ")
 
 
 def unbounded_metric(metric: str) -> bool:
-    """Latency, token counts, and USD — not 0–1 scores (``token_f1`` stays a score)."""
+    """Latency, token counts, USD, and tool-call counts — not 0–1 scores."""
     name = str(metric)
+    if name.endswith("_n_words"):
+        return True
+    if name == "n":
+        return True
     if name.startswith("usd"):
+        return True
+    if name.startswith("n_"):
         return True
     if "latency" in name or name.endswith("_seconds"):
         return True
@@ -186,6 +224,56 @@ def write_metrics_grouped_bar(
     return Path(path)
 
 
+def _stringify_axis(series: pd.Series) -> pd.Series:
+    """Stable category labels so bool True matches hue 'True' after reindex."""
+    return series.map(
+        lambda v: ""
+        if v is None or (isinstance(v, float) and pd.isna(v))
+        else str(v)
+    )
+
+
+def _pivot_grouped(
+    table: pd.DataFrame, *, x_col: str, hue_col: str, metric: str
+) -> tuple[list[str], list[str], pd.DataFrame]:
+    """Pivot with string x/hue so boolean persist flags still draw bars."""
+    work = table[[x_col, hue_col, metric]].copy()
+    work[x_col] = _stringify_axis(work[x_col])
+    work[hue_col] = _stringify_axis(work[hue_col])
+    xs = _order_axis(
+        x_col, [str(v) for v in work[x_col].drop_duplicates().tolist()]
+    )
+    hues = _order_axis(
+        hue_col, [str(v) for v in work[hue_col].drop_duplicates().tolist()]
+    )
+    pivot = work.pivot_table(
+        index=x_col, columns=hue_col, values=metric, aggfunc="mean"
+    )
+    pivot = pivot.reindex(index=xs, columns=hues)
+    return xs, hues, pivot
+
+
+def _order_axis(col: str, values: list[str]) -> list[str]:
+    """Keep known axes in recipe order; unknown labels stay at the end."""
+    known: tuple[str, ...] = ()
+    if col == "generation":
+        known = GENERATION_AXIS
+    elif col == "compare_source":
+        known = COMPARE_SOURCE_AXIS
+    elif col == "live_source":
+        known = LIVE_SOURCE_AXIS
+    elif col == "paper_method":
+        known = PAPER_METHOD_AXIS
+    elif col == "reader_stack":
+        known = READER_STACK_AXIS
+    if not known:
+        return values
+    present = set(values)
+    return [item for item in known if item in present] + [
+        item for item in values if item not in known
+    ]
+
+
 def write_grouped_bar(
     table: pd.DataFrame,
     *,
@@ -198,13 +286,9 @@ def write_grouped_bar(
     plt = _pyplot()
     if plt is None or table.empty or metric not in table.columns:
         return None
-    xs = [str(v) for v in table[x_col].drop_duplicates().tolist()]
-    if x_col == "generation":
-        known = [year for year in GENERATION_AXIS if year in xs]
-        xs = known + [year for year in xs if year not in GENERATION_AXIS]
-    hues = [str(v) for v in table[hue_col].drop_duplicates().tolist()]
-    pivot = table.pivot_table(index=x_col, columns=hue_col, values=metric, aggfunc="mean")
-    pivot = pivot.reindex(index=xs, columns=hues)
+    xs, hues, pivot = _pivot_grouped(
+        table, x_col=x_col, hue_col=hue_col, metric=metric
+    )
     fig, ax = plt.subplots(figsize=(8.2, 4.4))
     x = list(range(len(xs)))
     n = max(len(hues), 1)
@@ -243,13 +327,9 @@ def write_line(
     plt = _pyplot()
     if plt is None or table.empty or metric not in table.columns:
         return None
-    xs = [str(v) for v in table[x_col].drop_duplicates().tolist()]
-    if x_col == "generation":
-        known = [year for year in GENERATION_AXIS if year in xs]
-        xs = known + [year for year in xs if year not in GENERATION_AXIS]
-    hues = [str(v) for v in table[hue_col].drop_duplicates().tolist()]
-    pivot = table.pivot_table(index=x_col, columns=hue_col, values=metric, aggfunc="mean")
-    pivot = pivot.reindex(index=xs, columns=hues)
+    xs, hues, pivot = _pivot_grouped(
+        table, x_col=x_col, hue_col=hue_col, metric=metric
+    )
     fig, ax = plt.subplots(figsize=(8.2, 4.4))
     x = list(range(len(xs)))
     markers = ("o", "s", "D", "^", "v", "P", "X", "*")
@@ -310,7 +390,8 @@ def write_bar(
         return None
     labels = [str(v) for v in table[x_col].tolist()]
     ys = [float(v) if pd.notna(v) else float("nan") for v in table[metric].tolist()]
-    fig, ax = plt.subplots(figsize=(6.5, 4.2))
+    width = max(6.5, 1.15 * max(len(labels), 1) + 1.5)
+    fig, ax = plt.subplots(figsize=(width, 4.2))
     ax.bar(labels, ys, color=_colors(labels))
     ax.set_xlabel(_axis_title(x_col))
     ax.set_ylabel(_axis_title(metric))

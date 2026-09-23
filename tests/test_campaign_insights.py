@@ -18,6 +18,8 @@ from scripts.analysis.campaign_insights import (
     classify_gap_change,
     efficiency,
     family_gaps,
+    j_f1_gap,
+    takeaway_contrast,
     method_ranks,
     pin_gaps,
     rank_flips,
@@ -336,6 +338,63 @@ class TestPinGaps(unittest.TestCase):
         self.assertAlmostEqual(float(out.iloc[0]["live_value"]), 0.80)
         self.assertEqual(out.iloc[0]["move"], "improving")
 
+    def test_pin_gaps_uses_compare_source_codex_as_live_side(self):
+        table = pd.DataFrame(
+            [
+                {
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                    "paper_method": "full_context",
+                    "compare_source": "paper",
+                    "judge_score": 0.729,
+                },
+                {
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                    "paper_method": "full_context",
+                    "compare_source": "gpt-4o-mini + Codex",
+                    "judge_score": 0.678,
+                },
+            ]
+        )
+        out = pin_gaps(table, "judge_score", live_generation="2024")
+        self.assertEqual(len(out), 1)
+        self.assertAlmostEqual(float(out.iloc[0]["live_value"]), 0.678)
+        self.assertAlmostEqual(float(out.iloc[0]["pin_value"]), 0.729)
+
+    def test_pin_gaps_compares_2024_paper_to_2026_openai_when_live_generation_set(self):
+        table = pd.DataFrame(
+            [
+                {
+                    "generation": "2024",
+                    "model_family": "OpenAI",
+                    "memory_method": "full_context",
+                    "result_source": "paper",
+                    "judge_score": 0.73,
+                },
+                {
+                    "generation": "2025",
+                    "model_family": "OpenAI",
+                    "memory_method": "full_context",
+                    "result_source": "live",
+                    "thinking": "off",
+                    "judge_score": 0.80,
+                },
+                {
+                    "generation": "2026",
+                    "model_family": "OpenAI",
+                    "memory_method": "full_context",
+                    "result_source": "live",
+                    "thinking": "off",
+                    "judge_score": 0.90,
+                },
+            ]
+        )
+        out = pin_gaps(table, "judge_score", live_generation="2026")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out.iloc[0]["live_generation"], "2026")
+        self.assertAlmostEqual(float(out.iloc[0]["live_value"]), 0.90)
+
 
 class TestEfficiencyAndSaturation(unittest.TestCase):
     def test_efficiency_divides_score_by_latency_and_usd(self):
@@ -435,6 +494,49 @@ class TestEfficiencyAndSaturation(unittest.TestCase):
         )
         out = attach_cell_cost(quality, cost)
         self.assertAlmostEqual(float(out.iloc[0]["usd_actual"]), 10.0)
+
+
+class TestJF1Gap(unittest.TestCase):
+    def test_j_f1_gap_subtracts_locomo_f1_from_judge_score(self):
+        table = pd.DataFrame(
+            [
+                {
+                    "memory_method": "workspace_files",
+                    "judge_score": 0.68,
+                    "locomo_f1": 0.25,
+                },
+                {
+                    "memory_method": "full_context",
+                    "judge_score": 0.74,
+                    "locomo_f1": 0.54,
+                },
+            ]
+        )
+        out = j_f1_gap(table)
+        self.assertAlmostEqual(float(out.iloc[0]["j_minus_f1"]), 0.43)
+        self.assertAlmostEqual(float(out.iloc[1]["j_minus_f1"]), 0.20)
+        via = render_insight("j_f1_gap", table)
+        self.assertEqual(list(via["j_minus_f1"]), list(out["j_minus_f1"]))
+
+
+class TestTakeawayContrast(unittest.TestCase):
+    def test_takeaway_contrast_is_left_minus_right(self):
+        left = pd.DataFrame([{"memory_method": "workspace_files", "judge_score": 0.68, "n": 1540}])
+        right = pd.DataFrame([{"memory_method": "full_context", "judge_score": 0.74, "n": 1540}])
+        out = takeaway_contrast(
+            left,
+            right,
+            ["judge_score"],
+            takeaway_id="harness_reader_vs_chat_reader",
+            title="Harness vs chat reader",
+            claim="harness_reader_weaker_than_chat_reader",
+            finding="Harness trails stuffed-context.",
+            left_label="workspace_codex",
+            right_label="chat_full_context",
+        )
+        self.assertEqual(len(out), 1)
+        self.assertAlmostEqual(float(out.iloc[0]["delta"]), -0.06)
+        self.assertIn("trails stuffed-context", str(out.iloc[0]["finding"]))
 
 
 class TestRenderInsightDispatch(unittest.TestCase):

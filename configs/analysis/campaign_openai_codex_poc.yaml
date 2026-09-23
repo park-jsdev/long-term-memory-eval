@@ -1,24 +1,303 @@
+# GPT-4o-mini Codex reader/writer proof of concept.
+# Native Codex is audit-only unless comparison_status=comparable.
+# Paper / local_clone pins are literature context, not OSS-clone Table 2 J.
+#
+#   python -m src.memorybench report configs/analysis/campaign_openai_codex_poc.yaml
+# Notebook: notebooks/17_openai_codex_poc_analysis.ipynb
+
 campaign:
   id: openai_codex_poc
   title: GPT-4o-mini Codex reader/writer proof of concept
   notebook: notebooks/17_openai_codex_poc_analysis.ipynb
   freeze_note: >
-    GPT-4o-mini is the fixed answer reader and Codex backbone. Thinking is off.
-    Native Codex workspace/tool cells are plumbing evidence unless their
-    comparison contract says comparable; harness_failed is never scored as a
-    memory-method result.
+    GPT-4o-mini is the 2024 catalog answer model. Codex CLI is a 2026
+    harness around that model — do not read a Codex-mini bar as Mem0
+    paper 2024. Thinking is off. Native Codex workspace/tool cells are
+    plumbing evidence unless comparison_status is comparable;
+    harness_failed is the all-failed cell label, not a 1–2% miss rate.
+    Partial misses stay incomparable with harness_failed_rate. Workspace J
+    vs LoCoMo F1 uses the same predicted string: F1 is token overlap on
+    short gold, J is the Mem0 paraphrase judge. Gold-id recall is union
+    over retrieve events (partial chains included). n_web_search / n_mcp
+    should be 0 (web_search disabled, user MCP ignored). Sandwich writers
+    freeze the mini Chat Completions reader; teacher_session_summaries /
+    agent_codex_mem0_facts / teacher_graph are not paper Mem0 extract or
+    Mem0g.     Paper and local_clone rows are Table 2 / clone pins (n=1540
+    judged subset), not this pack. Do not mix reader-sweep scores into
+    the writer sandwich claim. Paper / local-clone / gpt-4o-mini + Codex J
+    plots use Table 2 method ids. full_context J keeps paper, local clone,
+    live Chat Completions, gpt-4o-mini + Codex, and 2025/2026 model-only as
+    separate bars. The methods plot is paper vs live model vs Codex (clone
+    pins stand in for live model when this pack has no Chat Completions
+    cell). Codex facts map to
+    mem0 and Codex teacher_graph to mem0g for literature context only — not
+    paper extract/Mem0g. The reader_stack J plot is a system
+    comparison (2024 mini model-only vs 2024 mini+Codex persist-off vs
+    paper/local_clone, plus 2025 GPT-5 and 2026 Terra model-only from
+    prior OpenAI traces, thinking off). Codex is a 2026 harness around
+    the 2024 mini backbone — not a 2024 paper method.
+
 defaults:
   source: runs
   metrics: [locomo_f1, judge_score]
   output_subdir: analysis
+
+pins:
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: full_context
+    result_source: paper
+    judge_score: 0.7290
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Full-context
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: rag
+    result_source: paper
+    judge_score: 0.6097
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 RAG k=2 256
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: openai_memory
+    result_source: paper
+    judge_score: 0.5290
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 OpenAI
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0
+    result_source: paper
+    judge_score: 0.6688
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Mem0
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0g
+    result_source: paper
+    judge_score: 0.6844
+    locomo_f1: null
+    n: 1540
+    note: Mem0 paper Table 2 Mem0g
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: full_context
+    result_source: local_clone
+    judge_score: 0.7468
+    locomo_f1: 0.534
+    n: 1540
+    note: experiments/full_context_qa gpt-4o-mini
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: rag
+    result_source: local_clone
+    judge_score: 0.5799
+    locomo_f1: 0.4225
+    n: 1540
+    note: experiments/rag_k2_256_qa best live-judge seed
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: mem0
+    result_source: local_clone
+    judge_score: 0.4838
+    locomo_f1: 0.3502
+    n: 1540
+    note: experiments/mem0_qa OSS extract/update clone
+  - generation: "2024"
+    model_family: OpenAI
+    memory_method: session_summaries
+    result_source: paper
+    judge_score: null
+    locomo_f1: 0.325
+    n: 7512
+    note: Maharana et al. 2024 Table 3 Summary RAG top-5 gpt-3.5-turbo-16k; overall F1 includes adversarial; 50-conversation benchmark (not locomo10, not Mem0 J)
+
 campaign_analyses:
   - id: reader_controls
-    title: GPT-4o-mini reader and Codex workspace controls
+    title: GPT-4o-mini Chat Completions vs Codex workspace
     experiments: [readers]
     group_by: [memory_method, agent, agent_persist]
     plots:
       - {kind: grouped_bar, x: memory_method, hue: agent, y: locomo_f1}
       - {kind: grouped_bar, x: memory_method, hue: agent, y: judge_score}
+  - id: reader_vs_paper_j
+    title: ChatGPT full_context J — paper, local clone, live model, Codex, 2025/2026
+    experiments: [readers, year_2025, year_2026]
+    include_pins: true
+    source: examples
+    where:
+      paper_method: [full_context]
+      compare_source:
+        - paper
+        - local clone
+        - live model
+        - gpt-4o-mini + Codex
+        - 2025 GPT-5 model-only
+        - 2026 Terra model-only
+    group_by: [generation, model_family, paper_method, compare_source]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: compare_source, y: judge_score}
+  - id: methods_vs_paper_j
+    title: Memory methods J / F1 — paper vs live model vs gpt-4o-mini + Codex
+    experiments: [readers, writers]
+    include_pins: true
+    source: examples
+    where:
+      paper_method:
+        - full_context
+        - rag
+        - openai_memory
+        - mem0
+        - mem0g
+        - session_summaries
+      live_source:
+        - paper
+        - live model
+        - gpt-4o-mini + Codex
+    group_by: [generation, model_family, paper_method, live_source]
+    metrics: [judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: paper_method, hue: live_source, y: judge_score}
+      - {kind: grouped_bar, x: paper_method, hue: live_source, y: locomo_f1}
+      - {kind: grouped_bar, x: live_source, y: judge_score, split_by: paper_method}
+  - id: reader_stack_vs_paper_j
+    title: 2024 mini model-only vs Codex vs paper/clone, plus 2025/2026 model-only
+    experiments: [readers, year_2025, year_2026]
+    include_pins: true
+    source: runs
+    where:
+      reader_stack:
+        - 2024 mini model-only
+        - 2024 mini + Codex
+        - 2025 GPT-5 model-only
+        - 2026 Terra model-only
+    group_by: [reader_stack, result_source]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: reader_stack, hue: result_source, y: judge_score}
+  - id: reader_audit
+    title: Codex reader tool-calling audit
+    experiments: [readers]
+    source: runs
+    where:
+      memory_method: [workspace_files]
+    group_by: [memory_method, agent, agent_persist]
+    metrics:
+      - n_web_search
+      - n_mcp
+      - used_non_workspace_tools
+      - n_retrieval_calls
+      - memory_recall
+      - harness_failed_rate
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_web_search}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_mcp}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: used_non_workspace_tools}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_retrieval_calls}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: memory_recall}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: harness_failed_rate}
+  - id: reader_failure_modes
+    title: Codex reader per-question failure modes
+    experiments: [readers]
+    source: examples
+    where:
+      memory_method: [workspace_files]
+    group_by: [memory_method, agent, agent_persist, failure_mode]
+    metrics: [n]
+    plots:
+      - {kind: grouped_bar, x: failure_mode, hue: agent_persist, y: n}
+  - id: reader_j_vs_f1
+    title: Same answers, Mem0 J vs LoCoMo F1 vs token F1
+    experiments: [readers]
+    source: examples
+    group_by: [memory_method, agent]
+    metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: judge_score}
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: locomo_f1}
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: token_f1}
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: exact_match}
+      - {kind: grouped_bar, x: memory_method, hue: agent, y: answer_n_words}
+  - id: reader_judge_vs_f1_cells
+    title: Judge vs F1 disagreement (paraphrase vs token overlap)
+    experiments: [readers]
+    source: examples
+    group_by: [memory_method, judge_vs_f1]
+    metrics: [n, answer_n_words, locomo_f1, judge_score]
+    plots:
+      - {kind: grouped_bar, x: judge_vs_f1, hue: memory_method, y: n}
+      - {kind: grouped_bar, x: judge_vs_f1, hue: memory_method, y: answer_n_words}
+  - id: reader_by_category
+    title: Workspace vs full-context by LoCoMo category
+    experiments: [readers]
+    source: examples
+    group_by: [memory_method, question_category]
+    metrics: [judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: memory_method, y: judge_score}
+      - {kind: grouped_bar, x: question_category, hue: memory_method, y: locomo_f1}
+  - id: reader_recall_bins
+    title: Gold-id coverage across retrieve events (chains)
+    experiments: [readers]
+    source: examples
+    where:
+      memory_method: [workspace_files]
+    group_by: [agent_persist, recall_bin]
+    metrics: [n, judge_score, locomo_f1, memory_recall, n_retrieval_calls]
+    plots:
+      - {kind: grouped_bar, x: recall_bin, hue: agent_persist, y: n}
+      - {kind: grouped_bar, x: recall_bin, hue: agent_persist, y: judge_score}
+      - {kind: grouped_bar, x: recall_bin, hue: agent_persist, y: locomo_f1}
+  - id: reader_retrieval_effort
+    title: Retrieval-call count vs recall and scores
+    experiments: [readers]
+    source: examples
+    where:
+      memory_method: [workspace_files]
+    group_by: [retrieval_calls_bin]
+    metrics: [n, memory_recall, judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: retrieval_calls_bin, y: n}
+      - {kind: grouped_bar, x: retrieval_calls_bin, y: memory_recall}
+      - {kind: grouped_bar, x: retrieval_calls_bin, y: judge_score}
+  - id: reader_hop_to_evidence
+    title: First gold-id retrieve hop (overlay from collected traces)
+    experiments: [readers]
+    source: examples
+    where:
+      memory_method: [workspace_files]
+    group_by: [agent_persist, hop_bin]
+    metrics: [n, judge_score, locomo_f1, memory_recall]
+    plots:
+      - {kind: grouped_bar, x: hop_bin, hue: agent_persist, y: n}
+      - {kind: grouped_bar, x: hop_bin, hue: agent_persist, y: judge_score}
+      - {kind: grouped_bar, x: hop_bin, hue: agent_persist, y: locomo_f1}
+  - id: reader_qidx_by_category
+    title: Question index within conversation × LoCoMo category
+    experiments: [readers]
+    source: examples
+    where:
+      memory_method: [workspace_files]
+    group_by: [qidx_bin, question_category]
+    metrics: [n, judge_score, locomo_f1]
+    plots:
+      - {kind: grouped_bar, x: qidx_bin, hue: question_category, y: judge_score}
+      - {kind: grouped_bar, x: qidx_bin, hue: question_category, y: locomo_f1}
+  - id: reader_failure_modes_judge
+    title: Retrieve/reason split using Mem0 J (not F1>0)
+    experiments: [readers]
+    source: examples
+    where:
+      memory_method: [workspace_files]
+    group_by: [agent_persist, failure_mode_judge]
+    metrics: [n, locomo_f1, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: failure_mode_judge, hue: agent_persist, y: n}
   - id: writer_artifacts
     title: Codex GPT-4o-mini summary/fact/graph artifacts
     experiments: [writers]
@@ -26,14 +305,154 @@ campaign_analyses:
     plots:
       - {kind: grouped_bar, x: memory_method, y: locomo_f1}
       - {kind: grouped_bar, x: memory_method, y: judge_score}
+  - id: writer_vs_paper_j
+    title: Codex writer artifacts vs 2024 Mem0/Mem0g pins (not matched)
+    experiments: [writers]
+    include_pins: true
+    source: examples
+    where:
+      paper_method:
+        - session_summaries
+        - mem0
+        - mem0g
+      compare_source:
+        - paper
+        - local clone
+        - gpt-4o-mini + Codex
+    group_by: [generation, model_family, paper_method, compare_source]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: paper_method, hue: compare_source, y: judge_score}
+      - {kind: grouped_bar, x: compare_source, y: judge_score, split_by: paper_method}
+
+insights:
+  - id: pin_vs_poc_full_context
+    title: 2024 paper/clone vs gpt-4o-mini + Codex full_context (not matched)
+    kind: pin_gaps
+    from: reader_vs_paper_j
+    metric: judge_score
+    live_generation: "2024"
+  - id: workspace_j_minus_f1
+    title: Workspace vs stuffed-context J minus F1 (verbosity / paraphrase)
+    kind: j_f1_gap
+    from: reader_j_vs_f1
+
+takeaways:
+  - id: layers_are_different_claims
+    title: Harness eval is not a model-reader or sandwich-writer claim
+    claim: do_not_mix_layers
+    finding: >
+      Three separate claims. (1) Chat Completions full_context is a stuffed-context
+      model reader. (2) workspace_files + Codex is a harness reader (file tools,
+      audit-only until comparable). (3) Codex summary/fact/graph cells are sandwich
+      writers with a frozen mini Chat Completions reader. Do not rank them as one
+      memory-method leaderboard.
+  - id: harness_reader_vs_chat_reader
+    title: Codex workspace reader vs Chat Completions full_context (same mini backbone)
+    claim: harness_reader_weaker_than_chat_reader
+    from: reader_j_vs_f1
+    left: {memory_method: workspace_files}
+    right: {memory_method: full_context}
+    left_label: workspace_codex
+    right_label: chat_full_context
+    metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
+    finding: >
+      The harness is a weaker reader than stuffed-context Chat Completions on the
+      same GPT-4o-mini backbone. J drops a little; F1/EM drop a lot because Codex
+      writes ~16-word paraphrases against ~4-word gold (Mem0 prompt is 5–6 words).
+      Retrieval is mostly working (full gold-id rows sit near FC J). Native Codex
+      stays incomparable.
+  - id: harness_retrieval_not_persist
+    title: Harness value is retrieval, not persist-on notes
+    claim: harness_retrieval_not_memory_method
+    from: reader_controls
+    left:
+      memory_method: workspace_files
+      agent_persist: true
+    right:
+      memory_method: workspace_files
+      agent_persist: false
+    left_label: persist_on
+    right_label: persist_off
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      Persist-on is not a memory method here: J barely moves. One targeted
+      retrieve beats long tool traces. A 1–2% workspace-read miss is not the
+      score gap. The harness is effective at getting session text into context;
+      it is not effective at emitting scorer-short answers.
+  - id: harness_writer_vs_chat_reader
+    title: Best Codex writer vs Chat Completions full_context reader
+    claim: harness_writer_weaker_than_chat_reader
+    from: writer_artifacts
+    from_right: reader_j_vs_f1
+    left: {memory_method: teacher_session_summaries}
+    right: {memory_method: full_context}
+    left_label: codex_session_summaries
+    right_label: chat_full_context
+    metrics: [judge_score]
+    finding: >
+      With the reader frozen (mini Chat Completions), Codex-as-writer trails
+      stuffed-context answering. Session summaries are the least-lossy artifact
+      and still well below full_context. This is writer quality, not reader
+      swap. Not paper Mem0.
+  - id: harness_writer_methods
+    title: Codex writers ranked (frozen mini reader)
+    claim: summaries_beat_facts_beat_graph
+    from: writer_artifacts
+    left: {memory_method: teacher_session_summaries}
+    right: {memory_method: teacher_graph}
+    left_label: session_summaries
+    right_label: teacher_graph
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      Among Codex writers, session summaries beat facts beat graph. Graph
+      collapses on temporal questions; facts land near the OSS Mem0 clone, not
+      paper Mem0/Mem0g. Prefer Codex as a file-search reader or summary writer,
+      not as a graph teacher, until that writer is fixed.
+
 experiments:
   readers:
     name: locomo-openai-codex-poc-readers
     pack: experiments/locomo-openai-codex-poc-readers
     role: agent_reader
     family_from: reader
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Native Codex workspace cells stay audit-only unless comparison_status is comparable.
+        - n_web_search and n_mcp stay at 0 with web_search disabled and user MCP ignored.
+        - Full-context J vs paper 0.729 is a different stack, not an OSS clone of Table 2.
+        - Workspace J>>F1 is verbose paraphrase vs short gold, not a second F1 scorer.
+        - Partial gold-id chains can still be J-correct; evidence_retrieved is all-or-nothing.
   writers:
     name: locomo-openai-codex-poc-writers
     pack: experiments/locomo-openai-codex-poc-writers
     role: sandwich
     family_from: writer
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Frozen mini Chat Completions reader; Codex only writes summaries, facts, or graph.
+        - teacher_graph / summaries are not paper Mem0 or Mem0g; pin bars are literature context.
+  year_2025:
+    name: locomo-2025-readers-openai-deepseek
+    pack: experiments/locomo-2025-readers-openai-deepseek
+    role: reader_sweep
+    family_from: reader
+    pretest:
+      n_cells: 8
+      scientific_claim: false
+      hypotheses:
+        - GPT-5 full_context thinking-off is the 2025 model-only bar (not Codex).
+  year_2026:
+    name: locomo-2026-readers-openai-deepseek
+    pack: experiments/locomo-2026-readers-openai-deepseek
+    role: reader_sweep
+    family_from: reader
+    pretest:
+      n_cells: 8
+      scientific_claim: false
+      hypotheses:
+        - GPT-5.6 Terra full_context thinking-off is the 2026 model-only bar (not Codex).

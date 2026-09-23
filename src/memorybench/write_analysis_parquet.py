@@ -59,6 +59,13 @@ EXAMPLE_COLUMNS = (
     "n_web_search",
     "n_mcp",
     "used_non_workspace_tools",
+    "n_write_events",
+    "hop_to_evidence",
+    "notes_retrieved",
+    "notes_bytes",
+    "notes_words",
+    "notes_grew",
+    "agent_sessions",
 )
 
 
@@ -197,6 +204,13 @@ def _example_record(
         "n_web_search": _as_int(row.get("n_web_search")),
         "n_mcp": _as_int(row.get("n_mcp")),
         "used_non_workspace_tools": row.get("used_non_workspace_tools"),
+        "n_write_events": _as_int(row.get("n_write_events")),
+        "hop_to_evidence": _as_int(row.get("hop_to_evidence")),
+        "notes_retrieved": row.get("notes_retrieved"),
+        "notes_bytes": _as_int(row.get("notes_bytes")),
+        "notes_words": _as_int(row.get("notes_words")),
+        "notes_grew": row.get("notes_grew"),
+        "agent_sessions": _as_str(row.get("agent_sessions") or spec.agent_sessions),
     }
 
 
@@ -225,9 +239,20 @@ def qa_summary_row(
         "reader_provider": spec.reader.provider,
         "reader_model": spec.reader.api_model_id,
         "reader_display_name": spec.reader.display_name,
+        "reader_generation": spec.reader.generation,
         "judge_provider": spec.judge_provider,
         "judge_model": spec.judge_model,
         "writer_model": spec.writer.api_model_id if spec.writer else None,
+        "writer_provider": spec.writer.provider if spec.writer else None,
+        "agent": spec.agent,
+        "agent_persist": spec.agent_persist,
+        "agent_sessions": spec.agent_sessions,
+        "agent_tools": spec.agent_tools,
+        "comparison_status": (
+            (meta.get("comparison_contract") or {}).get("status")
+            if isinstance(meta.get("comparison_contract"), dict)
+            else None
+        ),
         "thinking": spec.thinking_label(),
         "num_examples": int(n_examples),
         "primary_score": _as_float(m.get("locomo_f1")),

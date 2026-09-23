@@ -67,6 +67,7 @@ class ExperimentRunSpec:
     status: str = "runnable"
     agent: str | None = None
     agent_persist: bool | None = None
+    agent_sessions: str | None = None
     agent_tools: str | None = None
     agent_comparison: dict[str, Any] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
@@ -86,6 +87,7 @@ class ExperimentRunSpec:
         row["teacher_max_tokens"] = self.writer.max_tokens if self.writer else None
         row["agent"] = self.agent
         row["agent_persist"] = self.agent_persist
+        row["agent_sessions"] = self.agent_sessions
         row["agent_tools"] = self.agent_tools
         row["comparison_contract"] = self.agent_comparison
         return row
@@ -111,6 +113,8 @@ class ExperimentRunSpec:
         if self.agent:
             identity["agent"] = self.agent
             identity["agent_persist"] = self.agent_persist
+            if self.agent_sessions and self.agent_sessions != "full":
+                identity["agent_sessions"] = self.agent_sessions
             identity["agent_tools"] = self.agent_tools
             identity["agent_comparison"] = self.agent_comparison
         if self.reader.thinking is not None:

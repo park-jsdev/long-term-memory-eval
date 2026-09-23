@@ -12,13 +12,14 @@ from pathlib import Path
 from ..protocol import (
     EVENT_CATALOG,
     EVENT_RETRIEVE,
+    EVENT_WRITE,
     AgentRequest,
     AgentResult,
     AgentRunner,
     RetrievalEvent,
 )
 from ..trajectory import build_trajectory, count_retrieved_tokens, evidence_ids_in_text
-from ..workspace import INDEX_NAME, SESSIONS_DIR
+from ..workspace import INDEX_NAME, PERSIST_NOTES, SESSIONS_DIR
 
 
 class MockAgentRunner(AgentRunner):
@@ -26,8 +27,9 @@ class MockAgentRunner(AgentRunner):
 
     adapter_id = "mock"
 
-    def __init__(self, model_name: str = "mock"):
+    def __init__(self, model_name: str = "mock", persist_memory: bool = False):
         self.model_name = model_name
+        self.persist_memory = bool(persist_memory)
 
     def run(self, request: AgentRequest) -> AgentResult:
         events: list[RetrievalEvent] = []
@@ -44,6 +46,20 @@ class MockAgentRunner(AgentRunner):
                     target=INDEX_NAME,
                     retrieved_text=text,
                     retrieved_tokens=count_retrieved_tokens(text),
+                )
+            )
+            step += 1
+        notes_path = root / PERSIST_NOTES
+        if notes_path.is_file():
+            body = notes_path.read_text(encoding="utf-8")
+            events.append(
+                RetrievalEvent(
+                    step=step,
+                    kind=EVENT_RETRIEVE,
+                    tool="read",
+                    target=PERSIST_NOTES,
+                    retrieved_text=body,
+                    retrieved_tokens=count_retrieved_tokens(body),
                 )
             )
             step += 1
@@ -82,6 +98,23 @@ class MockAgentRunner(AgentRunner):
                 )
             )
             step += 1
+        if self.persist_memory and notes_path.is_file():
+            max_calls = request.tool_budget.get("max_tool_calls")
+            if max_calls is None or len(events) < int(max_calls):
+                eid = required[0] if required else "unknown"
+                line = f"- ({eid}) mock: {request.question}\n"
+                with notes_path.open("a", encoding="utf-8") as handle:
+                    handle.write(line)
+                events.append(
+                    RetrievalEvent(
+                        step=step,
+                        kind=EVENT_WRITE,
+                        tool="write",
+                        target=PERSIST_NOTES,
+                        retrieved_text=line,
+                        retrieved_tokens=count_retrieved_tokens(line),
+                    )
+                )
         usage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,

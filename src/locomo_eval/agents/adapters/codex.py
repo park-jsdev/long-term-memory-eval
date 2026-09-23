@@ -215,7 +215,7 @@ class CodexAgentRunner(AgentRunner):
         successful_reads = [
             event
             for event in events
-            if event.kind == EVENT_RETRIEVE and bool(event.retrieved_text.strip())
+            if event.kind == EVENT_RETRIEVE and bool((event.retrieved_text or "").strip())
         ]
         if not successful_reads:
             trajectory.harness_failed = True

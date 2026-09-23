@@ -20,6 +20,7 @@ from .protocol import (
     EVENT_OTHER,
     EVENT_RETRIEVE,
     EVENT_WEB_SEARCH,
+    EVENT_WRITE,
     FAILURE_HARNESS,
     FAILURE_NONE,
     FAILURE_PARAMETRIC,
@@ -36,6 +37,10 @@ _RETRIEVE_CMDS = re.compile(
     re.I,
 )
 _CATALOG_HINTS = re.compile(r"(INDEX\.md|\bls\b|\bdir\b|\bglob\b)", re.I)
+_WRITE_HINTS = re.compile(
+    r"(>>|>|tee\b|touch\b|apply_patch|str_replace|write_file|edit_file)",
+    re.I,
+)
 
 
 def count_retrieved_tokens(text: str) -> int:
@@ -71,14 +76,20 @@ def _posix_lower_path(target: str) -> str:
     return (target or "").replace("\\", "/").rstrip("/").lower()
 
 
+def notes_path_in(target: str) -> bool:
+    """True when the tool target names ``memory/notes.md``."""
+    return "notes.md" in _posix_lower_path(target)
+
+
 def classify_event(tool: str, target: str, retrieved_text: str) -> str:
     """Label one harness tool call for trajectory scoring.
 
     Session-file reads/searches are ``retrieve`` (can hold gold ``dia_id``s).
-    INDEX.md / ls / dir are ``catalog`` navigation, not evidence. Adapter
-    ``error`` / ``reasoning`` items are not evidence. Hosted ``web_search``
-    and ``mcp`` are outside the workspace: never retrieve, distinct kinds
-    so audit metrics can count cheats. Unknown tools stay ``other``.
+    Writes to ``memory/notes.md`` are ``write`` (not evidence). INDEX.md /
+    ls / dir are ``catalog`` navigation, not evidence. Adapter ``error`` /
+    ``reasoning`` items are not evidence. Hosted ``web_search`` and ``mcp``
+    are outside the workspace: never retrieve, distinct kinds so audit
+    metrics can count cheats. Unknown tools stay ``other``.
 
     ``target`` may be a Windows or POSIX path; slash-normalize before
     testing whether the path *is* INDEX.md.
@@ -89,6 +100,11 @@ def classify_event(tool: str, target: str, retrieved_text: str) -> str:
         return EVENT_WEB_SEARCH
     if tool == "mcp":
         return EVENT_MCP
+    if notes_path_in(target) and (
+        _WRITE_HINTS.search(target or "")
+        or str(tool or "").lower() in ("write", "edit", "apply_patch")
+    ):
+        return EVENT_WRITE
     # Session reads are evidence. INDEX.md in the command/path, or in a
     # short `ls` prefix, is catalog. Do not scan a full session body:
     # that read is retrieve even if the transcript mentions INDEX.md.
@@ -129,14 +145,21 @@ def build_trajectory(
     retrieve_events = [e for e in events if e.kind == EVENT_RETRIEVE]
     n_web_search = sum(1 for e in events if e.kind == EVENT_WEB_SEARCH)
     n_mcp = sum(1 for e in events if e.kind == EVENT_MCP)
+    n_write_events = sum(1 for e in events if e.kind == EVENT_WRITE)
+    notes_retrieved = any(
+        e.kind == EVENT_RETRIEVE and notes_path_in(e.target) for e in events
+    )
     hit_ids: list[str] = []
+    hop_to_evidence: int | None = None
     for event in events:
         found = evidence_ids_in_text(event.retrieved_text, required)
         event.evidence_ids_hit = found
         # Only workspace retrieve counts toward recall. Hits on web_search
-        # / mcp stay on the event row for audit, not as evidence_retrieved.
+        # / mcp / write stay on the event row for audit, not as evidence.
         if event.kind != EVENT_RETRIEVE:
             continue
+        if found and hop_to_evidence is None:
+            hop_to_evidence = int(event.step or 0) or None
         for eid in found:
             if eid not in hit_ids:
                 hit_ids.append(eid)
@@ -167,6 +190,9 @@ def build_trajectory(
         unnecessary_retrievals=max(0, unnecessary),
         n_web_search=n_web_search,
         n_mcp=n_mcp,
+        n_write_events=n_write_events,
+        hop_to_evidence=hop_to_evidence,
+        notes_retrieved=notes_retrieved,
         used_non_workspace_tools=(n_web_search + n_mcp) > 0,
         events=events,
     )

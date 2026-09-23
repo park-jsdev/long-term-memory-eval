@@ -1,0 +1,17 @@
+Read every session file in this workspace and write durable notes to
+memory/notes.md for later questions.
+
+Workspace:
+- INDEX.md lists session files
+- sessions/session_N.md contains dated speaker turns. Each turn ends with (dia_id).
+- memory/notes.md already exists.
+
+Rules:
+- Use only the conversation files. Do not use outside knowledge.
+- APPEND (do not overwrite) to memory/notes.md. Use `>> memory/notes.md`.
+  Never `>` or truncate the file.
+- Each note line must look like:
+  - (dia_id) speaker: concise fact
+- Cover people, dates, places, and relations that later questions might ask.
+- Do not answer a question. When finished, write {"answer": "ingested"} as the
+  JSON result.

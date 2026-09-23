@@ -24,7 +24,12 @@ from src.memorybench.hashed_run_id import hashed_run_id
 from src.memorybench.locomo_method_yaml import method_yaml_for
 from src.memorybench.shared_index_paths import index_run_ids_for_memory
 from src.locomo_eval.fusion import is_multi_teacher_memory_method
-from src.locomo_eval.prompts import QA_MEM0_V1, QA_WORKSPACE_V1
+from src.locomo_eval.prompts import (
+    QA_MEM0_V1,
+    QA_WORKSPACE_NOTES_ONLY_V1,
+    QA_WORKSPACE_PERSIST_V1,
+    QA_WORKSPACE_V1,
+)
 from src.locomo_eval.agents.comparison import validate_strict_contract
 
 # Completion-token caps when ``matrix.thinking`` is set. Overrides catalog
@@ -98,9 +103,10 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
             reader, writer = _apply_thinking_axis(reader, writer, bool(thinking_flag))
         agent_id = _normalize_agent(cell.get("agent"))
         agent_persist = cell.get("agent_persist")
+        agent_sessions = cell.get("agent_sessions")
         agent_tools = cell.get("agent_tools")
         if "agent" in axes and not _agent_combo_allowed(
-            agent_id, memory_method, agent_persist, agent_tools
+            agent_id, memory_method, agent_persist, agent_tools, agent_sessions
         ):
             continue
         if agent_id:
@@ -110,7 +116,11 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
                 model_snapshot=reader.model_snapshot,
             )
         cell_prompt = _prompt_for_agent_cell(
-            agent_id, memory_method, prompt_path
+            agent_id,
+            memory_method,
+            prompt_path,
+            persist=agent_persist,
+            sessions=agent_sessions,
         ) if "agent" in axes else prompt_path
         indexes = index_run_ids_for_memory(memory_method, shared)
         status = _cell_status(reader, writer)
@@ -141,6 +151,9 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
             )
             if agent_id
             else None,
+            agent_sessions=(
+                _normalize_sessions(agent_sessions) if agent_id else None
+            ),
             agent_tools=(str(agent_tools or "native") if agent_id else None),
             agent_comparison=agent_comparison if agent_id else {},
         )
@@ -202,29 +215,57 @@ def _agent_combo_allowed(
     memory_method: str,
     persist: Any,
     tools: Any,
+    sessions: Any = None,
 ) -> bool:
     """Model-only uses stuffed full_context; harness cells use workspace_files."""
+    persist_on = persist is True or persist == "on"
+    sessions_key = _normalize_sessions(sessions)
     if agent_id is None:
         if memory_method == "workspace_files":
             return False
-        persist_on = persist is True or persist == "on"
-        tools_key = None if tools is None else str(tools).strip().lower()
         if persist_on:
             return False
+        if sessions_key == "notes_only":
+            return False
+        tools_key = None if tools is None else str(tools).strip().lower()
         if tools_key not in (None, "native"):
             return False
         return True
-    return memory_method == "workspace_files"
+    if memory_method != "workspace_files":
+        return False
+    if sessions_key == "notes_only" and not persist_on:
+        return False
+    return True
+
+
+def _normalize_sessions(value: Any) -> str:
+    if value is None:
+        return "full"
+    key = str(value).strip().lower()
+    if key in ("", "full", "on", "true"):
+        return "full"
+    if key in ("notes_only", "notes-only", "hidden"):
+        return "notes_only"
+    return "full"
 
 
 def _prompt_for_agent_cell(
-    agent_id: str | None, memory_method: str, freeze_prompt: str
+    agent_id: str | None,
+    memory_method: str,
+    freeze_prompt: str,
+    persist: Any = None,
+    sessions: Any = None,
 ) -> str:
     if agent_id is None:
         return QA_MEM0_V1
-    if memory_method == "workspace_files":
-        return freeze_prompt or QA_WORKSPACE_V1
-    return freeze_prompt
+    if memory_method != "workspace_files":
+        return freeze_prompt
+    persist_on = persist is True or persist == "on"
+    if _normalize_sessions(sessions) == "notes_only":
+        return QA_WORKSPACE_NOTES_ONLY_V1
+    if persist_on:
+        return QA_WORKSPACE_PERSIST_V1
+    return QA_WORKSPACE_V1
 
 
 def _axis_values(
@@ -261,6 +302,10 @@ def _axis_values(
     if matrix.get("agent_persist") is not None:
         axes["agent_persist"] = [
             _as_bool(v) for v in _as_list(matrix.get("agent_persist"))
+        ]
+    if matrix.get("agent_sessions") is not None:
+        axes["agent_sessions"] = [
+            _normalize_sessions(v) for v in _as_list(matrix.get("agent_sessions"))
         ]
     if matrix.get("agent_tools") is not None:
         axes["agent_tools"] = [str(v).strip().lower() for v in _as_list(matrix.get("agent_tools"))]

@@ -23,6 +23,7 @@ MATRIX_AXIS_ORDER = (
     "thinking",
     "agent",
     "agent_persist",
+    "agent_sessions",
     "agent_tools",
     "seed",
 )
