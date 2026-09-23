@@ -43,6 +43,12 @@ PAPER_METHOD_AXIS = (
     "mem0g",
     "session_summaries",
 )
+MEMORY_LANE_AXIS = (
+    "full_context",
+    "teacher_session_summaries",
+    "teacher_graph",
+)
+SYSTEM_HARNESS_AXIS = ("chat_completions", "codex")
 _RESULT_SOURCE_ORDER = {
     "paper": 0,
     "local_clone": 1,
@@ -128,6 +134,14 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
         order = {label: i for i, label in enumerate(PAPER_METHOD_AXIS)}
         out["_paper_ord"] = out["paper_method"].map(lambda v: order.get(str(v), 9))
         sort_cols.append("_paper_ord")
+    if "memory_lane" in out.columns:
+        order = {label: i for i, label in enumerate(MEMORY_LANE_AXIS)}
+        out["_lane_ord"] = out["memory_lane"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_lane_ord")
+    if "system_harness" in out.columns:
+        order = {label: i for i, label in enumerate(SYSTEM_HARNESS_AXIS)}
+        out["_harness_ord"] = out["system_harness"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_harness_ord")
     if "compare_source" in out.columns:
         order = {label: i for i, label in enumerate(COMPARE_SOURCE_AXIS)}
         out["_cmp_ord"] = out["compare_source"].map(lambda v: order.get(str(v), 9))
@@ -165,6 +179,8 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
                 "_paper_ord",
                 "_cmp_ord",
                 "_live_ord",
+                "_lane_ord",
+                "_harness_ord",
             )
             if c in out.columns
         ]
@@ -1122,6 +1138,73 @@ def _is_codex_writer(value: Any) -> bool:
     return str(value).strip().lower() == "codex"
 
 
+def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
+    """Align stuffed FC, persist-off workspace, and sandwich writers.
+
+    Persist-off ``workspace_files`` is the Codex analog of stuffed
+    ``full_context``. Persist-on workspace and Codex facts are not lanes
+    (no Chat Completions twin). ``teacher_graph`` stays ``teacher_graph``
+    (not paper Mem0g).
+    """
+    out = df.copy()
+    if out.empty:
+        out["memory_lane"] = []
+        return out
+    n = len(out)
+    methods = out["memory_method"] if "memory_method" in out.columns else None
+    persist = out["agent_persist"] if "agent_persist" in out.columns else None
+    lanes: list[str | None] = []
+    for i in range(n):
+        method = "" if methods is None else str(methods.iloc[i] or "")
+        flag = None if persist is None else persist.iloc[i]
+        if method == "workspace_files":
+            lanes.append(None if _truthy_flag(flag) else "full_context")
+        elif method in MEMORY_LANE_AXIS:
+            lanes.append(method)
+        else:
+            lanes.append(None)
+    out["memory_lane"] = lanes
+    return out
+
+
+def annotate_system_harness(df: pd.DataFrame) -> pd.DataFrame:
+    """Codex vs Chat Completions on the reader path or the writer path.
+
+    Sandwich cells freeze a Chat Completions reader; ``agent`` is none and
+    the writer provider is the harness. Workspace cells use Codex as the
+    reader. Stuffed ``full_context`` is model-only Chat Completions.
+    """
+    out = annotate_writer_harness(df)
+    n = len(out)
+    methods = out["memory_method"] if "memory_method" in out.columns else None
+    agents = out["agent"] if "agent" in out.columns else None
+    harness = out["writer_harness"] if "writer_harness" in out.columns else None
+    providers = out["writer_provider"] if "writer_provider" in out.columns else None
+    writers = out["writer_model"] if "writer_model" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        method = "" if methods is None else str(methods.iloc[i] or "")
+        agent = "none" if agents is None else _agent_token(agents.iloc[i])
+        writer = None if writers is None else writers.iloc[i]
+        has_writer = (
+            writer is not None
+            and not (isinstance(writer, float) and pd.isna(writer))
+            and str(writer) not in ("", "None", "nan", "null")
+        )
+        if agent == "codex" or _is_codex_writer(
+            None if harness is None else harness.iloc[i]
+        ) or _is_codex_provider(None if providers is None else providers.iloc[i]):
+            labels.append("codex")
+        elif has_writer:
+            labels.append("chat_completions")
+        elif method == "full_context":
+            labels.append("chat_completions")
+        else:
+            labels.append(None)
+    out["system_harness"] = labels
+    return out
+
+
 def annotate_writer_harness(df: pd.DataFrame) -> pd.DataFrame:
     """``codex`` vs ``chat_completions`` for sandwich writer-family plots.
 
@@ -1221,6 +1304,9 @@ def _agent_identity_lookup(pack: Path) -> dict[str, dict[str, Any]]:
 def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.DataFrame:
     work = df
     if (not work.empty) and any(col not in work.columns for col in group_by):
+        work = annotate_writer_harness(work)
+        work = annotate_memory_lane(work)
+        work = annotate_system_harness(work)
         work = annotate_paper_compare(work)
         if (
             "paper_method" in group_by

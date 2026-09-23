@@ -1,0 +1,5 @@
+includes: [configs/experiments/openai_mini_writers_structured.yaml]
+storage:
+  backend: gcs
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

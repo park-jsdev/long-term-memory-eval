@@ -14,8 +14,10 @@ from scripts.analysis.campaign_tables import (
     COMPARE_SOURCE_AXIS,
     GENERATION_AXIS,
     LIVE_SOURCE_AXIS,
+    MEMORY_LANE_AXIS,
     PAPER_METHOD_AXIS,
     READER_STACK_AXIS,
+    SYSTEM_HARNESS_AXIS,
 )
 
 FAMILY_COLORS = {
@@ -266,6 +268,10 @@ def _order_axis(col: str, values: list[str]) -> list[str]:
         known = PAPER_METHOD_AXIS
     elif col == "reader_stack":
         known = READER_STACK_AXIS
+    elif col == "memory_lane":
+        known = MEMORY_LANE_AXIS
+    elif col == "system_harness":
+        known = SYSTEM_HARNESS_AXIS
     if not known:
         return values
     present = set(values)

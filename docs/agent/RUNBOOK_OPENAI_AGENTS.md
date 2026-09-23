@@ -10,8 +10,10 @@ Thinking is off for all cells. Run the four matrices separately:
 | `openai_codex_writers_gcs.yaml` | 9 | Codex summary/fact/graph writers × frozen mini reader |
 | `openai_codex_end_to_end_gcs.yaml` | 3 | persistent Codex reader+writer workspace (sessions visible) |
 | `openai_codex_persist_memory_gcs.yaml` | 3 | persist-off / persist-on / notes_only memory-method test |
+| `openai_mini_writers_structured_gcs.yaml` | 2 | GPT-4o-mini Chat Completions summary + graph writers (vs PoC Codex) |
 
 Focused persist-as-memory operator copy-paste: `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md`.
+Mini Chat Completions vs Codex writers: `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 
 `openai_codex_*` require the `codex-api-key` Secret Manager secret. Native
 Codex tool runs are audit-only until their comparison status is `comparable`.
@@ -28,6 +30,7 @@ Pull aggregate directories before:
 python -m src.memorybench report configs/analysis/campaign_openai_codex_poc.yaml
 python -m src.memorybench report configs/analysis/campaign_openai_agents.yaml
 python -m src.memorybench report configs/analysis/campaign_openai_codex_persist_memory.yaml
+python -m src.memorybench report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
 ```
 
 Reports include tool-audit bars (`n_web_search`, `n_mcp` should be ~0),

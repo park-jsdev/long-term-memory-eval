@@ -23,9 +23,11 @@ from scripts.analysis.agent_harness import overlay_collected_agent_audit
 from scripts.analysis.campaign_tables import (
     annotate_generation,
     annotate_mem0_latency,
+    annotate_memory_lane,
     annotate_model_family,
     annotate_reader_stack,
     annotate_paper_compare,
+    annotate_system_harness,
     annotate_thinking,
     annotate_writer_harness,
     annotate_workspace_diagnostics,
@@ -39,10 +41,12 @@ from scripts.analysis.campaign_tables import (
     join_search_latency,
     LIVE_SOURCE_AXIS,
     mean_table,
+    MEMORY_LANE_AXIS,
     PAPER_METHOD_AXIS,
     READER_STACK_AXIS,
     repair_run_harness_status,
     sort_year_family_table,
+    SYSTEM_HARNESS_AXIS,
 )
 from src.memorybench.analysis.cost import CostReport, render_cost
 from scripts.analysis.campaign_insights import (
@@ -110,6 +114,10 @@ def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.
     runs = repair_run_harness_status(runs, examples)
     examples = annotate_writer_harness(examples)
     runs = annotate_writer_harness(runs)
+    examples = annotate_memory_lane(examples)
+    runs = annotate_memory_lane(runs)
+    examples = annotate_system_harness(examples)
+    runs = annotate_system_harness(runs)
     examples = annotate_reader_stack(examples)
     runs = annotate_reader_stack(runs)
     if not examples.empty and "result_source" not in examples.columns:
@@ -385,6 +393,10 @@ def _order_split_values(col: str, values: list[str]) -> list[str]:
         known = PAPER_METHOD_AXIS
     elif col == "reader_stack":
         known = READER_STACK_AXIS
+    elif col == "memory_lane":
+        known = MEMORY_LANE_AXIS
+    elif col == "system_harness":
+        known = SYSTEM_HARNESS_AXIS
     if not known:
         return values
     present = set(values)
@@ -793,6 +805,9 @@ def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
     if "result_source" not in out.columns:
         out = out.copy()
         out["result_source"] = "live"
+    out = annotate_writer_harness(out)
+    out = annotate_memory_lane(out)
+    out = annotate_system_harness(out)
     out = annotate_paper_compare(out)
     drop = _categories_to_drop(spec)
     if drop and "question_category" in out.columns:
@@ -813,7 +828,14 @@ def _categories_to_drop(spec: AnalysisSpec) -> tuple[int, ...]:
 
 
 _PAPER_COMPARE_FILTERS = frozenset(
-    {"paper_method", "live_source", "compare_source", "reader_stack"}
+    {
+        "paper_method",
+        "live_source",
+        "compare_source",
+        "reader_stack",
+        "memory_lane",
+        "system_harness",
+    }
 )
 
 

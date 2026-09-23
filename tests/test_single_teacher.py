@@ -305,10 +305,24 @@ class TestExperimentMatricesStaySingleTeacher(unittest.TestCase):
         )
         self.assertTrue(all(s.writer is not None for s in specs))
 
+    def test_openai_mini_writers_structured_is_two_single_teacher_cells(self):
+        specs = expand_run_matrix(
+            load_experiment_yaml(EXPERIMENTS / "openai_mini_writers_structured.yaml")
+        )
+        self.assertEqual(len(specs), 2)
+        self.assertEqual(
+            [s.memory_method for s in specs],
+            ["teacher_session_summaries", "teacher_graph"],
+        )
+        self.assertTrue(all(s.writer is not None for s in specs))
+        self.assertEqual({s.writer.api_model_id for s in specs}, {"gpt-4o-mini"})
+        self.assertEqual({s.writer.provider for s in specs}, {"openai"})
+
     def test_openai_codex_and_mem0_writer_matrices_stay_single_teacher(self):
         paths = [
             EXPERIMENTS / "openai_codex_writers.yaml",
             EXPERIMENTS / "openai_codex_poc_writers.yaml",
+            EXPERIMENTS / "openai_mini_writers_structured.yaml",
             EXPERIMENTS / "openai_agent_readers.yaml",
             EXPERIMENTS / "mem0_reader_2025_writers.yaml",
             EXPERIMENTS / "sandwich_memory.yaml",

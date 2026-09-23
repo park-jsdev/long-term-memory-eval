@@ -43,8 +43,10 @@ from scripts.analysis.campaign_tables import (
     COMPARE_SOURCE_CODEX,
     annotate_generation,
     annotate_mem0_latency,
+    annotate_memory_lane,
     annotate_paper_compare,
     annotate_reader_stack,
+    annotate_system_harness,
     annotate_thinking,
     annotate_writer_harness,
     attach_run_agent_audit,
@@ -649,6 +651,172 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
         out = annotate_writer_harness(df)
         self.assertEqual(list(out["writer_harness"]), ["chat_completions", "codex"])
 
+    def test_annotate_memory_lane_maps_persist_off_workspace_to_full_context(self):
+        df = pd.DataFrame(
+            [
+                {"memory_method": "full_context", "agent_persist": None},
+                {"memory_method": "workspace_files", "agent_persist": False},
+                {"memory_method": "workspace_files", "agent_persist": True},
+                {"memory_method": "teacher_session_summaries", "agent_persist": None},
+                {"memory_method": "teacher_graph", "agent_persist": None},
+                {"memory_method": "agent_codex_mem0_facts", "agent_persist": None},
+            ]
+        )
+        out = annotate_memory_lane(df)
+        self.assertEqual(
+            list(out["memory_lane"]),
+            [
+                "full_context",
+                "full_context",
+                None,
+                "teacher_session_summaries",
+                "teacher_graph",
+                None,
+            ],
+        )
+
+    def test_annotate_system_harness_labels_reader_and_writer_paths(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "agent": None,
+                    "writer_model": None,
+                    "writer_provider": None,
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "agent": "codex",
+                    "agent_persist": False,
+                    "writer_model": None,
+                    "writer_provider": None,
+                },
+                {
+                    "memory_method": "teacher_session_summaries",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "openai",
+                },
+                {
+                    "memory_method": "teacher_graph",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "codex",
+                },
+            ]
+        )
+        out = annotate_system_harness(df)
+        self.assertEqual(
+            list(out["system_harness"]),
+            ["chat_completions", "codex", "chat_completions", "codex"],
+        )
+
+    def test_mean_table_memory_lane_keeps_six_ceiling_cells(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "agent": None,
+                    "writer_model": None,
+                    "writer_provider": None,
+                    "agent_persist": None,
+                    "question_category": 1,
+                    "judge_score": 0.74,
+                    "locomo_f1": 0.53,
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "agent": "codex",
+                    "writer_model": None,
+                    "writer_provider": None,
+                    "agent_persist": False,
+                    "question_category": 1,
+                    "judge_score": 0.50,
+                    "locomo_f1": 0.22,
+                },
+                {
+                    "memory_method": "workspace_files",
+                    "agent": "codex",
+                    "writer_model": None,
+                    "writer_provider": None,
+                    "agent_persist": True,
+                    "question_category": 1,
+                    "judge_score": 0.49,
+                    "locomo_f1": 0.20,
+                },
+                {
+                    "memory_method": "teacher_session_summaries",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "openai",
+                    "agent_persist": None,
+                    "question_category": 1,
+                    "judge_score": 0.69,
+                    "locomo_f1": 0.47,
+                },
+                {
+                    "memory_method": "teacher_session_summaries",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "codex",
+                    "agent_persist": None,
+                    "question_category": 1,
+                    "judge_score": 0.57,
+                    "locomo_f1": 0.41,
+                },
+                {
+                    "memory_method": "teacher_graph",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "openai",
+                    "agent_persist": None,
+                    "question_category": 1,
+                    "judge_score": 0.36,
+                    "locomo_f1": 0.26,
+                },
+                {
+                    "memory_method": "teacher_graph",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "codex",
+                    "agent_persist": None,
+                    "question_category": 1,
+                    "judge_score": 0.26,
+                    "locomo_f1": 0.19,
+                },
+                {
+                    "memory_method": "agent_codex_mem0_facts",
+                    "agent": None,
+                    "writer_model": "gpt-4o-mini",
+                    "writer_provider": "codex",
+                    "agent_persist": None,
+                    "question_category": 1,
+                    "judge_score": 0.40,
+                    "locomo_f1": 0.33,
+                },
+            ]
+        )
+        work = annotate_memory_lane(annotate_system_harness(df))
+        work = work[work["memory_lane"].isin(
+            ["full_context", "teacher_session_summaries", "teacher_graph"]
+        )]
+        table = mean_table(
+            work, ["memory_lane", "system_harness"], ["judge_score", "locomo_f1"]
+        )
+        self.assertEqual(len(table), 6)
+        keys = set(zip(table["memory_lane"], table["system_harness"]))
+        self.assertEqual(
+            keys,
+            {
+                ("full_context", "chat_completions"),
+                ("full_context", "codex"),
+                ("teacher_session_summaries", "chat_completions"),
+                ("teacher_session_summaries", "codex"),
+                ("teacher_graph", "chat_completions"),
+                ("teacher_graph", "codex"),
+            },
+        )
+
 
 class TestHarnessStatusRepair(unittest.TestCase):
     def test_partial_harness_failures_are_incomparable_not_cell_failed(self):
@@ -1138,6 +1306,10 @@ class TestAnalysisNotebookContract(unittest.TestCase):
             (
                 "campaign_openai_codex_persist_memory.yaml",
                 "17_openai_codex_persist_memory_analysis.ipynb",
+            ),
+            (
+                "campaign_openai_mini_vs_codex_writers.yaml",
+                "17_openai_mini_vs_codex_writers_analysis.ipynb",
             ),
         )
         for yaml_name, notebook_name in pairs:
@@ -2258,6 +2430,32 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIn("hop_to_evidence", next(
             spec for spec in cfg.campaign_analyses if spec.id == "persist_audit"
         ).metrics)
+
+    def test_mini_vs_codex_writers_campaign_groups_by_writer_harness(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_mini_vs_codex_writers.yaml"
+        )
+        self.assertEqual(cfg.id, "openai_mini_vs_codex_writers")
+        self.assertEqual(set(cfg.experiments), {"readers", "chat", "codex"})
+        writers = next(spec for spec in cfg.campaign_analyses if spec.id == "structured_writers")
+        self.assertEqual(set(writers.experiments), {"chat", "codex"})
+        self.assertIn("writer_harness", writers.group_by)
+        self.assertIn("memory_method", writers.group_by)
+        self.assertTrue(
+            any(p.x == "memory_method" and p.hue == "writer_harness" for p in writers.plots)
+        )
+        takeaway_ids = [item.id for item in cfg.takeaways]
+        self.assertIn("summaries_chat_vs_codex", takeaway_ids)
+        self.assertIn("graph_chat_vs_codex", takeaway_ids)
+        ceiling = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "methods_vs_full_context"
+        )
+        self.assertEqual(set(ceiling.experiments), {"readers", "chat", "codex"})
+        self.assertEqual(ceiling.group_by, ("memory_lane", "system_harness"))
+        self.assertTrue(
+            any(p.x == "memory_lane" and p.hue == "system_harness" for p in ceiling.plots)
+        )
+        self.assertIn("methods_vs_full_context_ceiling", takeaway_ids)
 
     def test_notebook_posttest_accepts_run_report_list_without_using_it_as_id(self):
         cfg = load_campaign_yaml(
