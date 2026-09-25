@@ -1,0 +1,32 @@
+# Codex CLI presently cannot enforce a portable tool-call or retrieval-token
+# cap. This profile records all controls but deliberately labels runs
+# incomparable; use strict_mock until a controlled Codex retrieval adapter exists.
+agent:
+  comparison:
+    strict: false
+    backbone:
+      model_snapshot: TO_CONFIRM
+    adapter_version: unknown
+    adapter_system_prompt: unknown
+    context:
+      max_available_tokens: null
+      max_input_tokens: null
+    retrieval:
+      mode: agent_file_search
+      embedding_model: not_applicable
+      k: not_applicable
+    memory_write:
+      method: not_applicable
+      model: not_applicable
+      index_sha256: not_applicable
+    judge:
+      provider: openai
+      model_snapshot: TO_CONFIRM
+      prompt_sha256: pending_autorater
+      temperature: 0
+      category_5_policy: excluded_from_j
+    tool_budget:
+      allowed_tools: []
+      max_tool_calls: null
+      max_retrieved_tokens: null
+      wall_clock_s: 600

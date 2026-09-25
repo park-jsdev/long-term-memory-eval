@@ -3,6 +3,7 @@
 Research pipeline for **long-term conversational memory** on [LoCoMo](https://github.com/snap-research/locomo).
 Local clones of the Mem0-paper methods (`full_context`, `rag`, `openai_memory`, `mem0`, `mem0g`) plus a
 **multi-teacher write path** (`teacher_session_summaries`, `teacher_graph`, pooled and fused variants),
+and an **agent-harness** path (`workspace_files` + Codex first; Claude Code / OpenCode / Pi later),
 all evaluated under one frozen answer model and one frozen judge.
 
 Plain YAML, plain JSON, Parquet, CSV, matplotlib. No Hydra, no W&B, no database.
@@ -57,7 +58,7 @@ flowchart TB
   subgraph RECIPE["RECIPE — declarative"]
     XC["configs/experiments/*.yaml<br/>matrix, freeze, storage"]
     AC["configs/analysis/*.yaml<br/>campaign + analyses"]
-    CC["configs/{readers,writers,teachers,layouts,stacks,models}/"]
+    CC["configs/{readers,writers,agents,teachers,layouts,stacks,models}/"]
     PR["prompts/{readers,writers,teachers,autoraters}/"]
   end
 

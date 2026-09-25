@@ -1,0 +1,7 @@
+# Frozen data + GPT-5 identity + agent prompt. Overlay an adapter YAML.
+includes:
+  - configs/data/locomo10.yaml
+  - configs/layouts/qa_workspace_v1.yaml
+  - configs/readers/gpt-5.yaml
+  - configs/agents/harness_minimal.yaml
+  - configs/run/local_experiments.yaml

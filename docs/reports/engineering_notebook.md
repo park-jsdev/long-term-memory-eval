@@ -113,6 +113,9 @@ clears artifacts for a run id and starts from question one;
 - Claim-level fusion + LLM validators (see `docs/reports/multi_teacher_methodologies.md` for current resolve baselines).
 - Distilled `GraphMemory` subclass (freeze extract).
 - Anthropic/DeepSeek as **frozen** answer readers for a robustness table (infra is in `readers.py` / `models.py`).
+- Claude Code / OpenCode / Pi harness adapters (configs exist; factory is stubbed). Live Codex after local+GCP mock smokes.
+
+**Agent-level eval (implemented, mock-first):** `workspace_files` dumps the conversation as session markdown. A harness (`mock` or `codex exec --json`) retrieves; we log the trajectory and split `retrieval_failure` vs `reasoning_failure`. Model-only comparison stays `full_context` + one-shot reader. Schema: `docs/schemas/agent_runtime.md`. Do not claim this is AMA-Bench / LongMemEval-V2.
 
 ---
 
@@ -179,7 +182,7 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 | `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
 | `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
 
-Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `teacher_session_summaries` is the live single-teacher *summary* replacement. `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph` write locked Mem0g via the orchestrator.
+Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `teacher_session_summaries` is the live single-teacher *summary* replacement. `teacher_graph` writes locked Mem0g with `pool: single`. `pooled_teacher_graph` / `fused_teacher_graph` (`cheap_k3`) are locomo_eval plumbing only until a dedicated multi-teacher experiment YAML is added; memorybench matrices reject them.
 
 Aliases for convenience (legacy numbered ids still resolve):
 

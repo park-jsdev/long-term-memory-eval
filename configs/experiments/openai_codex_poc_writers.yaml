@@ -1,0 +1,27 @@
+# Three Codex write artifacts, all created with GPT-4o-mini and evaluated by
+# the same frozen GPT-4o-mini + qa_mem0_v1 reader.
+experiment:
+  name: locomo-openai-codex-poc-writers
+  type: sandwich
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    reader: {catalog: gpt-4o-mini}
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+model_catalog: configs/models/generation_catalog.yaml
+matrix:
+  writer:
+    - {display_name: Codex GPT-4o-mini, provider: codex, api_model_id: gpt-4o-mini, model_snapshot: TO_CONFIRM}
+  thinking: [false]
+  memory_method: [teacher_session_summaries, agent_codex_mem0_facts, teacher_graph]
+  seed: [1]
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 600
+storage:
+  backend: local
+  path: experiments

@@ -1,0 +1,5 @@
+# Allow the harness to write memory/ inside the conversation workspace.
+agent:
+  persist_memory: true
+  ephemeral: false
+  sandbox: workspace-write

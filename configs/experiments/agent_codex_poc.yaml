@@ -1,0 +1,68 @@
+# Local mock harness smoke (no Codex binary, no API).
+#   python -m src.memorybench write-manifest configs/experiments/agent_codex_poc.yaml
+#   python -m src.memorybench execute-qa configs/experiments/agent_codex_poc.yaml --run-index 0
+#   python -m src.memorybench execute-autorater configs/experiments/agent_codex_poc.yaml --run-index 0
+experiment:
+  name: locomo-agent-codex-poc
+  type: agent
+  seed: 42
+  freeze:
+    prompt_path: prompts/agents/qa_workspace_v1.txt
+    reader:
+      catalog: gpt-5
+      model_snapshot: mock-v1
+
+# Mock is the only adapter that can enforce every hard budget today.
+agent_comparison:
+  strict: true
+  judge:
+    provider: mock
+    model_snapshot: mock-v1
+    prompt_sha256: not_applicable
+    temperature: 0
+    category_5_policy: excluded_from_j
+  tool_budget:
+    allowed_tools: [read]
+    max_tool_calls: 2
+    max_retrieved_tokens: 4096
+    wall_clock_s: 60
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  agent:
+    - mock
+  agent_persist:
+    - off
+  agent_tools:
+    - native
+  memory_method:
+    - workspace_files
+  seed:
+    - 1
+
+subset:
+  max_samples: 1
+  max_questions: 3
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  reader_provider: mock
+  agent_provider: mock
+  judge_provider: mock
+  max_concurrency: 1
+  request_timeout_seconds: 120
+  max_api_retries: 5
+
+storage:
+  backend: local
+  path: experiments
+
+shared_indexes: {}

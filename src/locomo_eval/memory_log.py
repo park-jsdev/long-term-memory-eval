@@ -175,6 +175,20 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "Not a number clone of J=72.90."
         ),
     },
+    "workspace_files": {
+        "builder": "WorkspaceFilesMemoryBuilder",
+        "code": "src/locomo_eval/agents/workspace.py",
+        "source_fields": [
+            "agent/workspaces/<sample_id>/INDEX.md",
+            "agent/workspaces/<sample_id>/sessions/session_N.md",
+        ],
+        "text_layout": "[workspace_files] conversation=…\\nindex=INDEX.md\\nsessions:",
+        "notes": (
+            "Harness eval: turns are files, not stuffed into {memory}. "
+            "Memory.text is a manifest pointer. Compare to full_context "
+            "for model-only vs agent+model."
+        ),
+    },
     "openai_memory": {
         "builder": "OpenAIMemoryBuilder",
         "code": "src/locomo_eval/openai_memory/builders.py",

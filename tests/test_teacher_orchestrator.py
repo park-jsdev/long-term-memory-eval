@@ -675,6 +675,8 @@ class TestMockPipelineTeacherGraphWritesAuditPack(unittest.TestCase):
             self.assertEqual(meta["memory_type"], TEACHER_GRAPH)
             self.assertEqual(meta["teacher_pool"], "single")
             self.assertEqual(meta["teacher_fusion"], "none")
+            self.assertEqual(meta["n_teachers"], 1)
+            self.assertEqual(len(meta["teacher_ids"]), 1)
             row = __import__("json").loads(
                 (run_dir / "predictions.jsonl").read_text(encoding="utf-8").splitlines()[0]
             )

@@ -19,17 +19,42 @@ from scripts.analysis.campaign_plots import (
     write_line,
     write_metrics_grouped_bar,
 )
+from scripts.analysis.agent_harness import overlay_collected_agent_audit
 from scripts.analysis.campaign_tables import (
     annotate_generation,
     annotate_mem0_latency,
+    annotate_memory_lane,
     annotate_model_family,
+    annotate_reader_stack,
+    annotate_paper_compare,
+    annotate_system_harness,
     annotate_thinking,
+    annotate_writer_harness,
+    annotate_workspace_diagnostics,
+    attach_agent_identity,
+    attach_run_agent_audit,
+    attach_run_judge_score,
+    COMPARE_SOURCE_AXIS,
+    COMPARE_SOURCE_LIVE,
+    copy_run_identity_to_examples,
+    GENERATION_AXIS,
     join_search_latency,
+    LIVE_SOURCE_AXIS,
     mean_table,
+    MEMORY_LANE_AXIS,
+    PAPER_METHOD_AXIS,
+    READER_STACK_AXIS,
+    repair_run_harness_status,
     sort_year_family_table,
+    SYSTEM_HARNESS_AXIS,
 )
 from src.memorybench.analysis.cost import CostReport, render_cost
-from scripts.analysis.campaign_insights import attach_cell_cost, render_insight
+from scripts.analysis.campaign_insights import (
+    attach_cell_cost,
+    filter_where,
+    render_insight,
+    takeaway_contrast,
+)
 from src.memorybench.analysis.load_campaign import (
     AnalysisSpec,
     CampaignConfig,
@@ -79,12 +104,30 @@ def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.
     runs = join_search_latency(runs, pack)
     examples = annotate_mem0_latency(examples)
     runs = annotate_mem0_latency(runs)
+    runs = attach_run_judge_score(runs, examples)
+    examples = attach_agent_identity(examples, pack)
+    runs = attach_agent_identity(runs, pack)
+    examples = copy_run_identity_to_examples(examples, runs)
+    examples = overlay_collected_agent_audit(examples, pack)
+    examples = annotate_workspace_diagnostics(examples)
+    runs = attach_run_agent_audit(runs, examples)
+    runs = repair_run_harness_status(runs, examples)
+    examples = annotate_writer_harness(examples)
+    runs = annotate_writer_harness(runs)
+    examples = annotate_memory_lane(examples)
+    runs = annotate_memory_lane(runs)
+    examples = annotate_system_harness(examples)
+    runs = annotate_system_harness(runs)
+    examples = annotate_reader_stack(examples)
+    runs = annotate_reader_stack(runs)
     if not examples.empty and "result_source" not in examples.columns:
         examples = examples.copy()
         examples["result_source"] = "live"
     if not runs.empty and "result_source" not in runs.columns:
         runs = runs.copy()
         runs["result_source"] = "live"
+    examples = annotate_paper_compare(examples)
+    runs = annotate_paper_compare(runs)
     return runs, examples
 
 
@@ -97,10 +140,10 @@ def render_analysis(
     work = _prepare_frame(spec, df)
     table = mean_table(work, list(spec.group_by), list(spec.metrics))
     if spec.include_pins and pins:
-        pin_table = _pins_as_table(spec, pins)
+        pin_table = _pins_as_table(spec, pins, live=work)
         if not pin_table.empty:
             table = (
-                pd.concat([table, pin_table], ignore_index=True)
+                _concat_frames([table, pin_table])
                 if not table.empty
                 else pin_table
             )
@@ -118,22 +161,34 @@ def render_analysis(
     n_plots = len(spec.plots)
     for plot in spec.plots:
         dest = plots_dir / f"{spec.id}.png"
-        if n_plots > 1:
+        if n_plots > 1 or plot.split_by:
             dest = plots_dir / f"{_plot_stem(spec.id, plot)}.png"
-        written = _write_plot(plot, spec, table, dest)
-        if written is not None:
-            plot_paths.append(written)
+        for split_dest, split_table, split_title in _plot_frames(
+            plot, spec, table, dest
+        ):
+            written = _write_plot(
+                plot, spec, split_table, split_dest, title_suffix=split_title
+            )
+            if written is not None:
+                plot_paths.append(written)
     return AnalysisResult(spec=spec, table=table, csv_path=csv_path, plot_paths=plot_paths)
 
 
 def _write_plot(
-    plot: PlotSpec, spec: AnalysisSpec, table: pd.DataFrame, dest: Path
+    plot: PlotSpec,
+    spec: AnalysisSpec,
+    table: pd.DataFrame,
+    dest: Path,
+    title_suffix: str | None = None,
 ) -> Path | None:
     groups = [g for g in spec.group_by if g in table.columns]
     metrics = [m for m in spec.metrics if m in table.columns]
+    if plot.y == "n" and "n" in table.columns and "n" not in metrics:
+        metrics = [*metrics, "n"]
     if not groups or not metrics:
         return None
     kind = plot.kind
+    title = lambda metric: _plot_title(plot, spec, metric, suffix=title_suffix)
     if kind == "metrics_grouped_bar":
         collapsed = table.copy()
         if plot.hue and plot.hue in collapsed.columns:
@@ -145,22 +200,33 @@ def _write_plot(
             collapsed[series_col] = collapsed[list(groups)].astype(str).agg(
                 " × ".join, axis=1
             )
-        mets = [plot.y] if plot.y and plot.y in metrics else metrics
+        mets = _requested_metrics(plot, metrics)
+        if not mets:
+            return None
         return write_metrics_grouped_bar(
             collapsed,
             group_col=series_col,
             metrics=mets,
             path=dest,
-            title=_plot_title(plot, spec, mets[0] if len(mets) == 1 else None),
+            title=title(mets[0] if len(mets) == 1 else None),
         )
     if kind in ("grouped_bar", "line"):
-        x_col = plot.x if plot.x in table.columns else (groups[-1] if groups else None)
-        y = plot.y if plot.y in metrics else (metrics[0] if metrics else None)
+        x_col = _plot_axis_column(plot.x, table, groups, default_index=-1)
+        y = _requested_metric(plot, metrics)
         if not x_col or not y:
             return None
+        if plot.hue and plot.hue not in table.columns:
+            return None
         hue_parts = [g for g in groups if g != x_col]
-        if plot.hue and plot.hue in table.columns and plot.hue != x_col:
+        if plot.split_by:
+            hue_parts = [g for g in hue_parts if g != plot.split_by]
+        if plot.hue and plot.hue != x_col:
             hue_parts = [plot.hue] + [g for g in hue_parts if g != plot.hue]
+        hue_parts = [
+            g
+            for g in hue_parts
+            if g in table.columns and table[g].nunique(dropna=False) > 1
+        ]
         if not hue_parts:
             if kind == "line":
                 plot_table = table.copy()
@@ -171,14 +237,14 @@ def _write_plot(
                     hue_col="_series",
                     metric=y,
                     path=dest,
-                    title=_plot_title(plot, spec, y),
+                    title=title(y),
                 )
             return write_bar(
                 table,
                 x_col=x_col,
                 metric=y,
                 path=dest,
-                title=_plot_title(plot, spec, y),
+                title=title(y),
             )
         plot_table = table
         if len(hue_parts) == 1:
@@ -196,28 +262,97 @@ def _write_plot(
             hue_col=hue_col,
             metric=y,
             path=dest,
-            title=_plot_title(plot, spec, y),
+            title=title(y),
         )
     if kind == "bar":
-        x_col = plot.x if plot.x in table.columns else groups[0]
-        y = plot.y if plot.y in metrics else metrics[0]
+        x_col = _plot_axis_column(plot.x, table, groups, default_index=0)
+        y = _requested_metric(plot, metrics)
+        if not x_col or not y:
+            return None
         return write_bar(
             table,
             x_col=x_col,
             metric=y,
             path=dest,
-            title=_plot_title(plot, spec, y),
+            title=title(y),
         )
     return None
 
 
-def _plot_title(plot: PlotSpec, spec: AnalysisSpec, metric: str | None) -> str:
+def _requested_metric(plot: PlotSpec, metrics: list[str]) -> str | None:
+    """YAML ``y`` wins; missing ``y`` does not reuse the first table metric."""
+    if plot.y:
+        return plot.y if plot.y in metrics else None
+    return metrics[0] if metrics else None
+
+
+def _plot_axis_column(
+    requested: str | None,
+    table: pd.DataFrame,
+    groups: list[str],
+    *,
+    default_index: int,
+) -> str | None:
+    """Use YAML ``x`` when present; omit it only when the recipe did not set ``x``.
+
+    A set-but-missing ``x`` (``paper_method`` after a collapsed mean table) must
+    not fall back to ``model_family`` — that drew one OpenAI bar for every method.
+    """
+    if requested:
+        return requested if requested in table.columns else None
+    if not groups:
+        return None
+    if default_index < 0:
+        index = max(len(groups) + default_index, 0)
+    else:
+        index = min(default_index, len(groups) - 1)
+    return groups[index]
+
+
+def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Outer-concat pack frames without dropping all-NA columns.
+
+    pandas currently omits all-NA columns when it unions dtypes, which can
+    strip ``live_source`` / ``agent_persist`` from a campaign concat of
+    readers+writers and then collapse ``group_by``.
+    """
+    nonempty = [frame for frame in frames if isinstance(frame, pd.DataFrame) and not frame.empty]
+    if not nonempty:
+        return pd.DataFrame()
+    columns: list[str] = []
+    seen: set[str] = set()
+    for frame in nonempty:
+        for col in frame.columns:
+            if col not in seen:
+                seen.add(col)
+                columns.append(col)
+    aligned = [frame.reindex(columns=columns) for frame in nonempty]
+    return pd.concat(aligned, ignore_index=True)
+
+
+def _requested_metrics(plot: PlotSpec, metrics: list[str]) -> list[str]:
+    if plot.y:
+        return [plot.y] if plot.y in metrics else []
+    return list(metrics)
+
+
+def _plot_title(
+    plot: PlotSpec,
+    spec: AnalysisSpec,
+    metric: str | None,
+    suffix: str | None = None,
+) -> str:
     """One figure, one metric: do not reuse the analysis section title."""
     if plot.title:
-        return plot.title
-    if metric:
-        return _axis_title(metric)
-    return spec.title
+        base = plot.title
+    elif metric:
+        base = _axis_title(metric)
+    else:
+        base = spec.title
+    extra = str(suffix or "").strip()
+    if extra:
+        return f"{base} — {extra}"
+    return base
 
 
 def _plot_stem(analysis_id: str, plot: PlotSpec) -> str:
@@ -226,6 +361,62 @@ def _plot_stem(analysis_id: str, plot: PlotSpec) -> str:
         if bit:
             parts.append(str(bit))
     return "_".join(parts)
+
+
+def _plot_frames(
+    plot: PlotSpec, spec: AnalysisSpec, table: pd.DataFrame, dest: Path
+) -> list[tuple[Path, pd.DataFrame, str | None]]:
+    """One PNG for the table, or one PNG per ``split_by`` value."""
+    col = plot.split_by
+    if not col or col not in table.columns:
+        return [(dest, table, None)]
+    values = [str(v) for v in table[col].dropna().unique().tolist()]
+    frames: list[tuple[Path, pd.DataFrame, str | None]] = []
+    for value in _order_split_values(col, values):
+        part = table[table[col].astype(str) == value]
+        if part.empty:
+            continue
+        split_dest = dest.with_name(f"{dest.stem}_{_slug_label(value)}{dest.suffix}")
+        frames.append((split_dest, part, value))
+    return frames or [(dest, table, None)]
+
+
+def _order_split_values(col: str, values: list[str]) -> list[str]:
+    known: tuple[str, ...] = ()
+    if col == "generation":
+        known = GENERATION_AXIS
+    elif col == "compare_source":
+        known = COMPARE_SOURCE_AXIS
+    elif col == "live_source":
+        known = LIVE_SOURCE_AXIS
+    elif col == "paper_method":
+        known = PAPER_METHOD_AXIS
+    elif col == "reader_stack":
+        known = READER_STACK_AXIS
+    elif col == "memory_lane":
+        known = MEMORY_LANE_AXIS
+    elif col == "system_harness":
+        known = SYSTEM_HARNESS_AXIS
+    if not known:
+        return values
+    present = set(values)
+    return [item for item in known if item in present] + [
+        item for item in values if item not in known
+    ]
+
+
+def _slug_label(value: str) -> str:
+    text = str(value).strip().lower()
+    out = []
+    for char in text:
+        if char.isalnum():
+            out.append(char)
+        elif char in {" ", "_", "+", "-", "/"}:
+            out.append("_")
+    slug = "".join(out).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug or "value"
 
 
 def render_experiment(
@@ -275,6 +466,8 @@ def render_experiment(
                 pins=cfg.pins if spec.include_pins else None,
             )
         )
+    takeaway_results = _render_takeaways(cfg, results, out_dir)
+    results = takeaway_results + results
     _write_summary(out_dir, cfg, f"experiment {experiment_id} ({ref.name})", results)
     cost = render_cost(cfg, out_dir, root=root, experiment_id=experiment_id)
     if cost is not None:
@@ -313,7 +506,7 @@ def render_campaign(
     for spec in cfg.campaign_analyses:
         src = run_frames if spec.source == "runs" else example_frames
         parts = [src[eid] for eid in spec.experiments if eid in src]
-        df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        df = _concat_frames(parts)
         if df.empty and not (spec.include_pins and cfg.pins):
             results.append(
                 AnalysisResult(spec=spec, table=pd.DataFrame(), skipped="no packs")
@@ -324,7 +517,7 @@ def render_campaign(
                 spec, df, out_dir, pins=cfg.pins if spec.include_pins else None
             )
         )
-    cost = render_cost(cfg, out_dir, root=root, experiment_id=None)
+    cost = render_cost(cfg, out_dir, root=root, experiment_id=None        )
     results.extend(
         _render_insights(
             cfg,
@@ -333,6 +526,8 @@ def render_campaign(
             cost=cost.by_cell if cost is not None else None,
         )
     )
+    takeaway_results = _render_takeaways(cfg, results, out_dir)
+    results = takeaway_results + results
     _write_summary(out_dir, cfg, f"campaign {cfg.id}", results, missing=missing)
     if cost is not None:
         _append_cost_summary(out_dir / "SUMMARY.md", cost)
@@ -360,16 +555,76 @@ def run_report(
     return out
 
 
+def dataframe_markdown(table: pd.DataFrame) -> str:
+    """GitHub-flavored table so Cursor / Jupyter Markdown keep columns aligned.
+
+    ``DataFrame.to_string`` inside Markdown collapses spaces. Pandas HTML
+    often fails to render in Cursor notebooks. Pipe tables do both.
+    """
+    if table is None or table.empty:
+        return "_empty table_"
+    cols = [str(c) for c in table.columns]
+    header = "| " + " | ".join(cols) + " |"
+    align = "| " + " | ".join("---" for _ in cols) + " |"
+    rows = []
+    for row in table.itertuples(index=False, name=None):
+        rows.append("| " + " | ".join(_markdown_cell(v) for v in row) + " |")
+    return "\n".join([header, align, *rows])
+
+
+def _markdown_cell(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer() and abs(value) < 1e15:
+            return str(int(value))
+        return f"{value:.4f}".rstrip("0").rstrip(".")
+    return str(value).replace("\n", " ").replace("|", "\\|")
+
+
+def dataframe_html(table: pd.DataFrame) -> str:
+    """Standalone HTML table for Cursor notebooks (not mixed into Markdown)."""
+    if table is None or table.empty:
+        return "<p><em>empty table</em></p>"
+    formatted = pd.DataFrame(
+        {str(col): [_markdown_cell(v) for v in table[col].tolist()] for col in table.columns}
+    )
+    body = formatted.to_html(index=False, escape=True, border=1)
+    return f'<div style="overflow-x:auto">{body}</div>'
+
+
+def _display_notebook_table(table: pd.DataFrame) -> None:
+    """HTML table as its own output — GFM tables inside prose collapse in Cursor."""
+    try:
+        from IPython.display import HTML, display
+
+        display(HTML(dataframe_html(table)))
+    except ImportError:
+        print(dataframe_markdown(table))
+
+
 def notebook_show(report: ReportResult) -> None:
     """Display tables and PNGs in a Jupyter notebook (no-op extras if missing)."""
     try:
         from IPython.display import Image, Markdown, display
     except ImportError:
         for item in report.results:
+            if item.spec.id == "takeaways":
+                print("\n".join(_takeaways_markdown(item.table, item.csv_path)))
+                continue
             print(item.spec.id, item.skipped or f"n={len(item.table)}")
             if item.skipped:
                 continue
-            print(item.table.to_string(index=False))
+            print(dataframe_markdown(item.table))
             for path in item.plot_paths:
                 print("plot", path)
         return
@@ -378,15 +633,27 @@ def notebook_show(report: ReportResult) -> None:
     display(Markdown(f"Output `{report.out_dir.as_posix()}`"))
     if not report.results:
         return
-    display(Markdown(f"Output `{report.out_dir.as_posix()}`"))
     for item in report.results:
+        if item.spec.id == "takeaways":
+            _notebook_show_takeaways(item)
+            continue
         display(Markdown(f"### {item.spec.title}"))
         if item.skipped:
             display(Markdown(f"_skipped: {item.skipped}_"))
             continue
-        display(item.table)
+        _display_notebook_table(item.table)
         for path in item.plot_paths:
             display(Image(filename=str(path)))
+
+
+def _notebook_show_takeaways(item: AnalysisResult) -> None:
+    """Prose Markdown and metric HTML are separate outputs so Cursor can render both."""
+    from IPython.display import Markdown, display
+
+    for heading, metrics in _takeaway_sections(item.table, item.csv_path):
+        display(Markdown(heading))
+        if metrics is not None and not metrics.empty:
+            _display_notebook_table(metrics)
 
 
 def _render_insights(
@@ -424,6 +691,8 @@ def _render_insights(
             kwargs["hole_max"] = spec.hole_max
         if spec.move_eps is not None:
             kwargs["move_eps"] = spec.move_eps
+        if spec.live_generation:
+            kwargs["live_generation"] = spec.live_generation
         table = render_insight(spec.kind, work, **kwargs)
         tables_dir.mkdir(parents=True, exist_ok=True)
         csv_path = tables_dir / f"{spec.id}.csv"
@@ -439,6 +708,74 @@ def _render_insights(
         )
         lookup[spec.id] = table
     return extra
+
+
+def _render_takeaways(
+    cfg: CampaignConfig,
+    results: list[AnalysisResult],
+    out_dir: Path,
+) -> list[AnalysisResult]:
+    """Harness vs model-reader/writer contrasts for SUMMARY / notebook."""
+    if not cfg.takeaways:
+        return []
+    lookup = {item.spec.id: item.table for item in results if not item.skipped}
+    records: list[dict] = []
+    for spec in cfg.takeaways:
+        if not spec.source_analysis:
+            piece = takeaway_contrast(
+                pd.DataFrame(),
+                pd.DataFrame(),
+                spec.metrics,
+                takeaway_id=spec.id,
+                title=spec.title,
+                claim=spec.claim,
+                finding=spec.finding,
+                left_label=spec.left_label,
+                right_label=spec.right_label,
+            )
+        else:
+            left_src = lookup.get(spec.source_analysis)
+            right_key = spec.right_source or spec.source_analysis
+            right_src = lookup.get(right_key)
+            if left_src is None or left_src.empty:
+                continue
+            if right_src is None:
+                right_src = pd.DataFrame()
+            left = filter_where(left_src, spec.left) if spec.left else left_src
+            right = filter_where(right_src, spec.right) if spec.right else right_src
+            piece = takeaway_contrast(
+                left,
+                right,
+                spec.metrics,
+                takeaway_id=spec.id,
+                title=spec.title,
+                claim=spec.claim,
+                finding=spec.finding,
+                left_label=spec.left_label,
+                right_label=spec.right_label,
+            )
+        records.extend(piece.to_dict(orient="records"))
+    if not records:
+        return []
+    table = pd.DataFrame.from_records(records)
+    tables_dir = out_dir / "tables"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = tables_dir / "takeaways.csv"
+    table.to_csv(csv_path, index=False)
+    return [
+        AnalysisResult(
+            spec=AnalysisSpec(
+                id="takeaways",
+                title="Harness vs model reader/writer",
+                group_by=(),
+                metrics=(),
+                plots=(),
+                source="examples",
+            ),
+            table=table,
+            csv_path=csv_path,
+        )
+    ]
 
 
 def _insight_analysis_spec(spec: InsightSpec) -> AnalysisSpec:
@@ -465,6 +802,13 @@ def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     out = df
+    if "result_source" not in out.columns:
+        out = out.copy()
+        out["result_source"] = "live"
+    out = annotate_writer_harness(out)
+    out = annotate_memory_lane(out)
+    out = annotate_system_harness(out)
+    out = annotate_paper_compare(out)
     drop = _categories_to_drop(spec)
     if drop and "question_category" in out.columns:
         category = pd.to_numeric(out["question_category"], errors="coerce")
@@ -473,10 +817,26 @@ def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _categories_to_drop(spec: AnalysisSpec) -> tuple[int, ...]:
-    """Mem0 J / paper clone overalls skip category 5; category plots keep it."""
-    if "question_category" in spec.group_by:
+    """Mem0 J / paper clone overalls skip category 5; category plots keep it.
+
+    Failure-mode counts are an audit of what the harness did, so they keep
+    adversarial questions the same way category bars do.
+    """
+    if "question_category" in spec.group_by or "failure_mode" in spec.group_by:
         return spec.exclude_question_categories
     return spec.exclude_question_categories or (5,)
+
+
+_PAPER_COMPARE_FILTERS = frozenset(
+    {
+        "paper_method",
+        "live_source",
+        "compare_source",
+        "reader_stack",
+        "memory_lane",
+        "system_harness",
+    }
+)
 
 
 def _apply_where(
@@ -485,17 +845,51 @@ def _apply_where(
     out = df
     for col, values in where:
         if col not in out.columns:
+            # Paper-compare filters are required. Skipping them used to keep
+            # every method and then average them in mean_table.
+            if col in _PAPER_COMPARE_FILTERS:
+                return out.iloc[0:0]
             continue
         out = out[out[col].astype(str).isin(values)]
     return out
 
 
+def _drop_clone_when_live_exists(
+    pins: pd.DataFrame,
+    live: pd.DataFrame | None,
+    spec: AnalysisSpec,
+) -> pd.DataFrame:
+    """Methods plot folds clone into live model; drop the clone pin if a pack live-model row exists."""
+    if pins.empty or live is None or live.empty:
+        return pins
+    if "live_source" not in spec.group_by:
+        return pins
+    if "compare_source" not in live.columns or "paper_method" not in live.columns:
+        return pins
+    live_methods = {
+        str(v)
+        for v in live.loc[
+            live["compare_source"].astype(str) == COMPARE_SOURCE_LIVE, "paper_method"
+        ].tolist()
+    }
+    if not live_methods:
+        return pins
+    clone = pins["compare_source"].astype(str) == "local clone"
+    overlap = pins["paper_method"].astype(str).isin(live_methods)
+    return pins[~(clone & overlap)].copy()
+
+
 def _pins_as_table(
-    spec: AnalysisSpec, pins: tuple[dict, ...] | list[dict]
+    spec: AnalysisSpec,
+    pins: tuple[dict, ...] | list[dict],
+    live: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     frame = pd.DataFrame(list(pins))
     if frame.empty:
         return frame
+    frame = annotate_reader_stack(frame)
+    frame = annotate_paper_compare(frame)
+    frame = _drop_clone_when_live_exists(frame, live, spec)
     frame = _apply_where(frame, spec.where)
     groups = [c for c in spec.group_by if c in frame.columns]
     metrics = [m for m in spec.metrics if m in frame.columns]
@@ -529,7 +923,12 @@ def _write_summary(
     if missing:
         lines.append("Missing packs: " + ", ".join(missing))
         lines.append("")
+    takeaway = next((item for item in results if item.spec.id == "takeaways"), None)
+    if takeaway is not None and not takeaway.table.empty:
+        lines.extend(_takeaways_markdown(takeaway.table, takeaway.csv_path))
     for item in results:
+        if item.spec.id == "takeaways":
+            continue
         lines.append(f"## {item.spec.id} — {item.spec.title}")
         if item.skipped:
             lines.append(f"skipped: {item.skipped}")
@@ -541,11 +940,73 @@ def _write_summary(
             lines.append(f"plot: `{plot.as_posix()}`")
         lines.append("")
         if not item.table.empty:
-            lines.append(item.table.to_string(index=False))
+            lines.append(dataframe_markdown(item.table))
             lines.append("")
     dest = out_dir / "SUMMARY.md"
     dest.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return dest
+
+
+def _takeaway_metric_table(piece: pd.DataFrame) -> pd.DataFrame | None:
+    cols = [
+        c
+        for c in (
+            "left_label",
+            "right_label",
+            "metric",
+            "n_left",
+            "n_right",
+            "left_value",
+            "right_value",
+            "delta",
+        )
+        if c in piece.columns
+    ]
+    if not cols:
+        return None
+    show = piece[cols]
+    if show.empty or "metric" not in show.columns or not show["metric"].notna().any():
+        return None
+    return show
+
+
+def _takeaway_sections(
+    table: pd.DataFrame, csv_path: Path | None
+) -> list[tuple[str, pd.DataFrame | None]]:
+    """Heading Markdown separate from the metric frame (notebook HTML vs SUMMARY pipes)."""
+    sections: list[tuple[str, pd.DataFrame | None]] = []
+    intro = ["## Takeaways — harness vs model reader/writer", ""]
+    if csv_path is not None:
+        intro.append(f"table: `{csv_path.as_posix()}`")
+        intro.append("")
+    sections.append(("\n".join(intro).rstrip(), None))
+    if table.empty or "takeaway_id" not in table.columns:
+        return sections
+    order = []
+    for tid in table["takeaway_id"].astype(str):
+        if tid not in order:
+            order.append(tid)
+    for tid in order:
+        piece = table[table["takeaway_id"].astype(str) == tid]
+        row = piece.iloc[0]
+        heading = [f"### {row['title']}", f"claim: `{row['claim']}`", ""]
+        finding = str(row.get("finding") or "").strip()
+        if finding:
+            heading.append(finding)
+            heading.append("")
+        sections.append(("\n".join(heading).rstrip(), _takeaway_metric_table(piece)))
+    return sections
+
+
+def _takeaways_markdown(table: pd.DataFrame, csv_path: Path | None) -> list[str]:
+    lines: list[str] = []
+    for heading, metrics in _takeaway_sections(table, csv_path):
+        lines.append(heading)
+        lines.append("")
+        if metrics is not None and not metrics.empty:
+            lines.append(dataframe_markdown(metrics))
+            lines.append("")
+    return lines
 
 
 def _append_cost_summary(summary_path: Path, cost: CostReport) -> None:
@@ -556,7 +1017,7 @@ def _append_cost_summary(summary_path: Path, cost: CostReport) -> None:
         lines.append(f"plot: `{path.as_posix()}`")
     lines.append("")
     if not cost.by_stage.empty:
-        lines.append(cost.by_stage.to_string(index=False))
+        lines.append(dataframe_markdown(cost.by_stage))
         lines.append("")
     existing = summary_path.read_text(encoding="utf-8") if summary_path.is_file() else ""
     summary_path.write_text(existing.rstrip() + "\n" + "\n".join(lines), encoding="utf-8")

@@ -56,6 +56,8 @@ def role_for(config_key: str, source: str) -> str:
     src = source.replace("\\", "/")
     if "autorater" in key or "/autoraters/" in src:
         return "autorater"
+    if "/agents/" in src or key.startswith("agent."):
+        return "agent"
     if key.endswith("pipeline.prompt_path") or "/readers/" in src:
         return "reader"
     if "teacher" in key or "/teachers/" in src:
@@ -68,11 +70,19 @@ def jsonl_targets(config_key: str, cfg: dict[str, Any]) -> list[str]:
     if "autorater" in key:
         return ["autorater/traces.jsonl", "autorater/autorater_verdicts.jsonl"]
     if key.endswith("pipeline.prompt_path"):
-        return [
+        targets = [
             "predictions.jsonl",
             "reader/traces.jsonl",
             "reader/predictions.jsonl",
         ]
+        if "/agents/" in str((cfg.get("pipeline") or {}).get("prompt_path") or ""):
+            targets.extend(
+                [
+                    "agent/traces.jsonl",
+                    "agent/trajectory.jsonl",
+                ]
+            )
+        return targets
     if "teacher" in key:
         return ["memory/teachers/calls.jsonl", "memory/teachers/index.jsonl"]
     if "openai_memory" in key:

@@ -21,6 +21,14 @@ ADVERSARIAL_CATEGORY = 5
 
 PAPER_CITE = "Chhikara et al., arXiv:2504.19413"
 PAPER_URL = "https://arxiv.org/abs/2504.19413"
+
+# Maharana et al. 2024 Table 3: RAG over session summaries (gpt-3.5-turbo-16k, top-5).
+# Overall F1 includes adversarial. 50 conversations / 7,512 questions — not locomo10,
+# not Mem0 J. Use as an F1 literature pin only until we judge dataset summaries live.
+LOCOMO_2024_CITE = "Maharana et al., arXiv:2402.17753"
+LOCOMO_2024_SUMMARY_RAG_TOPK = 5
+LOCOMO_2024_SUMMARY_RAG_F1 = 0.325
+LOCOMO_2024_SUMMARY_RAG_N = 7512
 MEM0_JUDGE_CODE_URL = (
     "https://github.com/mem0ai/mem0/blob/ece7ff6b/"
     "evaluation/metrics/llm_judge.py"

@@ -24,12 +24,18 @@ NN_<frozen-axis>_<variable-axis>[_protocol|_analysis].ipynb
 | `14_2026_openai_deepseek_campaign_analysis.ipynb` | 2026 concat | Family tables across 2026 OpenAI vs DeepSeek packs |
 | `15_year_family_robustness_analysis.ipynb` | year concat | Robustness, year moves, holes, rank flips, cost/latency/tokens, ROI, saturation |
 | `16_locomo_full_context_window_analysis.ipynb` | audit + packs | Full-context injection vs published windows; coverage vs J/latency/USD |
+| `17_openai_codex_poc_analysis.ipynb` | Codex PoC | Mini reader/writer PoC: tool audit + Table 2 pins |
+| `17_openai_agent_reader_writer_analysis.ipynb` | OpenAI agents | Chat Completions 2024–2026 vs Codex 2026 harness |
+| `17_openai_codex_persist_memory_analysis.ipynb` | Persist memory | notes_only vs persist-on vs session summaries |
+| `17_openai_mini_vs_codex_writers_analysis.ipynb` | Mini vs Codex writers | Chat Completions vs Codex session summaries / teacher_graph, plus full_context ceiling |
 
 Year comparison / multi-teacher validity: `python -m src.memorybench report configs/analysis/campaign_year_family.yaml` writes `experiments/_campaign/year_family/analysis/` (mean bars, year-on-x line charts, plus insight CSVs, including cost). Paper Table 2 and gpt-4o-mini clone scores are YAML `pins:`. 2024→2025 pin vs live is not a matched sandwich; 2025→2026 live is. A `rank_flip` on FC vs RAG or teacher_graph vs summaries is a threat to freezing that axis in a multi-teacher middle layer. ROI uses score per second / per $1 / per 1k reasoning tokens; saturation labels `near_ceiling` and `diminishing_returns`.
 
 Full-context vs the model window: `python -m scripts.analysis.context_window` writes `experiments/_campaign/context_window/` from audit dumps + campaign parquet. Not a memorybench job. `full_context` is the conversation (~26k paper / ~28k local), not a filled window.
 
-Analysis notebooks are YAML wrappers with a **pre-test** (declared cells, hypotheses, priced volume estimate) and a **post-test** (finished-pack metrics + expected vs actual USD). Helpers: `notebook_pretest` / `notebook_posttest`. Do not put matplotlib or groupby in the notebook.
+Codex / OpenAI agent campaign: `python -m src.memorybench report configs/analysis/campaign_openai_codex_poc.yaml`, `campaign_openai_agents.yaml`, `campaign_openai_codex_persist_memory.yaml`, and `campaign_openai_mini_vs_codex_writers.yaml`. Tool-audit plots (`n_web_search`, `n_mcp`) should be ~0. Workspace J vs LoCoMo F1, gold-id recall bins, hop-to-evidence, and qidx×category are YAML recipes (`scripts/analysis/agent_harness.py` overlays collected traces). Paper pins are not a matched sandwich. Generation is model year; Codex CLI is a 2026 harness. `notes_only` is the persist memory-method cell.
+
+Analysis notebooks are YAML wrappers with a **pre-test** (declared cells, hypotheses, priced volume estimate) and a **post-test** (finished-pack metrics + expected vs actual USD). Helpers: `notebook_pretest` / `notebook_posttest`. Do not put matplotlib or groupby in the notebook. Takeaway metric grids are HTML tables displayed separately from the finding prose (Cursor collapses Markdown tables mixed into a paragraph).
 
 Active analysis YAML: `configs/analysis/campaign_2025_openai_deepseek.yaml` (completed 2025). Next campaign: `configs/analysis/campaign_2026_openai_deepseek.yaml`. Same plot recipes as the parked `campaign_2025_live.yaml`. Cost pins: `configs/models/pricing.yaml`. Engines: `scripts/analysis/campaign_tables.py` + `campaign_plots.py` + `src/memorybench/analysis/cost.py`. After pulling aggregate:
 

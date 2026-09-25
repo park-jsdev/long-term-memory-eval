@@ -73,11 +73,14 @@ gs://$BUCKET/
 
 ## 4. Secret Manager
 
-One secret **per LLM key**. Application code still reads `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`. Cloud Run maps secrets onto those env vars.
+One secret **per LLM key**. Application code reads `OPENAI_API_KEY` /
+`CODEX_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`. Cloud Run maps
+secrets onto those env vars.
 
 ```bash
 # after: echo -n KEY | gcloud secrets create openai-api-key --data-file=-
 gcloud secrets create openai-api-key --replication-policy=automatic
+gcloud secrets create codex-api-key --replication-policy=automatic
 gcloud secrets create anthropic-api-key --replication-policy=automatic
 gcloud secrets create deepseek-api-key --replication-policy=automatic
 ```

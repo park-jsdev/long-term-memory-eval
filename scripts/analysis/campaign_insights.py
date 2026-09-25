@@ -538,16 +538,20 @@ def pin_gaps(
     """
     if table.empty or metric not in table.columns:
         return pd.DataFrame()
-    needed = {"generation", "model_family", "memory_method", "result_source"}
+    needed = {"generation", "model_family"}
+    method_col = "paper_method" if "paper_method" in table.columns else "memory_method"
+    source_col = "compare_source" if "compare_source" in table.columns else "result_source"
+    needed = needed | {method_col, source_col}
     if not needed.issubset(table.columns):
         return pd.DataFrame()
     pins = table[
         (table["generation"].astype(str) == pin_generation)
-        & (table["result_source"].astype(str).isin(("paper", "local_clone")))
+        & (table[source_col].astype(str).isin(("paper", "local_clone", "local clone")))
     ]
+    live_tokens = ("live", "live model", "gpt-4o-mini + Codex")
     live = table[
         (table["generation"].astype(str) == live_generation)
-        & (table["result_source"].astype(str) == "live")
+        & (table[source_col].astype(str).isin(live_tokens))
         & (table["model_family"].astype(str) == "OpenAI")
     ]
     if "thinking" in live.columns:
@@ -556,10 +560,10 @@ def pin_gaps(
             live = off
     rows: list[dict[str, Any]] = []
     for _, pin in pins.iterrows():
-        method = str(pin.get("memory_method"))
-        source = str(pin.get("result_source"))
+        method = str(pin.get(method_col))
+        source = str(pin.get(source_col))
         pin_val = _as_float(pin.get(metric))
-        live_rows = live[live["memory_method"].astype(str) == method]
+        live_rows = live[live[method_col].astype(str) == method]
         live_val = _first_num(live_rows, metric)
         delta = None if pin_val is None or live_val is None else live_val - pin_val
         move = classify_delta(delta)
@@ -578,6 +582,95 @@ def pin_gaps(
             }
         )
     return pd.DataFrame(rows)
+
+
+def j_f1_gap(table: pd.DataFrame) -> pd.DataFrame:
+    """Judge J minus LoCoMo F1. Large positive = paraphrase / verbosity.
+
+    Same predicted string on both metrics. Not a scorer bug.
+    """
+    if (
+        table.empty
+        or "judge_score" not in table.columns
+        or "locomo_f1" not in table.columns
+    ):
+        return pd.DataFrame()
+    out = table.copy()
+    out["j_minus_f1"] = pd.to_numeric(
+        out["judge_score"], errors="coerce"
+    ) - pd.to_numeric(out["locomo_f1"], errors="coerce")
+    return out
+
+
+def takeaway_contrast(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    metrics: list[str] | tuple[str, ...],
+    *,
+    takeaway_id: str,
+    title: str,
+    claim: str,
+    finding: str,
+    left_label: str,
+    right_label: str,
+) -> pd.DataFrame:
+    """One row per metric: left minus right, plus the frozen finding text."""
+    wanted = list(metrics) or [
+        m
+        for m in ("judge_score", "locomo_f1", "token_f1", "exact_match")
+        if m in left.columns or m in right.columns
+    ]
+    if not wanted:
+        wanted = ["_"]
+    rows: list[dict[str, Any]] = []
+    n_left = 0 if left.empty or "n" not in left.columns else int(
+        pd.to_numeric(left["n"], errors="coerce").fillna(0).sum()
+    )
+    n_right = 0 if right.empty or "n" not in right.columns else int(
+        pd.to_numeric(right["n"], errors="coerce").fillna(0).sum()
+    )
+    for metric in wanted:
+        name = metric if metric != "_" else ""
+        lv = _mean_num(left, name) if name else None
+        rv = _mean_num(right, name) if name else None
+        delta = None if lv is None or rv is None else lv - rv
+        rows.append(
+            {
+                "takeaway_id": takeaway_id,
+                "title": title,
+                "claim": claim,
+                "finding": finding,
+                "left_label": left_label,
+                "right_label": right_label,
+                "n_left": n_left or None,
+                "n_right": n_right or None,
+                "metric": name or None,
+                "left_value": lv,
+                "right_value": rv,
+                "delta": delta,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def filter_where(
+    df: pd.DataFrame, where: tuple[tuple[str, tuple[str, ...]], ...]
+) -> pd.DataFrame:
+    out = df
+    for col, values in where:
+        if col not in out.columns:
+            continue
+        out = out[out[col].astype(str).isin(values)]
+    return out
+
+
+def _mean_num(piece: pd.DataFrame, metric: str) -> float | None:
+    if not metric or piece.empty or metric not in piece.columns:
+        return None
+    series = pd.to_numeric(piece[metric], errors="coerce").dropna()
+    if series.empty:
+        return None
+    return float(series.mean())
 
 
 def render_insight(kind: str, table: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
@@ -608,7 +701,11 @@ def render_insight(kind: str, table: pd.DataFrame, **kwargs: Any) -> pd.DataFram
             eps=eps,
         )
     if kind == "pin_gaps":
-        return pin_gaps(table, str(kwargs.get("metric") or "judge_score"))
+        return pin_gaps(
+            table,
+            str(kwargs.get("metric") or "judge_score"),
+            live_generation=str(kwargs.get("live_generation") or "2025"),
+        )
     if kind == "efficiency":
         return efficiency(table)
     if kind == "saturation":
@@ -618,6 +715,8 @@ def render_insight(kind: str, table: pd.DataFrame, **kwargs: Any) -> pd.DataFram
             ceiling=float(kwargs.get("hole_max") or CEILING_J),
             eps=eps,
         )
+    if kind == "j_f1_gap":
+        return j_f1_gap(table)
     raise ValueError(f"unknown insight kind {kind}")
 
 

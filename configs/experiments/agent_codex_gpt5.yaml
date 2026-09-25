@@ -1,0 +1,59 @@
+# Architecture for a later live cell: model-only GPT-5 full_context vs Codex
+# workspace_files. Do not launch until local mock + GCP mock smokes pass.
+# Invalid combos (codex×full_context, none×workspace_files) are skipped.
+experiment:
+  name: locomo-agent-codex-gpt5
+  type: agent
+  seed: 42
+  freeze:
+    prompt_path: prompts/agents/qa_workspace_v1.txt
+    reader:
+      catalog: gpt-5
+
+# Audit-only until Codex can enforce the common tool and retrieval budgets.
+agent_comparison:
+  strict: false
+  tool_budget:
+    allowed_tools: []
+    max_tool_calls: null
+    max_retrieved_tokens: null
+    wall_clock_s: 600
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  agent:
+    - none
+    - codex
+  agent_persist:
+    - off
+  agent_tools:
+    - native
+  memory_method:
+    - full_context
+    - workspace_files
+  seed:
+    - 1
+
+subset:
+  max_samples: 1
+  max_questions: 3
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 600
+  max_api_retries: 5
+
+storage:
+  backend: local
+  path: experiments
+
+shared_indexes: {}

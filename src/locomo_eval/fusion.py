@@ -55,6 +55,16 @@ FUSION_RESOLVE_POLICIES = (
 FUSION_POLICIES = (FUSION_NONE, FUSION_MAJORITY) + FUSION_RESOLVE_POLICIES
 
 
+def is_multi_teacher_memory_method(memory_method: str) -> bool:
+    """True for pooled_* / fused_* graph conditions (K>1 cheap_k3 roster).
+
+    ``teacher_graph`` and ``teacher_session_summaries`` stay K=1.
+    Mem0 extract is a single writer model, not this axis.
+    """
+    key = str(memory_method or "").strip().lower()
+    return key.startswith("pooled_teacher") or key.startswith("fused_teacher")
+
+
 @dataclass
 class GraphProposal:
     """One teacher's extracted graph fragment for one session.

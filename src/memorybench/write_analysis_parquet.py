@@ -48,6 +48,24 @@ EXAMPLE_COLUMNS = (
     "judge_output_tokens",
     "judge_latency_seconds",
     "retry_count",
+    "agent_harness",
+    "n_retrieval_calls",
+    "retrieved_tokens",
+    "evidence_retrieved",
+    "memory_recall",
+    "memory_precision",
+    "unnecessary_retrievals",
+    "failure_mode",
+    "n_web_search",
+    "n_mcp",
+    "used_non_workspace_tools",
+    "n_write_events",
+    "hop_to_evidence",
+    "notes_retrieved",
+    "notes_bytes",
+    "notes_words",
+    "notes_grew",
+    "agent_sessions",
 )
 
 
@@ -146,12 +164,24 @@ def _example_record(
         "locomo_f1": float(scores["locomo_f1"]),
         "judge_score": _as_float(llm_score),
         "judge_reasoning": _as_str(verdict.get("reasoning") or verdict.get("raw_text")),
-        "agent_input_tokens": _as_int(usage.get("prompt_tokens")),
-        "agent_output_tokens": _as_int(usage.get("completion_tokens")),
+        "agent_input_tokens": _as_int(
+            usage.get("prompt_tokens")
+            if usage.get("prompt_tokens") is not None
+            else usage.get("input_tokens")
+        ),
+        "agent_output_tokens": _as_int(
+            usage.get("completion_tokens")
+            if usage.get("completion_tokens") is not None
+            else usage.get("output_tokens")
+        ),
         "agent_reasoning_tokens": _as_int(
             usage.get("reasoning_tokens")
             if usage.get("reasoning_tokens") is not None
-            else row.get("reasoning_tokens")
+            else (
+                usage.get("reasoning_output_tokens")
+                if usage.get("reasoning_output_tokens") is not None
+                else row.get("reasoning_tokens")
+            )
         ),
         "agent_latency_seconds": _as_float(row.get("latency_s")),
         "search_latency_seconds": _as_float(row.get("search_latency_s")),
@@ -163,6 +193,24 @@ def _example_record(
         "judge_output_tokens": _as_int(judge_usage.get("completion_tokens")),
         "judge_latency_seconds": _as_float(verdict.get("latency_s")),
         "retry_count": _as_int(row.get("retry_count")) or 0,
+        "agent_harness": _as_str(row.get("agent") or spec.agent),
+        "n_retrieval_calls": _as_int(row.get("n_retrieval_calls")),
+        "retrieved_tokens": _as_int(row.get("retrieved_tokens")),
+        "evidence_retrieved": row.get("evidence_retrieved"),
+        "memory_recall": _as_float(row.get("memory_recall")),
+        "memory_precision": _as_float(row.get("memory_precision")),
+        "unnecessary_retrievals": _as_int(row.get("unnecessary_retrievals")),
+        "failure_mode": _as_str(row.get("failure_mode")),
+        "n_web_search": _as_int(row.get("n_web_search")),
+        "n_mcp": _as_int(row.get("n_mcp")),
+        "used_non_workspace_tools": row.get("used_non_workspace_tools"),
+        "n_write_events": _as_int(row.get("n_write_events")),
+        "hop_to_evidence": _as_int(row.get("hop_to_evidence")),
+        "notes_retrieved": row.get("notes_retrieved"),
+        "notes_bytes": _as_int(row.get("notes_bytes")),
+        "notes_words": _as_int(row.get("notes_words")),
+        "notes_grew": row.get("notes_grew"),
+        "agent_sessions": _as_str(row.get("agent_sessions") or spec.agent_sessions),
     }
 
 
@@ -191,9 +239,20 @@ def qa_summary_row(
         "reader_provider": spec.reader.provider,
         "reader_model": spec.reader.api_model_id,
         "reader_display_name": spec.reader.display_name,
+        "reader_generation": spec.reader.generation,
         "judge_provider": spec.judge_provider,
         "judge_model": spec.judge_model,
         "writer_model": spec.writer.api_model_id if spec.writer else None,
+        "writer_provider": spec.writer.provider if spec.writer else None,
+        "agent": spec.agent,
+        "agent_persist": spec.agent_persist,
+        "agent_sessions": spec.agent_sessions,
+        "agent_tools": spec.agent_tools,
+        "comparison_status": (
+            (meta.get("comparison_contract") or {}).get("status")
+            if isinstance(meta.get("comparison_contract"), dict)
+            else None
+        ),
         "thinking": spec.thinking_label(),
         "num_examples": int(n_examples),
         "primary_score": _as_float(m.get("locomo_f1")),

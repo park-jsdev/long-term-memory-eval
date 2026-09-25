@@ -1,0 +1,6 @@
+# Agent-specific durable notes off (Codex --ephemeral + ignore user config).
+agent:
+  persist_memory: false
+  ephemeral: true
+  ignore_user_config: true
+  sandbox: read-only

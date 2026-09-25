@@ -1,0 +1,14 @@
+You answer a LoCoMo question from conversation files in this workspace.
+
+Workspace:
+- INDEX.md lists session files
+- sessions/session_N.md contains dated speaker turns. Each turn ends with (dia_id) when available.
+
+Question:
+{question}
+
+Rules:
+- Use only the conversation files. Do not use outside knowledge.
+- You may list, read, and search files. Do not modify files.
+- Return a JSON object with a single key "answer" whose value is a short
+  factual phrase (about 5-6 words), not a sentence or paragraph.

@@ -18,8 +18,11 @@ class PlotSpec:
     """One visualization over a table. ``x`` / ``hue`` / ``y`` are column names.
 
     Omitted fields fall back to ``group_by`` / ``metrics`` order in the report.
-    Optional ``title`` overrides the figure title; otherwise the y-axis metric
-    name is used so two plots in one analysis are not given the same heading.
+    A *set* ``x`` or ``hue`` that is missing from the table skips the figure
+    (do not remap to ``model_family``). Optional ``title`` overrides the figure
+    title; otherwise the y-axis metric name is used so two plots in one analysis
+    are not given the same heading. Optional ``split_by`` writes one PNG per
+    distinct value of that column (paper / live model / Codex per memory method).
 
     """
 
@@ -28,6 +31,7 @@ class PlotSpec:
     hue: str | None = None
     y: str | None = None
     title: str | None = None
+    split_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,28 @@ class InsightSpec:
     hole_max: float | None = None
     move_eps: float | None = None
     join_cost: bool = False
+    live_generation: str | None = None
+
+
+@dataclass(frozen=True)
+class TakeawaySpec:
+    """Harness vs model-reader/writer contrast plus a frozen finding.
+
+    Numbers come from already-written mean tables (``from`` / ``from_right``).
+    ``delta`` is left minus right. Finding text is the claim, not a new metric.
+    """
+
+    id: str
+    title: str
+    finding: str
+    claim: str
+    source_analysis: str
+    right_source: str | None = None
+    left: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    right: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    left_label: str = "left"
+    right_label: str = "right"
+    metrics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,6 +142,7 @@ class CampaignConfig:
     notebook: str | None = None
     cost: CostConfig | None = None
     insights: tuple[InsightSpec, ...] = ()
+    takeaways: tuple[TakeawaySpec, ...] = ()
 
 
 def load_campaign_yaml(path: str | Path) -> CampaignConfig:
@@ -141,6 +168,7 @@ def load_campaign_yaml(path: str | Path) -> CampaignConfig:
     insights = tuple(
         _parse_insight(item, default_metrics) for item in (raw.get("insights") or [])
     )
+    takeaways = tuple(_parse_takeaway(item) for item in (raw.get("takeaways") or []))
     return CampaignConfig(
         id=str(campaign.get("id") or "campaign"),
         title=str(campaign.get("title") or campaign.get("id") or "campaign"),
@@ -154,6 +182,7 @@ def load_campaign_yaml(path: str | Path) -> CampaignConfig:
         notebook=_as_str(campaign.get("notebook")),
         cost=_parse_cost(raw.get("cost")),
         insights=insights,
+        takeaways=takeaways,
     )
 
 
@@ -215,6 +244,7 @@ def _parse_plot(item: Any) -> PlotSpec:
         hue=_as_str(block.get("hue")),
         y=_as_str(block.get("y")),
         title=_as_str(block.get("title")),
+        split_by=_as_str(block.get("split_by")),
     )
 
 
@@ -251,6 +281,24 @@ def _parse_insight(item: dict[str, Any], default_metrics: tuple[str, ...]) -> In
         hole_max=float(hole) if hole is not None else None,
         move_eps=float(eps) if eps is not None else None,
         join_cost=bool(item.get("join_cost")),
+        live_generation=_as_str(item.get("live_generation")),
+    )
+
+
+def _parse_takeaway(item: dict[str, Any]) -> TakeawaySpec:
+    metrics = item.get("metrics") or []
+    return TakeawaySpec(
+        id=str(item.get("id") or "takeaway"),
+        title=str(item.get("title") or item.get("id") or "takeaway"),
+        finding=str(item.get("finding") or "").strip(),
+        claim=str(item.get("claim") or "unspecified"),
+        source_analysis=str(item.get("from") or item.get("source_analysis") or ""),
+        right_source=_as_str(item.get("from_right") or item.get("right_from")),
+        left=_parse_where(item.get("left")),
+        right=_parse_where(item.get("right")),
+        left_label=str(item.get("left_label") or "left"),
+        right_label=str(item.get("right_label") or "right"),
+        metrics=tuple(str(m) for m in metrics),
     )
 
 

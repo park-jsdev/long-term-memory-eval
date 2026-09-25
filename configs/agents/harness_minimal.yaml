@@ -1,0 +1,10 @@
+# Shared harness defaults for agent-level LoCoMo eval.
+# Persist off + native file tools. Overlay adapters/codex.yaml (or mock).
+agent:
+  persist_memory: false
+  tools: native
+  ephemeral: true
+  ignore_user_config: true
+  skip_git_repo_check: true
+  sandbox: read-only
+  timeout_s: 600

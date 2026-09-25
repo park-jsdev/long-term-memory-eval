@@ -1,0 +1,5 @@
+# Same workspace files; later adapters may restrict to an allowlist.
+# Mock honors retrieve=read only. Codex currently uses --ignore-rules plus
+# -c web_search="disabled" and --ignore-user-config (no user MCP).
+agent:
+  tools: controlled

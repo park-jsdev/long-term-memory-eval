@@ -7,12 +7,13 @@ configs/
   data/          dataset pins (locomo10, processed export)
   layouts/       answer prompt + Chat Completions message shape
   readers/       answer LLM request controls
+  agents/        coding-agent harness (adapters / persist / tools / comparison profiles)
   writers/       memory methods (the sandwich middle)
   teachers/      write-path teacher rosters / request knobs
   autoraters/    LLM-as-a-Judge (separate from QA)
   stacks/        frozen combinations of data+layout+reader+run
   run/           output_dir
-  presets/       one-axis overlays (Mem0-parity reader, Luna reader, …)
+  presets/       one-axis overlays (Mem0-parity reader, Luna reader, Codex GPT-5, …)
   models/        generation catalog (snapshots), list prices, context windows
   experiments/   memorybench matrices
   analysis/      campaign vs experiment recipes (tables/plots); engines in scripts/analysis/
@@ -27,5 +28,9 @@ includes:
 ```
 
 CLI default: `configs/presets/mem0_baseline.yaml` (session_summaries + Mem0-parity reader/layout).
+
+Agent comparison profiles live at `configs/agents/comparison/`. `strict_mock.yaml`
+is the reference hard-budget smoke profile; `audit_codex.yaml` records Codex
+controls but intentionally cannot certify a strict cross-agent comparison.
 
 Prompt files live under `prompts/{readers,writers,teachers,autoraters}/` with the same roles. After a run, `experiments/<run_id>/TRACE.md` lists the include chain and which jsonl each prompt filled. See `prompts/README.md`.

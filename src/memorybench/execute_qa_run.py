@@ -99,6 +99,9 @@ def execute_qa_run(
         argv = _qa_argv(spec, work_cfg, out_root, reader_override)
         args = build_parser().parse_args(argv)
         locomo_cfg = load_config(args.config)
+        if spec.agent_comparison:
+            locomo_cfg["agent"] = dict(locomo_cfg.get("agent") or {})
+            locomo_cfg["agent"]["comparison"] = dict(spec.agent_comparison)
         run_locomo_pipeline_with_memory_config(locomo_cfg, args)
         _write_qa_artifacts(spec, run_dir, status="completed")
         write_success_marker(marker)
@@ -169,6 +172,22 @@ def _qa_argv(
         argv.extend(["--reader-thinking", "on"])
     if spec.writer is None and spec.reader.max_tokens is not None:
         argv.extend(["--max-tokens", str(spec.reader.max_tokens)])
+    agent = None
+    execution = cfg.get("execution") or {}
+    if execution.get("agent_provider"):
+        agent = str(execution.get("agent_provider"))
+    elif spec.agent:
+        agent = str(spec.agent)
+    if agent and agent.lower() not in ("none", "null", ""):
+        argv.extend(["--agent", agent])
+        if spec.agent_persist is False:
+            argv.extend(["--agent-persist", "off"])
+        elif spec.agent_persist is True:
+            argv.extend(["--agent-persist", "on"])
+        if spec.agent_sessions:
+            argv.extend(["--agent-sessions", str(spec.agent_sessions)])
+        if spec.agent_tools:
+            argv.extend(["--agent-tools", str(spec.agent_tools)])
     return argv
 
 

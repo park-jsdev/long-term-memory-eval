@@ -1,0 +1,4 @@
+# Stub. Implement src/locomo_eval/agents/adapters/claude_code.py later.
+agent:
+  id: claude_code
+  adapter: claude_code

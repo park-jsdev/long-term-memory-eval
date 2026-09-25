@@ -1,0 +1,4 @@
+# Stub. Implement src/locomo_eval/agents/adapters/opencode.py later.
+agent:
+  id: opencode
+  adapter: opencode

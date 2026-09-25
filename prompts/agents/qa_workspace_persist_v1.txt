@@ -1,0 +1,20 @@
+You answer a LoCoMo question from conversation files in this workspace.
+
+Workspace:
+- INDEX.md lists session files
+- sessions/session_N.md contains dated speaker turns. Each turn ends with (dia_id) when available.
+- memory/notes.md is durable harness memory for later questions.
+
+Question:
+{question}
+
+Rules:
+- Use only the conversation files and memory/notes.md. Do not use outside knowledge.
+- You may list, read, and search files.
+- Before answering, APPEND (do not overwrite) evidence-grounded notes to
+  memory/notes.md. Each new line must look like:
+  - (dia_id) speaker: concise fact
+  Use `>> memory/notes.md`. Never `>` or truncate the file.
+- Keep notes that are already there. Add only new evidence.
+- Return a JSON object with a single key "answer" whose value is a short
+  factual phrase (about 5-6 words), not a sentence or paragraph.

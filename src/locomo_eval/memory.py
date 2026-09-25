@@ -13,6 +13,7 @@ Current conditions (ids are what reviewers see in logs):
   rag                         — token-chunk cosine retrieve from a RAG write-index
   openai_memory               — extract-all dump, retrieve-all (paper OpenAI protocol clone)
   mem0 / mem0g                — load a Mem0 write-index dump + cosine retrieve (no re-extract)
+  workspace_files             — conversation as session files for a coding-agent harness
 
 See docs/reports/engineering_notebook.md.
 """
@@ -301,6 +302,12 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
         )
 
 
+class AgentFactMemoryBuilder(TeacherSessionMemoryBuilder):
+    """Codex-produced session fact lists, injected as a fixed reader memory."""
+
+    name = "agent_codex_mem0_facts"
+
+
 class OrchestratedGraphMemoryBuilder(MemoryBuilder):
     """Session blocks → TeacherOrchestrator → locked Mem0GraphMemory → Memory.text.
 
@@ -354,6 +361,7 @@ _BUILDERS: dict[str, type[MemoryBuilder]] = {
     RawConversationMemoryBuilder.name: RawConversationMemoryBuilder,
     SessionSummaryMemoryBuilder.name: SessionSummaryMemoryBuilder,
     TeacherSessionMemoryBuilder.name: TeacherSessionMemoryBuilder,
+    AgentFactMemoryBuilder.name: AgentFactMemoryBuilder,
 }
 
 # Legacy / short names. Canonical ids are the builder ``name`` values above.
@@ -379,7 +387,7 @@ _ALIASES: dict[str, str] = {
     "openai": "openai_memory",
 }
 
-_INDEX_BUILDERS = ("mem0", "mem0g", "rag", "full_context", "openai_memory")
+_INDEX_BUILDERS = ("mem0", "mem0g", "rag", "full_context", "openai_memory", "workspace_files")
 
 
 def resolve_memory_name(name: str) -> str:
@@ -408,8 +416,17 @@ def get_memory_builder(
     rag_top_k: int = 2,
     rag_embedder: Embedder | None = None,
     openai_memory_index_dir: str | Path | None = None,
+    agent_workspace_root: str | Path | None = None,
+    agent_persist_memory: bool = False,
 ) -> MemoryBuilder:
     resolved = resolve_memory_name(name)
+    if resolved == "workspace_files":
+        from .agents.workspace import WorkspaceFilesMemoryBuilder
+
+        return WorkspaceFilesMemoryBuilder(
+            workspace_root=agent_workspace_root,
+            persist_memory=agent_persist_memory,
+        )
     if resolved == "full_context":
         from .rag.builders import FullContextMemoryBuilder
 
@@ -472,7 +489,7 @@ def get_memory_builder(
             preprocess_index_dir=preprocess_index_dir,
             retrieve_top_k=retrieve_top_k,
         )
-    if resolved == TeacherSessionMemoryBuilder.name:
+    if resolved in (TeacherSessionMemoryBuilder.name, AgentFactMemoryBuilder.name):
         if teacher is None:
             raise ValueError(
                 "teacher_session_summaries requires a Teacher "
@@ -491,9 +508,11 @@ def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> 
         RawConversationMemoryBuilder.name,
         SessionSummaryMemoryBuilder.name,
         TeacherSessionMemoryBuilder.name,
+        AgentFactMemoryBuilder.name,
         TEACHER_GRAPH,
         POOLED_TEACHER_GRAPH,
         FUSED_TEACHER_GRAPH,
         "full_context",
         "openai_memory",
+        "workspace_files",
     )

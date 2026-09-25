@@ -1,4 +1,5 @@
 # K cheap teachers, naive pool (equal_weight / random / round_robin).
+# Plumbing only: locomo_eval.run, not memorybench experiment matrices.
 includes:
   - configs/stacks/qa_default.yaml
   - configs/teachers/cheap_k3.yaml

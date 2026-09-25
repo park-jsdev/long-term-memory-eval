@@ -1,0 +1,5 @@
+# Offline harness. No Codex binary, no API.
+agent:
+  id: mock
+  adapter: mock
+  model: mock

@@ -1,0 +1,5 @@
+includes: [configs/experiments/openai_codex_poc_readers.yaml]
+storage:
+  backend: gcs
+  dataset_object: data/locomo10.json
+  path: /tmp/memorybench-experiments

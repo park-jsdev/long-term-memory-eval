@@ -6,6 +6,7 @@ Requires ``_SUCCESS`` from ``execute_qa_run``. Does not call the answer LLM.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from src.memorybench.completed_run_skip import (
     autorater_success_path,
@@ -80,6 +81,16 @@ def execute_autorater_run(
     judge_provider = str(
         execution.get("judge_provider") or spec.judge_provider or "openai"
     )
+    meta_path = run_dir / "run_meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    contract = meta.get("comparison_contract") or {}
+    expected_judge = contract.get("judge") or {}
+    expected_provider = expected_judge.get("provider")
+    if contract.get("strict") and expected_provider and expected_provider != judge_provider:
+        raise SystemExit(
+            "strict comparison judge mismatch: "
+            f"expected {expected_provider}, got {judge_provider}"
+        )
     argv = [
         "--run",
         str(run_dir),
@@ -97,8 +108,6 @@ def execute_autorater_run(
         prediction_rows=rows,
         verdicts_by_qid=verdicts,
     )
-    import json
-
     meta = {}
     metrics = {}
     meta_path = run_dir / "run_meta.json"
@@ -107,6 +116,14 @@ def execute_autorater_run(
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     if metrics_path.is_file():
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    if contract:
+        meta["comparison_judge_effective"] = {
+            "provider": judge_provider,
+            "model": spec.judge_model,
+        }
+        meta_path.write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
     write_summary_parquet(
         run_dir / "summary.parquet",
         qa_summary_row(
