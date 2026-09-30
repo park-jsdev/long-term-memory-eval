@@ -6,7 +6,7 @@ LoCoMo eval, two answer paths, one writer model.
 - **Codex agent.** One `codex exec` per question. Turns live in workspace files. Trajectories land under `agent/`.
 - **Evals.** LoCoMo F1 is string overlap. Mem0 J is a later autorater job. Gold answers stay out of reader and writer prompts.
 - **One writer model.** `ModelOrchestrator` calls one interchangeable model for `graph` and for `session_summaries` when `writer.model` is set. Swap the model with `writer.model` or `--writer-model`. `mem0` and `mem0g` remain writer configs. They are not in the current model-only versus Codex matrices.
-- **GCP.** `infra/gcp/` and `docs/agent/GCP_RUNBOOK.md`. Cloud ids come from the environment, not from tracked configs.
+- **GCP.** `infra/gcp/` and `docs/gcp.md`. Cloud ids come from the environment, not from tracked configs.
 
 ## Configs
 

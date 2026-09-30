@@ -1,3 +1,5 @@
+The published steps are [`docs/gcp.md`](../gcp.md). This file is the local operator note.
+
 # GCP runbook — memorybench experiment pipeline
 
 **Audience:** you, running the PoC on Cloud Run from Windows PowerShell.  

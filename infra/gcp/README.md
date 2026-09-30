@@ -1,6 +1,6 @@
 # GCP resources for the memorybench PoC
 
-**How to run (PowerShell, deploy, four waves, pull):** [`docs/agent/GCP_RUNBOOK.md`](../../docs/agent/GCP_RUNBOOK.md).  
+**How to run (PowerShell, deploy, four waves, pull):** [`docs/gcp.md`](../../docs/gcp.md).  
 **This 2026 campaign (OpenAI vs DeepSeek):** [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](../../docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md).  
 **Completed 2025 campaign (budget, OpenAI vs DeepSeek):** [`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](../../docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md).  
 **Parked three-family (includes Claude):** [`docs/agent/RUNBOOK_2025_LIVE.md`](../../docs/agent/RUNBOOK_2025_LIVE.md). This file is the resource inventory.

@@ -97,7 +97,7 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements — **local only** |
 | `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate — **local only** |
 | `infra/gcp/README.md` | Exact GCP resources to create |
-| `docs/agent/GCP_RUNBOOK.md` | PowerShell: infra, deploy, four-wave execute, pull from GCS |
+| `docs/gcp.md` | Cloud Run: infra, deploy, four-wave execute, pull from GCS |
 | `docs/agent/RUNBOOK_2025_LIVE.md` | Parked three-family 2025 campaign (includes Claude) |
 | `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md` | Budget 2025 campaign: GPT-5 vs DeepSeek-V3 |
 | `docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md` | 2026 campaign: GPT-5.6 Terra vs DeepSeek-V4 |
@@ -115,7 +115,9 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same recipes, 2026 Terra vs V4 packs |
 | `notebooks/` | `NN_<frozen>_<variable>[_protocol|_analysis].ipynb` — gitignored; see `notebooks/README.md` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
-| `README.md` | Architecture: recipe / engine / experiment / campaign / job / audit / test layers |
+| `README.md` | Landing page: harness diagram, local quickstart, license, citation |
+| `docs/documentation.md` | Architecture, including the experiment runner |
+| `docs/runbook.md` | Install, build, and run |
 | `docs/REPRODUCE.md` | Staged reproduction runbook (offline stages 0–3, paid stages 4–7) |
 | `LICENSE` / `NOTICE.md` | MIT code license + LoCoMo (CC BY-NC) and Mem0 (Apache-2.0) terms |
 | `docs/agent/HUMANS.md` | Human-facing brief — **local only** |
@@ -193,7 +195,7 @@ python -m src.experiment_runner report configs/analysis/campaign_openai_codex_pe
 python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
 python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
 
-# Cloud Run PoC (GCS). Operator steps: docs/agent/GCP_RUNBOOK.md
+# Cloud Run PoC (GCS). Operator steps: docs/gcp.md
 # Live 2025 campaign, OpenAI vs DeepSeek (budget): docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md
 # Live 2026 campaign, Terra vs DeepSeek-V4: docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md
 # Parked three-family (includes Claude): docs/agent/RUNBOOK_2025_LIVE.md

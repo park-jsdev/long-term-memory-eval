@@ -226,7 +226,7 @@ python -m src.experiment_runner write-manifest configs/experiments/2025_readers_
 Use the `_gcs.yaml` overlays, which change only the storage block. Full operator detail is in
 [`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md). Parked three-family
 operator notes: [`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md). One-time GCP bootstrap is in
-[`docs/agent/GCP_RUNBOOK.md`](agent/GCP_RUNBOOK.md). The 2026 Terra vs DeepSeek-V4 campaign uses the same
+[`docs/gcp.md`](gcp.md). The 2026 Terra vs DeepSeek-V4 campaign uses the same
 waves with [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md).
 
 The shape per experiment, three sequential waves:
