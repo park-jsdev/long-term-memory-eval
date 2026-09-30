@@ -70,6 +70,7 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `prompts/writers/mem0_extract_v1.txt` / `prompts/writers/mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
 | `prompts/writers/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/reports/multi_teacher_methodologies.md` | Researcher guide: teacher methods, LLMs, fusion, reproduce |
+| `docs/reports/locomo_processing_walkthrough.md` | LoCoMo JSON → stuffed reader vs sandwich writer vs Codex loop, scores, trace audit |
 | `docs/reports/engineering_notebook.md` | System map / extension points |
 | `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) — **local only** |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |

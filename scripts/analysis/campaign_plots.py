@@ -12,9 +12,11 @@ import pandas as pd
 
 from scripts.analysis.campaign_tables import (
     COMPARE_SOURCE_AXIS,
+    GAP_STACK_AXIS,
     GENERATION_AXIS,
     LIVE_SOURCE_AXIS,
     MEMORY_LANE_AXIS,
+    MINI_SIDE_AXIS,
     PAPER_METHOD_AXIS,
     READER_STACK_AXIS,
     SYSTEM_HARNESS_AXIS,
@@ -102,6 +104,14 @@ def _axis_title(col: str) -> str:
         return "paper / live model / gpt-4o-mini + Codex"
     if col == "paper_method":
         return "Memory method (Table 2 id)"
+    if col == "system_harness":
+        return "Chat Completions vs Codex"
+    if col == "mini_side":
+        return "4o-mini vs 4o-mini + Codex"
+    if col == "gap_stack":
+        return "2026 model / 2024 model / 2024 model + harness"
+    if col == "memory_lane":
+        return "Memory method"
     if col == "thinking":
         return "Thinking"
     if col == "agent_reasoning_tokens":
@@ -272,6 +282,10 @@ def _order_axis(col: str, values: list[str]) -> list[str]:
         known = MEMORY_LANE_AXIS
     elif col == "system_harness":
         known = SYSTEM_HARNESS_AXIS
+    elif col == "mini_side":
+        known = MINI_SIDE_AXIS
+    elif col == "gap_stack":
+        known = GAP_STACK_AXIS
     if not known:
         return values
     present = set(values)

@@ -103,6 +103,9 @@ class InsightSpec:
     move_eps: float | None = None
     join_cost: bool = False
     live_generation: str | None = None
+    series_col: str | None = None
+    left_series: str | None = None
+    right_series: str | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +285,9 @@ def _parse_insight(item: dict[str, Any], default_metrics: tuple[str, ...]) -> In
         move_eps=float(eps) if eps is not None else None,
         join_cost=bool(item.get("join_cost")),
         live_generation=_as_str(item.get("live_generation")),
+        series_col=_as_str(item.get("series_col")),
+        left_series=_as_str(item.get("left_series")),
+        right_series=_as_str(item.get("right_series")),
     )
 
 

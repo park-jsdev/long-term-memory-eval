@@ -22,8 +22,10 @@ from scripts.analysis.campaign_plots import (
 from scripts.analysis.agent_harness import overlay_collected_agent_audit
 from scripts.analysis.campaign_tables import (
     annotate_generation,
+    annotate_gap_stack,
     annotate_mem0_latency,
     annotate_memory_lane,
+    annotate_mini_side,
     annotate_model_family,
     annotate_reader_stack,
     annotate_paper_compare,
@@ -128,6 +130,10 @@ def load_pack(root: Path, ref: ExperimentAnalysisRef) -> tuple[pd.DataFrame, pd.
         runs["result_source"] = "live"
     examples = annotate_paper_compare(examples)
     runs = annotate_paper_compare(runs)
+    examples = annotate_mini_side(examples)
+    runs = annotate_mini_side(runs)
+    examples = annotate_gap_stack(examples)
+    runs = annotate_gap_stack(runs)
     return runs, examples
 
 
@@ -693,6 +699,12 @@ def _render_insights(
             kwargs["move_eps"] = spec.move_eps
         if spec.live_generation:
             kwargs["live_generation"] = spec.live_generation
+        if spec.series_col:
+            kwargs["series_col"] = spec.series_col
+        if spec.left_series:
+            kwargs["left_series"] = spec.left_series
+        if spec.right_series:
+            kwargs["right_series"] = spec.right_series
         table = render_insight(spec.kind, work, **kwargs)
         tables_dir.mkdir(parents=True, exist_ok=True)
         csv_path = tables_dir / f"{spec.id}.csv"
@@ -809,6 +821,8 @@ def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
     out = annotate_memory_lane(out)
     out = annotate_system_harness(out)
     out = annotate_paper_compare(out)
+    out = annotate_mini_side(out)
+    out = annotate_gap_stack(out)
     drop = _categories_to_drop(spec)
     if drop and "question_category" in out.columns:
         category = pd.to_numeric(out["question_category"], errors="coerce")

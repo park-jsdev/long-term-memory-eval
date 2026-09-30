@@ -49,6 +49,8 @@ MEMORY_LANE_AXIS = (
     "teacher_graph",
 )
 SYSTEM_HARNESS_AXIS = ("chat_completions", "codex")
+MINI_SIDE_AXIS = ("4o-mini", "4o-mini + Codex")
+GAP_STACK_AXIS = ("2024 model", "2024 model + harness", "2026 model")
 _RESULT_SOURCE_ORDER = {
     "paper": 0,
     "local_clone": 1,
@@ -134,6 +136,14 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
         order = {label: i for i, label in enumerate(PAPER_METHOD_AXIS)}
         out["_paper_ord"] = out["paper_method"].map(lambda v: order.get(str(v), 9))
         sort_cols.append("_paper_ord")
+    if "mini_side" in out.columns:
+        order = {label: i for i, label in enumerate(MINI_SIDE_AXIS)}
+        out["_mini_ord"] = out["mini_side"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_mini_ord")
+    if "gap_stack" in out.columns:
+        order = {label: i for i, label in enumerate(GAP_STACK_AXIS)}
+        out["_gap_ord"] = out["gap_stack"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_gap_ord")
     if "memory_lane" in out.columns:
         order = {label: i for i, label in enumerate(MEMORY_LANE_AXIS)}
         out["_lane_ord"] = out["memory_lane"].map(lambda v: order.get(str(v), 9))
@@ -181,6 +191,8 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
                 "_live_ord",
                 "_lane_ord",
                 "_harness_ord",
+                "_mini_ord",
+                "_gap_ord",
             )
             if c in out.columns
         ]
@@ -1205,6 +1217,73 @@ def annotate_system_harness(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def annotate_mini_side(df: pd.DataFrame) -> pd.DataFrame:
+    """2024 GPT-4o-mini Chat Completions vs the same model inside Codex.
+
+    2026 Chat Completions stays unlabeled so a year chart does not call
+    Terra "4o-mini".
+    """
+    out = df.copy()
+    if out.empty:
+        out["mini_side"] = []
+        return out
+    if "system_harness" not in out.columns:
+        out = annotate_system_harness(out)
+    n = len(out)
+    harness = out["system_harness"]
+    gens = out["generation"] if "generation" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        gen = "" if gens is None else str(gens.iloc[i] or "")
+        if gen not in {"", "2024", "nan", "None"}:
+            labels.append(None)
+            continue
+        side = str(harness.iloc[i] or "")
+        if side == "chat_completions":
+            labels.append("4o-mini")
+        elif side == "codex":
+            labels.append("4o-mini + Codex")
+        else:
+            labels.append(None)
+    out["mini_side"] = labels
+    return out
+
+
+def annotate_gap_stack(df: pd.DataFrame) -> pd.DataFrame:
+    """Full-context stacks for the year vs harness category chart.
+
+    ``2024 model`` is stuffed Chat Completions. ``2024 model + harness`` is
+    persist-off Codex workspace. ``2026 model`` is Terra thinking-off
+    full_context. Sandwich writers stay unlabeled.
+    """
+    out = df.copy()
+    if out.empty:
+        out["gap_stack"] = []
+        return out
+    if "compare_source" not in out.columns:
+        out = annotate_paper_compare(out)
+    n = len(out)
+    sources = out["compare_source"]
+    lanes = out["memory_lane"] if "memory_lane" in out.columns else None
+    methods = out["memory_method"] if "memory_method" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        source = "" if sources is None else str(sources.iloc[i] or "")
+        lane = "" if lanes is None else str(lanes.iloc[i] or "")
+        method = "" if methods is None else str(methods.iloc[i] or "")
+        full = lane == "full_context" or method == "full_context"
+        if source == "2026 Terra model-only":
+            labels.append("2026 model")
+        elif source == COMPARE_SOURCE_LIVE and full:
+            labels.append("2024 model")
+        elif source == COMPARE_SOURCE_CODEX and full:
+            labels.append("2024 model + harness")
+        else:
+            labels.append(None)
+    out["gap_stack"] = labels
+    return out
+
+
 def annotate_writer_harness(df: pd.DataFrame) -> pd.DataFrame:
     """``codex`` vs ``chat_completions`` for sandwich writer-family plots.
 
@@ -1308,6 +1387,8 @@ def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.
         work = annotate_memory_lane(work)
         work = annotate_system_harness(work)
         work = annotate_paper_compare(work)
+        work = annotate_mini_side(work)
+        work = annotate_gap_stack(work)
         if (
             "paper_method" in group_by
             and "paper_method" not in work.columns

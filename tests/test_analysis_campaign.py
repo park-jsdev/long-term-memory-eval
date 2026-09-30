@@ -1311,6 +1311,10 @@ class TestAnalysisNotebookContract(unittest.TestCase):
                 "campaign_openai_mini_vs_codex_writers.yaml",
                 "17_openai_mini_vs_codex_writers_analysis.ipynb",
             ),
+            (
+                "campaign_openai_model_harness_gaps.yaml",
+                "17_openai_model_harness_gaps_analysis.ipynb",
+            ),
         )
         for yaml_name, notebook_name in pairs:
             with self.subTest(notebook=notebook_name):
@@ -2456,6 +2460,33 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
             any(p.x == "memory_lane" and p.hue == "system_harness" for p in ceiling.plots)
         )
         self.assertIn("methods_vs_full_context_ceiling", takeaway_ids)
+
+    def test_model_harness_gaps_campaign_has_category_j_charts(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_model_harness_gaps.yaml"
+        )
+        self.assertEqual(cfg.id, "openai_model_harness_gaps")
+        fc = next(spec for spec in cfg.campaign_analyses if spec.id == "fc_category_j")
+        summaries = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "summaries_category_j"
+        )
+        year = next(spec for spec in cfg.campaign_analyses if spec.id == "year_fc_category_j")
+        self.assertEqual(fc.plots[0].x, "question_category")
+        self.assertEqual(fc.plots[0].hue, "mini_side")
+        self.assertEqual(fc.plots[0].y, "judge_score")
+        self.assertEqual(summaries.plots[0].hue, "mini_side")
+        self.assertEqual(year.plots[0].hue, "gap_stack")
+        self.assertIn("question_category", year.group_by)
+        adversarial = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "year_fc_adversarial"
+        )
+        self.assertEqual(adversarial.group_by, ("gap_stack",))
+        self.assertEqual(adversarial.exclude_question_categories, (1, 2, 3, 4))
+        self.assertEqual(adversarial.metrics, ("locomo_f1", "judge_score"))
+        self.assertEqual(adversarial.plots[0].y, "locomo_f1")
+        self.assertEqual(adversarial.plots[0].x, "gap_stack")
+        kinds = {item.kind for item in cfg.insights}
+        self.assertEqual(kinds, {"series_gaps"})
 
     def test_notebook_posttest_accepts_run_report_list_without_using_it_as_id(self):
         cfg = load_campaign_yaml(

@@ -25,6 +25,7 @@ from scripts.analysis.campaign_insights import (
     rank_flips,
     render_insight,
     saturation,
+    series_gaps,
     thinking_deltas,
     year_deltas,
 )
@@ -517,6 +518,27 @@ class TestJF1Gap(unittest.TestCase):
         self.assertAlmostEqual(float(out.iloc[1]["j_minus_f1"]), 0.20)
         via = render_insight("j_f1_gap", table)
         self.assertEqual(list(via["j_minus_f1"]), list(out["j_minus_f1"]))
+
+
+class TestSeriesGaps(unittest.TestCase):
+    def test_series_gaps_sorts_by_absolute_delta_and_keeps_sign(self):
+        table = pd.DataFrame(
+            {
+                "question_category": ["1 multi-hop", "1 multi-hop", "2 temporal", "2 temporal"],
+                "mini_side": ["4o-mini", "4o-mini + Codex", "4o-mini", "4o-mini + Codex"],
+                "judge_score": [0.80, 0.50, 0.70, 0.68],
+            }
+        )
+        gaps = series_gaps(
+            table,
+            metric="judge_score",
+            series_col="mini_side",
+            left="4o-mini",
+            right="4o-mini + Codex",
+        )
+        self.assertEqual(list(gaps["question_category"]), ["1 multi-hop", "2 temporal"])
+        self.assertAlmostEqual(float(gaps.iloc[0]["delta"]), 0.30)
+        self.assertAlmostEqual(float(gaps.iloc[1]["delta"]), 0.02)
 
 
 class TestTakeawayContrast(unittest.TestCase):
