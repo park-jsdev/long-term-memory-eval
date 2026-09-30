@@ -116,12 +116,12 @@ def _axis_title(col: str) -> str:
         return "Thinking"
     if col == "agent_reasoning_tokens":
         return "Reader reasoning tokens"
-    if col == "teacher_reasoning_tokens":
-        return "Teacher reasoning tokens"
+    if col == "writer_reasoning_tokens":
+        return "Writer reasoning tokens"
     if col == "agent_latency_seconds":
         return "Reader generate latency (s)"
-    if col == "teacher_latency_seconds":
-        return "Teacher latency (s)"
+    if col == "writer_latency_seconds":
+        return "Writer latency (s)"
     if col == "search_latency_seconds":
         return "Search latency (s)"
     if col == "total_latency_seconds":

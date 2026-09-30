@@ -163,7 +163,7 @@ class Mem0GraphMemory(GraphMemory):
     ) -> list[dict[str, Any]]:
         """MERGE + invalidate from already-extracted triples (no LLM).
 
-        Teacher fusion feeds this so the store stays Mem0GraphMemory regardless
+        Writer fusion feeds this so the store stays Mem0GraphMemory regardless
         of which model proposed the edges.
         """
         return self._apply_triples(

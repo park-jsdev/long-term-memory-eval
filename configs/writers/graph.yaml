@@ -1,0 +1,7 @@
+# One writer model writes locked Mem0GraphMemory. Swap writer.model; freeze the reader.
+includes:
+  - configs/stacks/qa_default.yaml
+  - configs/writers/openai_mini.yaml
+
+pipeline:
+  memory: graph

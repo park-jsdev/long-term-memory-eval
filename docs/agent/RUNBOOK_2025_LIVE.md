@@ -34,7 +34,7 @@ Optional cheap check of experiment 3 (different `run_id`s; not required if exper
 |------------|--------|--------|
 | 1 | LoCoMo + `qa_mem0_v1` + `full_context` + GPT-4o-mini judge | Answer model: GPT-5, Claude Sonnet 4.5, DeepSeek-V3 |
 | 2 | Same prompt + judge + **shared** `rag_locomo10` dump | Answer model × `{full_context, rag}` |
-| 3 | LoCoMo + `qa_mem0_v1` + **GPT-4o-mini reader** + GPT-4o-mini judge | Writer × `{teacher_session_summaries, teacher_graph}` |
+| 3 | LoCoMo + `qa_mem0_v1` + **GPT-4o-mini reader** + GPT-4o-mini judge | Writer × `{session_summaries, graph}` |
 
 ### Session summaries vs Mem0 extract
 
@@ -42,8 +42,8 @@ Experiment 3 **does not** run the Mem0 paper write path (`mem0_extract_v1` / `me
 
 | Id | What it is |
 |----|------------|
-| `teacher_session_summaries` | Same prompt `prompts/teachers/teacher_session_v1.txt` to all three writers |
-| `teacher_graph` | Same prompt `prompts/teachers/teacher_graph_v1.txt` → locked Mem0g JSON, three writers |
+| `session_summaries` | Same prompt `prompts/writers/session_summary_v1.txt` to all three writers |
+| `graph` | Same prompt `prompts/writers/graph_v1.txt` → locked Mem0g JSON, three writers |
 | LoCoMo `session_summaries` | Dataset-released text; **not generated** in this campaign |
 | `mem0` / `mem0_locomo10` | Frozen gpt-4o-mini extract dump; **not** in this campaign |
 
@@ -82,7 +82,7 @@ Image tag is `git rev-parse --short HEAD` at deploy. Record it.
 Confirm anytime with:
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/<that_gcs.yaml>
+python -m src.experiment_runner write-manifest configs/experiments/<that_gcs.yaml>
 ```
 
 **Experiment 1** (smoke overlay replaces `memory_method` with `[full_context]` only):
@@ -108,12 +108,12 @@ python -m src.memorybench write-manifest configs/experiments/<that_gcs.yaml>
 
 | Index | Memory | Writer |
 |-------|--------|--------|
-| 0 | `teacher_session_summaries` | `gpt-5` |
-| 1 | `teacher_session_summaries` | `claude-sonnet-4-5-20250929` |
-| 2 | `teacher_session_summaries` | `deepseek-chat` |
-| 3 | `teacher_graph` | `gpt-5` |
-| 4 | `teacher_graph` | `claude-sonnet-4-5-20250929` |
-| 5 | `teacher_graph` | `deepseek-chat` |
+| 0 | `session_summaries` | `gpt-5` |
+| 1 | `session_summaries` | `claude-sonnet-4-5-20250929` |
+| 2 | `session_summaries` | `deepseek-chat` |
+| 3 | `graph` | `gpt-5` |
+| 4 | `graph` | `claude-sonnet-4-5-20250929` |
+| 5 | `graph` | `deepseek-chat` |
 
 ---
 
@@ -220,7 +220,7 @@ Do not start experiment 2 until these three cells are green.
 After aggregate is local, regenerate analysis tables/plots (no LLM):
 
 ```powershell
-python -m src.memorybench report configs/analysis/campaign_2025_live.yaml --experiment smoke
+python -m src.experiment_runner report configs/analysis/campaign_2025_live.yaml --experiment smoke
 ```
 
 Notebooks: `03_2025_readers_full_context_analysis.ipynb` (this pack) and `06_2025_live_campaign_analysis.ipynb` (campaign concat). YAML: `configs/analysis/campaign_2025_live.yaml`.
@@ -355,11 +355,11 @@ Same matrices, laptop `experiments/` (needs keys in repo-root `.env` except mock
 
 ```powershell
 conda activate distillation
-python -m src.memorybench write-manifest configs/experiments/2025_readers_full_context.yaml
-python -m src.memorybench execute-qa configs/experiments/2025_readers_full_context.yaml --run-index 0
+python -m src.experiment_runner write-manifest configs/experiments/2025_readers_full_context.yaml
+python -m src.experiment_runner execute-qa configs/experiments/2025_readers_full_context.yaml --run-index 0
 # … --run-index 1..5 for experiment 2
-python -m src.memorybench execute-autorater configs/experiments/2025_readers_full_context.yaml --run-index 0
-python -m src.memorybench aggregate configs/experiments/2025_readers_full_context.yaml
+python -m src.experiment_runner execute-autorater configs/experiments/2025_readers_full_context.yaml --run-index 0
+python -m src.experiment_runner aggregate configs/experiments/2025_readers_full_context.yaml
 ```
 
 Smoke overlay and writers YAML work the same way. RAG still needs a local `experiments/rag_locomo10/rag_index/`.

@@ -1,4 +1,4 @@
-# Thinking-off OpenAI answer-reader sweep: 7 fixed/index conditions × 3 years.
+# Thinking-off OpenAI answer-reader sweep. mem0 and mem0g stay available as writers, not in this matrix.
 experiment:
   name: locomo-openai-agent-readers
   type: sweep
@@ -14,7 +14,7 @@ matrix:
     - catalog: gpt-5
     - catalog: gpt-5.6-terra
   thinking: [false]
-  memory_method: [raw_chunks, session_summaries, full_context, rag, openai_memory, mem0, mem0g]
+  memory_method: [raw_chunks, session_summaries, full_context, rag, openai_memory]
   seed: [1]
 judge:
   provider: openai
@@ -27,4 +27,3 @@ storage:
   path: experiments
 shared_indexes:
   rag: {index_run_id: rag_locomo10}
-  mem0: {index_run_id: mem0_locomo10}

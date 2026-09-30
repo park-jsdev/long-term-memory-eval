@@ -20,9 +20,9 @@ APPROACHING_J = 0.80
 SCORE_METRICS = ("locomo_f1", "judge_score", "token_f1", "exact_match")
 RESOURCE_METRICS = (
     "agent_latency_seconds",
-    "teacher_latency_seconds",
+    "writer_latency_seconds",
     "agent_reasoning_tokens",
-    "teacher_reasoning_tokens",
+    "writer_reasoning_tokens",
     "total_latency_seconds_p50",
     "total_latency_seconds_p95",
     "search_latency_seconds_p50",
@@ -41,9 +41,9 @@ RESOURCE_METRICS = (
 LOWER_BETTER = frozenset(
     {
         "agent_latency_seconds",
-        "teacher_latency_seconds",
+        "writer_latency_seconds",
         "agent_reasoning_tokens",
-        "teacher_reasoning_tokens",
+        "writer_reasoning_tokens",
         "total_latency_seconds_p50",
         "total_latency_seconds_p95",
         "search_latency_seconds_p50",
@@ -303,7 +303,7 @@ def efficiency(table: pd.DataFrame) -> pd.DataFrame:
     out = table.copy()
     scores = [m for m in ("locomo_f1", "judge_score") if m in out.columns]
     _ratio(out, scores, "agent_latency_seconds", "per_second")
-    _ratio(out, scores, "teacher_latency_seconds", "per_teacher_second")
+    _ratio(out, scores, "writer_latency_seconds", "per_writer_second")
     _ratio(out, scores, "usd_actual", "per_usd")
     if "agent_reasoning_tokens" in out.columns:
         denom = pd.to_numeric(out["agent_reasoning_tokens"], errors="coerce") / 1000.0

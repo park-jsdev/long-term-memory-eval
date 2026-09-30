@@ -1,9 +1,9 @@
 # Milestone-1 plumbing: 1 conversation, mock reader, no write-index.
-#   python -m src.memorybench write-manifest configs/experiments/poc.yaml
-#   python -m src.memorybench execute-qa configs/experiments/poc.yaml --run-index 0
-#   python -m src.memorybench execute-autorater configs/experiments/poc.yaml --run-index 0
-#   python -m src.memorybench status configs/experiments/poc.yaml
-#   python -m src.memorybench aggregate configs/experiments/poc.yaml
+#   python -m src.experiment_runner write-manifest configs/experiments/poc.yaml
+#   python -m src.experiment_runner execute-qa configs/experiments/poc.yaml --run-index 0
+#   python -m src.experiment_runner execute-autorater configs/experiments/poc.yaml --run-index 0
+#   python -m src.experiment_runner status configs/experiments/poc.yaml
+#   python -m src.experiment_runner aggregate configs/experiments/poc.yaml
 
 experiment:
   name: locomo-poc

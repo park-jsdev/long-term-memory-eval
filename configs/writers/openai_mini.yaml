@@ -1,0 +1,13 @@
+# Default write-path model for graph and session-summary writers.
+writer:
+  provider: openai
+  model: gpt-4o-mini
+  prompt_path: prompts/writers/session_summary_v1.txt
+  graph_prompt_path: prompts/writers/graph_v1.txt
+  temperature: 0.0
+  max_tokens: 512
+  max_retries: 8
+  min_request_interval_s: 0.5
+  max_wait_s: 3600
+  thinking: true
+  thinking_budget_tokens: 1024

@@ -11,15 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.memorybench.expand_run_matrix import expand_run_matrix
-from src.memorybench.gcs_run_workspace import (
+from src.experiment_runner.expand_run_matrix import expand_run_matrix
+from src.experiment_runner.gcs_run_workspace import (
     download_tree,
     ensure_shared_index_local,
     gcs_enabled,
     remote_run_prefix,
     upload_tree,
 )
-from src.memorybench.load_experiment_yaml import load_experiment_yaml
+from src.experiment_runner.load_experiment_yaml import load_experiment_yaml
 
 
 class FakeStore:

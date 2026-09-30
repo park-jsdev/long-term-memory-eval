@@ -1,6 +1,6 @@
-"""Claim-level sandwich audit: lineage, ranks, teacher quality, cost, SUMMARY.
+"""Claim-level sandwich audit: lineage, ranks, writer quality, cost, SUMMARY.
 
-Call traces (reader/teachers JSONL) record that an LLM ran. These helpers
+Call traces (reader/writer JSONL) record that an LLM ran. These helpers
 record **what entered {memory}** and who is responsible for each item, so a
 reviewer can audit a QA claim without re-running models.
 
@@ -16,7 +16,7 @@ import hashlib
 from collections import defaultdict
 from typing import Any
 
-from ..fusion import relation_key
+from ..mem0.graph_memory import normalize_entity_name
 from ..pricing import add_costs, estimate_usd
 from ..pricing import default_pricing
 
@@ -28,6 +28,15 @@ try:
     PRICING_AS_OF = default_pricing().as_of
 except FileNotFoundError:
     PRICING_AS_OF = "unknown"
+
+
+def relation_key(rel: dict[str, str]) -> tuple[str, str, str]:
+    """Normalized (source, relationship, target) so call JSON matches ingest rows."""
+    return (
+        normalize_entity_name(rel.get("source") or ""),
+        (rel.get("relationship") or "related_to").strip().casefold().replace(" ", "_"),
+        normalize_entity_name(rel.get("target") or ""),
+    )
 
 
 def sha256_text(text: str) -> str:
@@ -67,7 +76,7 @@ def _reasoning_tokens(usage: dict[str, Any] | None, *, fallback: Any = None) -> 
 
 
 def _session_id_key(session_id: Any) -> str:
-    """Join key so int ``1`` and str ``\"1\"`` hit the same fusion/ingest row."""
+    """Join key so int ``1`` and str ``\"1\"`` hit the same ingest row."""
     if session_id is None:
         return ""
     return str(session_id)
@@ -116,22 +125,18 @@ def retrieve_rank_row(
     }
 
 
-def teacher_quality_stats(
-    calls: list[dict[str, Any]],
-    fusion_rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Parse/yield/keep rates per teacher. Software stats, not an LLM judge.
+def writer_quality_stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Parse and yield rates per writer. Software stats, not an LLM judge.
 
-    Keep rate uses fusion ``kept`` over extracted ``n_relations``; it does
-    not score whether a triple is true.
+    One writer. These counts do not score whether a triple is true.
     """
-    by_teacher: dict[str, dict[str, Any]] = {}
+    by_writer: dict[str, dict[str, Any]] = {}
     for call in calls:
-        tid = str(call.get("teacher_id") or "teacher")
-        rec = by_teacher.setdefault(
+        tid = str(call.get("writer_id") or "writer")
+        rec = by_writer.setdefault(
             tid,
             {
-                "teacher_id": tid,
+                "writer_id": tid,
                 "provider": call.get("provider"),
                 "model": call.get("model"),
                 "n_calls": 0,
@@ -140,7 +145,6 @@ def teacher_quality_stats(
                 "n_parse_unset": 0,
                 "n_entities": 0,
                 "n_relations": 0,
-                "n_proposed_kept": 0,
                 "latency_sum_s": 0.0,
                 "n_latency": 0,
                 "prompt_tokens": 0,
@@ -172,33 +176,7 @@ def teacher_quality_stats(
             call.get("usage"), fallback=call.get("reasoning_tokens")
         )
 
-    kept_by_teacher: dict[str, int] = defaultdict(int)
-    n_proposed = 0
-    n_kept = 0
-    n_unanimous = 0
-    n_discarded = 0
-    n_sessions = len(fusion_rows)
-    for session in fusion_rows:
-        n_teachers = max(1, len(session.get("teacher_ids") or []))
-        for rel in session.get("relations") or []:
-            n_proposed += 1
-            proposers = [str(t) for t in (rel.get("proposed_by") or [])]
-            if rel.get("kept"):
-                n_kept += 1
-                if len(proposers) >= n_teachers and n_teachers > 1:
-                    n_unanimous += 1
-                for tid in proposers:
-                    kept_by_teacher[tid] += 1
-            else:
-                n_discarded += 1
-
-    for tid, rec in by_teacher.items():
-        rec["n_proposed_kept"] = int(kept_by_teacher.get(tid, 0))
-        rec["keep_rate"] = (
-            round(rec["n_proposed_kept"] / rec["n_relations"], 4)
-            if rec["n_relations"]
-            else None
-        )
+    for rec in by_writer.values():
         rec["mean_latency_s"] = (
             round(rec["latency_sum_s"] / rec["n_latency"], 4) if rec["n_latency"] else None
         )
@@ -206,33 +184,23 @@ def teacher_quality_stats(
         rec.pop("latency_sum_s", None)
         rec.pop("n_latency", None)
 
-    return {
-        "by_teacher": by_teacher,
-        "fusion": {
-            "n_sessions": n_sessions,
-            "n_triples_proposed": n_proposed,
-            "n_triples_kept": n_kept,
-            "n_triples_discarded": n_discarded,
-            "n_unanimous_kept": n_unanimous,
-            "keep_rate": round(n_kept / n_proposed, 4) if n_proposed else None,
-        },
-    }
+    return {"by_writer": by_writer}
 
 
 def cost_rollup(
     *,
     reader_traces: list[dict[str, Any]],
-    teacher_calls: list[dict[str, Any]],
+    writer_calls: list[dict[str, Any]],
     extra_usage: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Token + optional USD totals for reader vs teacher vs other.
+    """Token + optional USD totals for reader vs writer vs other.
 
     Mock traces with empty usage cost $0. Unknown models stay token-only
     (``usd=null``). Not an invoice.
     """
 
     def _bucket(rows: list[dict[str, Any]], role: str) -> dict[str, Any]:
-        """One cost bucket (reader / teacher / other) with per-model split."""
+        """One cost bucket (reader / writer / other) with per-model split."""
         prompt = completion = total = reasoning = 0
         usd: float | None = 0.0
         any_priced = False
@@ -284,13 +252,13 @@ def cost_rollup(
         }
 
     reader = _bucket(reader_traces, "reader")
-    teacher = _bucket(teacher_calls, "teacher")
+    writer = _bucket(writer_calls, "writer")
     extra = _bucket(extra_usage or [], "other")
-    total_usd = add_costs(reader["usd"], teacher["usd"], extra["usd"])
-    if reader["usd"] is None or teacher["usd"] is None:
-        if (reader["prompt_tokens"] + teacher["prompt_tokens"]) == 0:
+    total_usd = add_costs(reader["usd"], writer["usd"], extra["usd"])
+    if reader["usd"] is None or writer["usd"] is None:
+        if (reader["prompt_tokens"] + writer["prompt_tokens"]) == 0:
             total_usd = 0.0
-        elif reader["usd"] is None and teacher["usd"] is None and extra["usd"] is None:
+        elif reader["usd"] is None and writer["usd"] is None and extra["usd"] is None:
             total_usd = None
     return {
         "pricing_as_of": PRICING_AS_OF,
@@ -299,77 +267,52 @@ def cost_rollup(
             "Unknown models contribute tokens but usd=null. Not an invoice."
         ),
         "reader": reader,
-        "teacher": teacher,
+        "writer": writer,
         "other": extra,
         "total": {
-            "prompt_tokens": reader["prompt_tokens"] + teacher["prompt_tokens"] + extra["prompt_tokens"],
+            "prompt_tokens": reader["prompt_tokens"] + writer["prompt_tokens"] + extra["prompt_tokens"],
             "completion_tokens": (
-                reader["completion_tokens"] + teacher["completion_tokens"] + extra["completion_tokens"]
+                reader["completion_tokens"] + writer["completion_tokens"] + extra["completion_tokens"]
             ),
-            "total_tokens": reader["total_tokens"] + teacher["total_tokens"] + extra["total_tokens"],
+            "total_tokens": reader["total_tokens"] + writer["total_tokens"] + extra["total_tokens"],
             "reasoning_tokens": (
-                reader["reasoning_tokens"] + teacher["reasoning_tokens"] + extra["reasoning_tokens"]
+                reader["reasoning_tokens"] + writer["reasoning_tokens"] + extra["reasoning_tokens"]
             ),
             "usd": total_usd,
         },
     }
 
 
-def _fusion_by_triple(
-    fusion_rows: list[dict[str, Any]],
-) -> dict[tuple[Any, ...], dict[str, Any]]:
-    """Index fusion rows by raw (sample, session, source, rel, target).
-
-    Keys match ingest ``add_edge`` strings (already normalized at MERGE).
-    Distinct from ``_fusion_by_canonical_triple``, which re-canonicalizes
-    teacher output for attribution joins.
-    """
-    out: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for session in fusion_rows:
-        sample_id = str(session.get("sample_id") or "")
-        session_id = _session_id_key(session.get("session_id"))
-        for rel in session.get("relations") or []:
-            key = (
-                sample_id,
-                session_id,
-                str(rel.get("source") or ""),
-                str(rel.get("relationship") or ""),
-                str(rel.get("target") or ""),
-            )
-            out[key] = rel
-    return out
-
-
 def graph_edge_provenance(
     ingest_rows: list[dict[str, Any]],
-    fusion_rows: list[dict[str, Any]],
+    writer_calls: list[dict[str, Any]] | None = None,
 ) -> dict[tuple[str, str], dict[str, Any]]:
-    """Map (sample_id, edge_id) to fusion ``proposed_by`` for graph lineage.
+    """Map (sample_id, edge_id) to the writer who ingested that edge.
 
     Key includes sample_id so two conversations that both mint ``e0000``
-    cannot leak teachers. Join is the raw triple string stored on ingest
-    ops and fusion rows after MERGE, not the canonical teacher-output key.
+    cannot leak writers. An ingested edge is kept: one writer, no vote.
     """
-    fusion = _fusion_by_triple(fusion_rows)
+    writers_by_session: dict[tuple[str, str], list[str]] = {}
+    for call in writer_calls or []:
+        sample_id = str(call.get("sample_id") or "")
+        session_id = _session_id_key(call.get("session_id"))
+        writer_id = str(call.get("writer_id") or "")
+        if not writer_id:
+            continue
+        bucket = writers_by_session.setdefault((sample_id, session_id), [])
+        if writer_id not in bucket:
+            bucket.append(writer_id)
     by_edge: dict[tuple[str, str], dict[str, Any]] = {}
     for session in ingest_rows:
         sample_id = str(session.get("sample_id") or "")
         session_id = session.get("session_id")
+        proposed = writers_by_session.get((sample_id, _session_id_key(session_id)), [])
         for op in session.get("ops") or []:
             if op.get("op") != "add_edge":
                 continue
             edge_id = str(op.get("edge_id") or "")
             if not edge_id:
                 continue
-            key = (
-                sample_id,
-                _session_id_key(session_id),
-                str(op.get("source") or ""),
-                str(op.get("relationship") or ""),
-                str(op.get("target") or ""),
-            )
-            matched = fusion.get(key)
-            rel = matched or {}
             by_edge[(sample_id, edge_id)] = {
                 "item_id": edge_id,
                 "item_kind": "graph_edge",
@@ -378,9 +321,9 @@ def graph_edge_provenance(
                 "source": op.get("source"),
                 "relationship": op.get("relationship"),
                 "target": op.get("target"),
-                "proposed_by": list(rel.get("proposed_by") or []),
-                "votes": rel.get("votes"),
-                "kept": rel.get("kept") if matched is not None else True,
+                "proposed_by": list(proposed),
+                "votes": None,
+                "kept": True,
                 "text_preview": preview(
                     f"{op.get('source')} -- {op.get('relationship')} -- {op.get('target')}"
                 ),
@@ -431,13 +374,13 @@ def _rank_row_for(
     return None
 
 
-def _teacher_for_session(
+def _writer_for_session(
     calls: list[dict[str, Any]],
     *,
     sample_id: str,
     session_id: Any,
 ) -> list[str]:
-    """Teacher ids that ran this sample/session (for dump-all summary lineage)."""
+    """Writer ids that ran this sample/session (for dump-all summary lineage)."""
     ids: list[str] = []
     seen: set[str] = set()
     for call in calls:
@@ -445,7 +388,7 @@ def _teacher_for_session(
             continue
         if call.get("session_id") != session_id and str(call.get("session_id")) != str(session_id):
             continue
-        tid = str(call.get("teacher_id") or "")
+        tid = str(call.get("writer_id") or "")
         if tid and tid not in seen:
             seen.add(tid)
             ids.append(tid)
@@ -459,17 +402,16 @@ def lineage_rows(
     memories_by_question: dict[str, Any] | None = None,
     retrieve_ranks: list[dict[str, Any]] | None = None,
     ingest_rows: list[dict[str, Any]] | None = None,
-    fusion_rows: list[dict[str, Any]] | None = None,
-    teacher_calls: list[dict[str, Any]] | None = None,
+    writer_calls: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """One lineage row per injected memory item: question → item → teacher(s).
+    """One lineage row per injected memory item: question → item → writer.
 
-    Prefers retrieve ranks (selected only), then graph ``edge_id`` + fusion
-    ``proposed_by``, then ``Memory.source_ids`` for dump-all conditions.
+    Prefers retrieve ranks (selected only), then graph ``edge_id`` joined
+    to the writer call for that session, then ``Memory.source_ids``.
     """
     ranks_by = _index_retrieve_ranks(retrieve_ranks or [])
-    edge_prov = graph_edge_provenance(ingest_rows or [], fusion_rows or [])
-    calls = teacher_calls or []
+    edge_prov = graph_edge_provenance(ingest_rows or [], writer_calls)
+    calls = writer_calls or []
     rows: list[dict[str, Any]] = []
     for pred in prediction_rows:
         qid = str(pred.get("question_id") or "")
@@ -533,6 +475,7 @@ def lineage_rows(
                             "text_preview",
                             "proposed_by",
                             "votes",
+                            "kept",
                             "source",
                             "relationship",
                             "target",
@@ -545,17 +488,17 @@ def lineage_rows(
         for item_id in source_ids:
             session_id = None
             kind = "memory_item"
-            if str(item_id).startswith("session_") and str(item_id).endswith("_teacher"):
-                kind = "teacher_summary"
+            if str(item_id).startswith("session_") and (
+                str(item_id).endswith("_summary") or str(item_id).endswith("_writer")
+            ):
+                kind = "session_summary"
                 try:
                     session_id = int(str(item_id).split("_")[1])
                 except (IndexError, ValueError):
                     session_id = None
-            elif str(item_id).endswith("_summary"):
-                kind = "session_summary"
             proposers = (
-                _teacher_for_session(calls, sample_id=sample_id, session_id=session_id)
-                if kind == "teacher_summary"
+                _writer_for_session(calls, sample_id=sample_id, session_id=session_id)
+                if kind == "session_summary"
                 else []
             )
             rows.append(
@@ -575,12 +518,12 @@ def lineage_rows(
     return rows
 
 
-# Sandwich layer for each LLM role (write = teachers, read = answer, judge = autorater).
+# Sandwich layer for each LLM role (write = writer, read = answer, judge = autorater).
 ROLE_LAYER = {
     "reader": "read",
     "agent": "read",
-    "teacher": "write",
-    "teacher_graph": "write",
+    "writer": "write",
+    "graph": "write",
     "autorater": "judge",
 }
 
@@ -591,71 +534,30 @@ ATTRIBUTION_MD_CALL_CAP = 12
 def infer_llm_role(row: dict[str, Any]) -> str:
     """Sandwich role for one trace row when ``role`` was omitted on older dumps.
 
-    Prefer the logged field. Fallback: triples → ``teacher_graph``, session
-    teacher → ``teacher``, ``question_id`` → ``reader``.
+    Prefer the logged field. Fallback: triples → ``graph``, a writer
+    session → ``writer``, ``question_id`` → ``reader``.
     """
     raw = row.get("role")
     if raw:
         return str(raw)
     if row.get("relations") or row.get("n_relations"):
-        return "teacher_graph"
-    if row.get("teacher_id") or row.get("session_id") is not None:
-        return "teacher"
+        return "graph"
+    if row.get("writer_id") or row.get("session_id") is not None:
+        return "writer"
     if row.get("question_id"):
         return "reader"
-    return "teacher"
-
-
-def _fusion_by_canonical_triple(
-    fusion_rows: list[dict[str, Any]],
-) -> dict[tuple[Any, ...], dict[str, Any]]:
-    """Fusion rows keyed by canonical (sample, session, source, rel, target).
-
-    Uses ``fusion.relation_key`` so teacher JSON and fusion.jsonl match even
-    when casing/spaces differ. Do not use for ingest ``edge_id`` joins.
-    """
-    out: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for session in fusion_rows:
-        sample_id = str(session.get("sample_id") or "")
-        session_id = _session_id_key(session.get("session_id"))
-        for rel in session.get("relations") or []:
-            src, relationship, tgt = relation_key(rel)
-            out[(sample_id, session_id, src, relationship, tgt)] = rel
-    return out
-
-
-def _fusion_for_teacher_session(
-    fusion_rows: list[dict[str, Any]],
-    *,
-    sample_id: str,
-    session_id: Any,
-    teacher_id: str,
-) -> list[dict[str, Any]]:
-    """Fusion triples this teacher proposed in one session (when call.relations is empty)."""
-    rows: list[dict[str, Any]] = []
-    for session in fusion_rows:
-        if str(session.get("sample_id") or "") != str(sample_id):
-            continue
-        if session.get("session_id") != session_id and str(session.get("session_id")) != str(
-            session_id
-        ):
-            continue
-        for rel in session.get("relations") or []:
-            proposers = [str(t) for t in (rel.get("proposed_by") or [])]
-            if teacher_id in proposers:
-                rows.append(rel)
-    return rows
+    return "writer"
 
 
 def _injected_questions_for_triple(
     lineage: list[dict[str, Any]],
     *,
-    teacher_id: str,
+    writer_id: str,
     sample_id: str,
     session_id: Any,
     rel: dict[str, Any],
 ) -> list[str]:
-    """Question ids whose injected graph edge is this teacher’s triple."""
+    """Question ids whose injected graph edge is this writer's triple."""
     src, relationship, tgt = relation_key(rel)
     qids: list[str] = []
     seen: set[str] = set()
@@ -663,7 +565,7 @@ def _injected_questions_for_triple(
         if str(row.get("sample_id") or "") != str(sample_id):
             continue
         proposers = [str(t) for t in (row.get("proposed_by") or [])]
-        if teacher_id not in proposers:
+        if writer_id not in proposers:
             continue
         if row.get("session_id") is not None and session_id is not None:
             if row.get("session_id") != session_id and str(row.get("session_id")) != str(
@@ -685,21 +587,21 @@ def _injected_questions_for_triple(
 def _injected_questions_for_summary(
     lineage: list[dict[str, Any]],
     *,
-    teacher_id: str,
+    writer_id: str,
     sample_id: str,
     session_id: Any,
 ) -> list[str]:
-    """Question ids that injected this teacher’s session summary."""
+    """Question ids that injected this writer's session summary."""
     qids: list[str] = []
     seen: set[str] = set()
     for row in lineage:
         if str(row.get("sample_id") or "") != str(sample_id):
             continue
         kind = str(row.get("item_kind") or "")
-        if kind not in ("teacher_summary", "session_summary"):
+        if kind != "session_summary":
             continue
         proposers = [str(t) for t in (row.get("proposed_by") or [])]
-        if teacher_id and teacher_id not in proposers:
+        if writer_id and writer_id not in proposers:
             continue
         if session_id is not None and row.get("session_id") is not None:
             if row.get("session_id") != session_id and str(row.get("session_id")) != str(
@@ -716,22 +618,13 @@ def _injected_questions_for_summary(
 def _graph_claims_for_call(
     call: dict[str, Any],
     *,
-    fusion_rows: list[dict[str, Any]],
-    fusion_lookup: dict[tuple[Any, ...], dict[str, Any]],
     lineage: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Graph-triple claims for one teacher call, with fusion ``kept`` + injection."""
-    teacher_id = str(call.get("teacher_id") or "")
+    """Graph-triple claims for one writer call. Ingested triples are kept."""
+    writer_id = str(call.get("writer_id") or "")
     sample_id = str(call.get("sample_id") or "")
     session_id = call.get("session_id")
     rels = list(call.get("relations") or [])
-    if not rels:
-        rels = _fusion_for_teacher_session(
-            fusion_rows,
-            sample_id=sample_id,
-            session_id=session_id,
-            teacher_id=teacher_id,
-        )
     claims: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for rel in rels:
@@ -739,7 +632,6 @@ def _graph_claims_for_call(
         if not key[0] or not key[2] or key in seen:
             continue
         seen.add(key)
-        fused = fusion_lookup.get((sample_id, _session_id_key(session_id), *key)) or {}
         src, relationship, tgt = key
         claims.append(
             {
@@ -748,12 +640,12 @@ def _graph_claims_for_call(
                 "relationship": relationship,
                 "target": tgt,
                 "text_preview": preview(f"{src} -- {relationship} -- {tgt}"),
-                "kept": fused.get("kept"),
-                "votes": fused.get("votes"),
-                "proposed_by": list(fused.get("proposed_by") or [teacher_id]),
+                "kept": True,
+                "votes": None,
+                "proposed_by": [writer_id] if writer_id else [],
                 "injected_question_ids": _injected_questions_for_triple(
                     lineage,
-                    teacher_id=teacher_id,
+                    writer_id=writer_id,
                     sample_id=sample_id,
                     session_id=session_id,
                     rel={"source": src, "relationship": relationship, "target": tgt},
@@ -763,24 +655,20 @@ def _graph_claims_for_call(
     return claims
 
 
-def _teacher_call_row(
+def _writer_call_row(
     call: dict[str, Any],
     *,
     index: int,
-    fusion_rows: list[dict[str, Any]],
-    fusion_lookup: dict[tuple[Any, ...], dict[str, Any]],
     lineage: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """One attribution row for a write-path call (triples or a session summary)."""
     role = infer_llm_role(call)
-    teacher_id = str(call.get("teacher_id") or "")
+    writer_id = str(call.get("writer_id") or "")
     sample_id = str(call.get("sample_id") or "")
     session_id = call.get("session_id")
-    if role == "teacher_graph" or call.get("relations") or call.get("n_relations"):
-        role = "teacher_graph" if role in ("teacher", "teacher_graph") else role
-        claims = _graph_claims_for_call(
-            call, fusion_rows=fusion_rows, fusion_lookup=fusion_lookup, lineage=lineage
-        )
+    if role == "graph" or call.get("relations") or call.get("n_relations"):
+        role = "graph" if role in ("writer", "graph") else role
+        claims = _graph_claims_for_call(call, lineage=lineage)
     else:
         text = str(call.get("output_text") or "")
         claims = []
@@ -793,7 +681,7 @@ def _teacher_call_row(
                     "kept": True,
                     "injected_question_ids": _injected_questions_for_summary(
                         lineage,
-                        teacher_id=teacher_id,
+                        writer_id=writer_id,
                         sample_id=sample_id,
                         session_id=session_id,
                     ),
@@ -804,7 +692,7 @@ def _teacher_call_row(
         "call_id": ":".join(
             [
                 role,
-                teacher_id or "teacher",
+                writer_id or "writer",
                 sample_id or "-",
                 str(session_id if session_id is not None else "-"),
                 str(index),
@@ -814,7 +702,7 @@ def _teacher_call_row(
         "layer": ROLE_LAYER.get(role, "write"),
         "provider": call.get("provider"),
         "model": call.get("model"),
-        "teacher_id": teacher_id or None,
+        "writer_id": writer_id or None,
         "sample_id": sample_id or None,
         "session_id": session_id,
         "question_id": None,
@@ -875,7 +763,7 @@ def _reader_call_row(
         "layer": ROLE_LAYER.get(role, "read"),
         "provider": trace.get("provider"),
         "model": trace.get("model"),
-        "teacher_id": None,
+        "writer_id": None,
         "sample_id": trace.get("sample_id"),
         "session_id": None,
         "question_id": qid or None,
@@ -894,30 +782,19 @@ def _reader_call_row(
 def attribution_call_rows(
     *,
     reader_traces: list[dict[str, Any]],
-    teacher_calls: list[dict[str, Any]],
-    fusion_rows: list[dict[str, Any]] | None = None,
+    writer_calls: list[dict[str, Any]],
     lineage: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """One row per LLM call: role + claims that call made.
 
-    Teachers: graph triples or session summaries (with fusion ``kept`` and
-    lineage ``injected_question_ids`` when the join exists).
+    Writer: graph triples or session summaries, joined to lineage when the
+    injected question ids exist.
     Reader: predicted answer plus the memory items that question used.
     """
-    fusion_rows = fusion_rows or []
     lineage = lineage or []
-    fusion_lookup = _fusion_by_canonical_triple(fusion_rows)
     rows: list[dict[str, Any]] = []
-    for i, call in enumerate(teacher_calls):
-        rows.append(
-            _teacher_call_row(
-                call,
-                index=i,
-                fusion_rows=fusion_rows,
-                fusion_lookup=fusion_lookup,
-                lineage=lineage,
-            )
-        )
+    for i, call in enumerate(writer_calls):
+        rows.append(_writer_call_row(call, index=i, lineage=lineage))
     for i, trace in enumerate(reader_traces):
         rows.append(_reader_call_row(trace, index=i, lineage=lineage))
     return rows
@@ -934,7 +811,7 @@ def attribution_role_summary(calls: list[dict[str, Any]]) -> list[dict[str, Any]
         key = (
             str(call.get("role") or ""),
             str(call.get("layer") or ""),
-            str(call.get("teacher_id") or ""),
+            str(call.get("writer_id") or ""),
             str(call.get("provider") or ""),
             str(call.get("model") or ""),
         )
@@ -943,7 +820,7 @@ def attribution_role_summary(calls: list[dict[str, Any]]) -> list[dict[str, Any]
             rec = {
                 "role": call.get("role"),
                 "layer": call.get("layer"),
-                "teacher_id": call.get("teacher_id"),
+                "writer_id": call.get("writer_id"),
                 "provider": call.get("provider"),
                 "model": call.get("model"),
                 "n_calls": 0,
@@ -982,7 +859,7 @@ def render_attribution_md(
     ]
     if roles:
         for rec in roles:
-            actor = rec.get("teacher_id") or rec.get("role")
+            actor = rec.get("writer_id") or rec.get("role")
             lines.append(
                 f"| `{rec.get('role')}` | {rec.get('layer')} | `{actor}` | "
                 f"`{rec.get('model')}` | {rec.get('n_calls')} | {rec.get('n_claims')} | "
@@ -990,15 +867,15 @@ def render_attribution_md(
             )
     else:
         lines.append("| (none) | | | | 0 | 0 | 0 | 0 |")
-    lines.extend(["", "## Write-path calls (teachers)", ""])
+    lines.extend(["", "## Write-path calls", ""])
     writers = [c for c in calls if c.get("layer") == "write"]
     if not writers:
-        lines.extend(["(no teacher LLM calls this run)", ""])
+        lines.extend(["(no writer calls this run)", ""])
     else:
         for call in writers[:ATTRIBUTION_MD_CALL_CAP]:
             loc = f"sample `{call.get('sample_id')}` session `{call.get('session_id')}`"
             lines.append(
-                f"### `{call.get('role')}` · `{call.get('teacher_id')}` · "
+                f"### `{call.get('role')}` · `{call.get('writer_id')}` · "
                 f"`{call.get('model')}` · {loc}"
             )
             lines.append("")
@@ -1013,7 +890,7 @@ def render_attribution_md(
             lines.append("")
         extra = len(writers) - ATTRIBUTION_MD_CALL_CAP
         if extra > 0:
-            lines.append(f"- … {extra} more teacher calls in `attribution.jsonl`")
+            lines.append(f"- … {extra} more writer calls in `attribution.jsonl`")
             lines.append("")
     lines.extend(["## Read-path calls (reader)", ""])
     readers = [c for c in calls if c.get("role") == "reader"]
@@ -1030,10 +907,10 @@ def render_attribution_md(
             used = call.get("used_memory_items") or []
             if used:
                 for item in used[:8]:
-                    teachers = ",".join(item.get("proposed_by") or []) or "—"
+                    writers = ",".join(item.get("proposed_by") or []) or "—"
                     lines.append(
                         f"- used `{item.get('item_id')}` ({item.get('item_kind')}) "
-                        f"proposed_by={teachers} {item.get('text_preview') or ''}"
+                        f"proposed_by={writers} {item.get('text_preview') or ''}"
                     )
                 if len(used) > 8:
                     lines.append(f"- … {len(used) - 8} more injected items in `attribution.jsonl`")
@@ -1067,7 +944,7 @@ def render_summary_md(
     ingest_rows: list[dict[str, Any]],
     retrieve_ranks: list[dict[str, Any]],
     lineage: list[dict[str, Any]],
-    n_teacher_calls: int,
+    n_writer_calls: int,
     n_predictions: int,
     attribution_roles: list[dict[str, Any]] | None = None,
 ) -> str:
@@ -1079,8 +956,7 @@ def render_summary_md(
     locomo = (metrics.get("metrics") or metrics or {}).get("locomo_f1")
     overall = metrics.get("metrics") or {}
     quality = quality or {}
-    by_teacher = quality.get("by_teacher") or {}
-    fusion = quality.get("fusion") or {}
+    by_writer = quality.get("by_writer") or {}
     ingest = ingest_summary(ingest_rows)
     total = cost.get("total") or {}
     lines = [
@@ -1100,12 +976,9 @@ def render_summary_md(
             if meta.get("agent")
             else "- **agent:** (none; one-shot reader)"
         ),
-        f"- **teacher:** `{meta.get('teacher_provider')}/{meta.get('teacher_model')}`"
-        if meta.get("teacher_model")
-        else "- **teacher:** (none)",
-        f"- **pool / fusion:** `{meta.get('teacher_pool')}` / `{meta.get('teacher_fusion')}`"
-        if meta.get("teacher_pool")
-        else "- **pool / fusion:** (n/a)",
+        f"- **writer:** `{meta.get('writer_provider')}/{meta.get('writer_model')}`"
+        if meta.get("writer_model")
+        else "- **writer:** (none)",
         f"- **n questions:** {n_predictions}",
         f"- **LoCoMo F1:** {locomo}",
         f"- **token F1 / EM:** {overall.get('token_f1')} / {overall.get('exact_match')}",
@@ -1161,48 +1034,37 @@ def render_summary_md(
         f"- reader tokens: {cost.get('reader', {}).get('total_tokens')} "
         f"(usd={cost.get('reader', {}).get('usd')}; "
         f"reasoning={cost.get('reader', {}).get('reasoning_tokens')})",
-        f"- teacher tokens: {cost.get('teacher', {}).get('total_tokens')} "
-        f"(usd={cost.get('teacher', {}).get('usd')}; "
-        f"reasoning={cost.get('teacher', {}).get('reasoning_tokens')})",
+        f"- writer tokens: {cost.get('writer', {}).get('total_tokens')} "
+        f"(usd={cost.get('writer', {}).get('usd')}; "
+        f"reasoning={cost.get('writer', {}).get('reasoning_tokens')})",
         f"- **total tokens:** {total.get('total_tokens')} · **usd:** {total.get('usd')} "
         f"· reasoning={total.get('reasoning_tokens')}",
         f"- pricing pins as of {cost.get('pricing_as_of')}; unknown models are token-only",
         "",
         ]
     )
-    if by_teacher:
+    if by_writer:
         lines.extend(
             [
-                "## Teacher quality",
+                "## Writer quality",
                 "",
-                "| teacher | calls | parse ok | entities | relations | kept | keep rate |",
-                "|---|---:|---:|---:|---:|---:|---:|",
+                "| writer | calls | parse ok | entities | relations |",
+                "|---|---:|---:|---:|---:|",
             ]
         )
-        for tid, rec in sorted(by_teacher.items()):
+        for tid, rec in sorted(by_writer.items()):
             lines.append(
                 f"| `{tid}` | {rec.get('n_calls')} | {rec.get('n_parse_ok')} | "
-                f"{rec.get('n_entities')} | {rec.get('n_relations')} | "
-                f"{rec.get('n_proposed_kept')} | {rec.get('keep_rate')} |"
+                f"{rec.get('n_entities')} | {rec.get('n_relations')} |"
             )
-        lines.extend(
-            [
-                "",
-                f"- fusion sessions: {fusion.get('n_sessions')} · "
-                f"proposed {fusion.get('n_triples_proposed')} · "
-                f"kept {fusion.get('n_triples_kept')} · "
-                f"discarded {fusion.get('n_triples_discarded')} · "
-                f"unanimous kept {fusion.get('n_unanimous_kept')}",
-                "",
-            ]
-        )
+        lines.append("")
     else:
-        lines.extend(["## Teacher quality", "", "(no teacher calls this run)", ""])
+        lines.extend(["## Writer quality", "", "(no writer calls this run)", ""])
 
     if ingest_rows:
         lines.extend(
             [
-                "## Graph ingest after fusion",
+                "## Graph ingest",
                 "",
                 f"- sessions ingested: {ingest.get('n_sessions')}",
                 f"- add_edge: {ingest.get('add_edge', 0)} · invalidate: {ingest.get('invalidate', 0)} · "
@@ -1231,13 +1093,12 @@ def render_summary_md(
             "",
             "1. `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → role → claims made.",
             "2. Pick a `question_id` in `predictions.jsonl` (or `SUMMARY` lineage sample below).",
-            "3. `memory/lineage.jsonl` — which memory items were injected and which teacher proposed them.",
-            "4. `memory/teachers/sessions/` — the session text that teacher actually saw.",
-            "5. `memory/teachers/fusion.jsonl` — `proposed_by` / `kept` for that triple.",
-            "6. `memory/graph/ingest.jsonl` — MERGE / invalidate after fusion (graph conditions).",
-            "7. `memory/retrieve_ranks.jsonl` — candidates that lost to the injected winners.",
+            "3. `memory/lineage.jsonl` — which memory items were injected and which writer proposed them.",
+            "4. `memory/writer/sessions/` — the session text the writer saw.",
+            "5. `memory/graph/ingest.jsonl` — MERGE / invalidate (graph conditions).",
+            "6. `memory/retrieve_ranks.jsonl` — candidates that lost to the injected winners.",
             "",
-            f"- teacher calls this run: {n_teacher_calls}",
+            f"- writer calls this run: {n_writer_calls}",
             f"- lineage rows (injected items): {len(lineage)}",
             "",
         ]
@@ -1246,10 +1107,10 @@ def render_summary_md(
     if sample:
         lines.extend(["## Lineage sample (first injected items)", ""])
         for row in sample:
-            teachers = ",".join(row.get("proposed_by") or []) or "—"
+            writers = ",".join(row.get("proposed_by") or []) or "—"
             lines.append(
                 f"- `{row.get('question_id')}` ← `{row.get('item_id')}` "
-                f"({row.get('item_kind')}) proposed_by={teachers} "
+                f"({row.get('item_kind')}) proposed_by={writers} "
                 f"{row.get('text_preview') or ''}"
             )
         lines.append("")

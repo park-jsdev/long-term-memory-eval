@@ -29,7 +29,7 @@ Keep this list current when providers/models change.
 | Provider | API surface | SDK / endpoint | Auth | Models we use | Where configured | Code |
 |----------|-------------|----------------|------|---------------|------------------|------|
 | OpenAI Platform | Chat Completions + Embeddings | `openai` Python package | `.env` → `OPENAI_API_KEY` | **`gpt-4o-mini`** default reader, Mem0 writer, judge, and cheap OpenAI teacher; **`gpt-4.1-mini`** / **`gpt-5.6-luna`** (reader robustness); **`text-embedding-3-small`** (Mem0 cosine) | `reader.model`, `teacher.model`, `mem0.extract.model`, `mem0.embed.model`, `configs/autoraters/mem0_gpt-4o-mini.yaml` | `OpenAIChatCaller` / readers / teachers / autorater / extract |
-| Anthropic | Messages API | `anthropic` Python package | `.env` → `ANTHROPIC_API_KEY` | **`claude-haiku-4-5`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: anthropic` | `AnthropicTeacherCaller` (`teacher_callers.py`) |
+| Anthropic | Messages API | `anthropic` Python package | `.env` → `ANTHROPIC_API_KEY` | **`claude-haiku-4-5`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: anthropic` | `AnthropicWriterCaller` (`teacher_callers.py`) |
 | DeepSeek | OpenAI-compatible Chat Completions | `openai` package + `base_url=https://api.deepseek.com` | `.env` → `DEEPSEEK_API_KEY` | **`deepseek-v4-flash`** cheap teacher (plumbing) | `teachers:` / `teacher.provider: deepseek` | `OpenAIChatCaller` with DeepSeek base URL (`teacher_callers.py`) |
 
 **Default baseline request shape (answer LLM):**
@@ -40,7 +40,7 @@ Keep this list current when providers/models change.
 - CLI ablations may override model/prompt/temperature/max-tokens/message-layout;
   regression tests keep `mem0_baseline.yaml` unchanged
 - GPT-5.6 (Luna/Terra/Sol) **reader**: `max_completion_tokens` (min 16), `reasoning_effort=none`, no temperature (see `src/locomo_eval/models.py`)
-- **Teacher thinking** (write path, default on): Claude extended thinking; DeepSeek V4 thinking; OpenAI GPT-5.x `reasoning_effort=high`. Switch with `teacher.thinking` / `--thinking off`. Ping forces off. Frozen reader is unchanged. `gpt-4o-mini` teachers log the flag but have no reasoning_effort API.
+- **Writer thinking** (write path, default on): Claude extended thinking; DeepSeek V4 thinking; OpenAI GPT-5.x `reasoning_effort=high`. Switch with `teacher.thinking` / `--thinking off`. Ping forces off. Frozen reader is unchanged. `gpt-4o-mini` teachers log the flag but have no reasoning_effort API.
 
 **Commands that call OpenAI:**
 
@@ -50,10 +50,8 @@ python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --max-que
 python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --max-questions 20 --run-id cmp_session_summaries_n20
 python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --run-id ...
 python -m src.locomo_eval.run --config configs/presets/session_summaries_gpt-5.6-luna.yaml --max-questions 5 --run-id ...
-python -m src.locomo_eval.run --config configs/writers/teacher_session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
-python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml --max-questions 3 --run-id live_pooled_teachers
-python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --max-questions 3 --run-id live_fused_teachers
-python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_top_voted.yaml --max-questions 3 --run-id live_fused_resolve_top_voted
+python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --teacher-model gpt-5.6-luna --max-questions 3 --run-id ...
+python -m src.locomo_eval.run --config configs/writers/graph.yaml --max-questions 3 --run-id live_teacher_graph
 python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0.yaml --run-id mem0_locomo10
 python -m src.locomo_eval.mem0.run_index --config configs/writers/mem0g.yaml --run-id mem0g_locomo10
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
@@ -169,12 +167,10 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 |--------------|------------------------------|-------------------|
 | `raw_chunks` | Full raw dialog turns (chronological), optional char cap | Does structure help at all? |
 | `session_summaries` | LoCoMo-released session summaries (dataset “memory”) | How strong is a structured session-memory bank? |
-| `teacher_session_summaries` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
+| `session_summaries` | Per-session summaries from one teacher LLM | Does a live teacher beat released summaries? Swap teacher model within a family as a robustness check. |
 | `mem0` | Top-k timestamped facts from a Mem0 write-index dump (both speakers) | Does the paper extract+update path beat session summaries? Architecture clone — not paper J. |
 | `mem0g` | `mem0` plus serialized graph relations | Does the graph add anything if extract is frozen? Later distilled graphs swap `GraphMemory` only. |
-| `teacher_graph` | One teacher writes locked Mem0g triples | Does a live graph teacher beat mem0g / summaries? |
-| `pooled_teacher_graph` | K teachers; equal_weight / random / round_robin | Does naive pooling help? |
-| `fused_teacher_graph` | K teachers; majority-vote / resolve_* fusion | Does consensus fusion help? |
+| `graph` | One writer model writes locked Mem0g triples | Does a live graph beat mem0g / summaries? |
 | `rag` | Cosine top-k tiktoken chunks | Mem0 paper RAG baseline |
 | `full_context` | Entire timestamped dialog | Mem0 paper full-context baseline |
 | `openai_memory` | All extracted timestamped facts (no top-k) | Paper OpenAI privileged-memory protocol clone |
@@ -182,7 +178,7 @@ The reader is intentionally dumb about teachers, fusion, and stores.
 | `whole_memory_aggregation` (future) | Aggregated whole memories | Synthesis enough? |
 | `claim_fusion` (future) | Claim-level fused + validated store (+ retrieve) | Fine-grained fusion win? |
 
-Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `teacher_session_summaries` is the live single-teacher *summary* replacement. `teacher_graph` writes locked Mem0g with `pool: single`. `pooled_teacher_graph` / `fused_teacher_graph` (`cheap_k3`) are locomo_eval plumbing only until a dedicated multi-teacher experiment YAML is added; memorybench matrices reject them.
+Default memory still uses **provided** LoCoMo session summaries (`session_summaries`). `session_summaries` is the live one-model summary replacement. `graph` writes locked Mem0g with `pool: single`. Pooled and fused rosters are removed.
 
 Aliases for convenience (legacy numbered ids still resolve):
 
@@ -190,7 +186,7 @@ Aliases for convenience (legacy numbered ids still resolve):
 |-------|-------------|
 | `raw` / `raw_dialog` / `c0_raw` | `raw_chunks` |
 | `session_summary` / `c1_session_summary` | `session_summaries` |
-| `teacher` / `c1_teacher` | `teacher_session_summaries` |
+| `teacher` / `c1_teacher` | `session_summaries` |
 
 ---
 
@@ -225,9 +221,7 @@ Do **not** fork prompts per condition for the main table. If you ablate prompts,
 3. Prefer writing long intermediates to `experiments/<run_id>/memories/` later; still end by filling `Memory.text`.
 4. Run with the **same** `--prompt` / reader model as other memory conditions.
 
-**Teacher (`teacher_session_summaries` / `teacher_graph`):** YAML `teacher.model` (or `--teacher-model`) selects the write-path LLM. Multi-teacher configs use `teachers:` plus `orchestrator.pool` / `orchestrator.fusion`. Logged on `Memory.teacher_model`, `run_meta.json`, and each prediction row. Do not change `reader.model` in the same comparison if you want the delta attributed to the teacher.
-
-**True multi-teacher write path (middle):** `TeacherOrchestrator` walks HLD (i) session blocks, calls K teachers (`gpt-4o-mini` / `claude-haiku-4-5` / `deepseek-v4-flash` for plumbing), pools or majority-fuses triples, and MERGE/invalidates into locked `Mem0GraphMemory`. Orchestrator is software (`fusion.py`), not one teacher-orchestrator LLM.
+**Writer (`session_summaries` / `graph`):** YAML `teacher.model` (or `--teacher-model`) selects the one write-path LLM. `orchestrator.pool` is `single` and `orchestrator.fusion` is `none`. Logged on `Memory.teacher_model`, `run_meta.json`, and each prediction row. Do not change `reader.model` in the same comparison if you want the delta attributed to the writer. A `teachers:` list longer than one is rejected.
 
 **Reader-model robustness:** YAML `reader.model` / `--model` / `configs/presets/session_summaries_gpt-5.6-luna.yaml`. Compare with `scripts/compare_cross_model.py --axis reader`. Do not mix with a memory-condition claim.
 
@@ -239,14 +233,14 @@ Default **reader** is `gpt-4o-mini` + `prompts/readers/qa_mem0_v1.txt` (Mem0 ANS
 
 ### 4.3 Multi-teacher write path (middle)
 
-`TeacherOrchestrator` + `fusion.py` (software, not one LLM):
+`ModelOrchestrator` (software, not one LLM):
 
 ```text
 WRITE (variable): session blocks → K teachers → pool/fuse → Mem0GraphMemory
 READ  (fixed): graph edges → Memory.text → frozen prompt → answer LLM → metrics
 ```
 
-Conditions: `teacher_graph` (K=1, interchangeable model), `pooled_teacher_graph` (equal_weight / random / round_robin), `fused_teacher_graph` (majority_vote skeleton). Strong models and learned fusion come later.
+Conditions: `graph` (K=1, interchangeable model), `pooled_teacher_graph` (equal_weight / random / round_robin), `fused_teacher_graph` (majority_vote skeleton). Strong models and learned fusion come later.
 
 ### 4.4 Reader / metrics / reports (bottom — freeze)
 
@@ -342,11 +336,11 @@ configs/presets/mem0_baseline.yaml         # Mem0-parity controls + session_summ
 configs/writers/raw_chunks.yaml
 configs/writers/session_summaries.yaml
 configs/presets/session_summaries_gpt-5.6-luna.yaml  # session_summaries + GPT-5.6 Luna reader
-configs/writers/teacher_session_summaries.yaml            # live single teacher
+configs/writers/session_summaries.yaml            # live single teacher
 configs/writers/mem0.yaml / mem0g.yaml     # Mem0 write-index + load/retrieve seam
 prompts/readers/qa_v1.txt                 # alternate reader prompt
 prompts/readers/qa_mem0_v1.txt             # pinned released Mem0 answer prompt
-prompts/teachers/teacher_session_v1.txt
+prompts/writers/session_summary_v1.txt
 prompts/writers/mem0_extract_v1.txt        # + mem0_update_v1 / mem0g_*.txt
 src/locomo_eval/models.py          # model catalog / API kwargs
 src/locomo_eval/teachers.py        # Mock + OpenAI teacher

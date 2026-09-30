@@ -9,7 +9,7 @@ Code map: `src/locomo_eval/schemas.py` (the types), `dataset.py` (load),
 `memory.py` (the middle), `readers.py` (one-shot answer), `agents/` (Codex
 loop), `metrics.py` + `src/metrics/locomo_qa.py` (string scores),
 `autorater.py` (Mem0 judge). Orchestrator: `run.py`
-(`run_locomo_pipeline_with_memory_config`). Harness: `src/memorybench/`
+(`run_locomo_pipeline_with_memory_config`). Harness: `src/experiment_runner/`
 launches **one cell** of that function; it does not reimplement scoring.
 
 ---
@@ -118,7 +118,7 @@ each conversation, then question 1 of each, and so on. Full runs do not use
 that cap, so order is file order.
 
 Across cells, parallelism is **one Cloud Run task per matrix cell**
-(`memorybench execute-qa --run-index N`, or `gcloud run jobs execute
+(`experiment_runner execute-qa --run-index N`, or `gcloud run jobs execute
 … --tasks=N`). Cell 0 does not share a process with cell 1. Shared Mem0/RAG
 indexes are built once and reused; they are not rebuilt inside every reader
 cell.
@@ -170,34 +170,33 @@ are still building an index. The judge is not in this process.
 
 ## 5. Path B — sandwich writer, then the same reader
 
-Example: `teacher_session_summaries`, `teacher_graph`.
+Example: `session_summaries`, `graph`.
 
 The reader is frozen. The extra LLMs are **teachers**, and they run when
 `builder.build` runs (once per conversation, before that conversation’s
 questions are answered).
 
-`teacher_session_summaries`: for each session, one teacher Chat Completions
-call (`prompts/teachers/teacher_session_v1.txt`) produces a summary. Those
+`session_summaries`: for each session, one teacher Chat Completions
+call (`prompts/writers/session_summary_v1.txt`) produces a summary. Those
 summaries are concatenated into `Memory.text`. Then path A’s reader loop
 runs. This is **not** the dataset `session_summary` field and **not** the
 LoCoMo 2024 “Summary RAG top-5” row (that paper retrieved summaries with a
 different reader and scored F1, not Mem0 J).
 
-`teacher_graph`: the teacher emits entity/relation JSON
-(`prompts/teachers/teacher_graph_v1.txt`). Software (`TeacherOrchestrator`,
-`fusion.py`) writes the locked `Mem0GraphMemory` schema. The reader sees the
+`graph`: the teacher emits entity/relation JSON
+(`prompts/writers/graph_v1.txt`). Software (`ModelOrchestrator`)
+writes the locked `Mem0GraphMemory` schema. The reader sees the
 formatted graph, not the raw teacher JSON. This is **not** the Mem0 paper’s
 `mem0g` extract/update loop. OSS `mem0` / `mem0g` are the index builders in
 `src/locomo_eval/mem0/`, a different code path.
 
-Teacher traces land in `experiments/<run_id>/memory/teachers/` (calls,
+Writer traces land in `experiments/<run_id>/memory/teachers/` (calls,
 session text, fusion). Graph ingest is `memory/graph/` when a graph was built.
 `ATTRIBUTION.md` joins each teacher call to the claims it produced.
 
-LLM calls on path B: **teacher calls during build** (one per session for a
-single teacher; more if a pooled YAML were used — current matrices are
-single-teacher) **plus one reader call per question**. Still no tools on the
-read path.
+LLM calls on path B: **one writer-model call per session during build**,
+then **one reader call per question**. Still no tools on the read path.
+The YAML key is `teacher`; the runtime accepts one model.
 
 ---
 
@@ -297,7 +296,7 @@ reader answers. That reader never enters the agent loop. See
 | When | Who | Sees gold? | Trace |
 |---|---|---|---|
 | Index build (mem0 / mem0g / rag / openai_memory) | extractor, embedder | no | `experiments/<index_run_id>/` |
-| Teacher build (path B) | teacher model, per session | no | `memory/teachers/` |
+| Writer build (path B) | teacher model, per session | no | `memory/teachers/` |
 | Answer (path A/B) | reader, one chat completion per question | no | `reader/traces.jsonl` |
 | Answer (path C) | model inside `codex exec`, many turns | no | `agent/events.jsonl`, `agent/traces.jsonl` |
 | notes_only ingest (path C) | one extra `codex exec` per conversation | no | same agent logs, question id `…-ingest` |
@@ -392,7 +391,7 @@ Pick `experiments/<run_id>/` after QA (and `autorater/` after the judge job).
    should not.
 
 `_SUCCESS` means that job finished. A later run of the same id without
-`--force` skips (memorybench) or, for a bare `locomo_eval.run`, clears and
+`--force` skips (`experiment_runner`) or, for a bare `locomo_eval.run`, clears and
 regenerates. Do not append autorater files; each judge invocation rewrites
 `autorater/`.
 

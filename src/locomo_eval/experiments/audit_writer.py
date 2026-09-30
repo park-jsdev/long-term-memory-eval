@@ -7,8 +7,8 @@ use ``audit_loader`` on a finished directory instead.
 Writes (each optional except reader on a completed QA run):
 
 - ``reader/`` — frozen answer-LLM traces + predictions
-- ``memory/teachers/`` — write-path teacher calls + fusion audit + session text
-- ``memory/graph/`` — fused Mem0g snapshot + ingest ops after fusion
+- ``memory/writer/`` — write-path calls and the session text the writer saw
+- ``memory/graph/`` — Mem0g snapshot + ingest ops
 - ``memory/lineage.jsonl`` — question → injected item → teacher
 - ``memory/retrieve_ranks.jsonl`` — full ranked candidates, not just winners
 - ``attribution.jsonl`` / ``ATTRIBUTION.md`` — LLM call → role → claims made
@@ -26,7 +26,7 @@ from typing import Any
 import yaml
 
 from ..report import write_json, write_jsonl
-from .audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths, teacher_dir_name
+from .audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths, writer_dir_name
 from .claim_audit import (
     attribution_call_rows,
     attribution_role_summary,
@@ -35,7 +35,7 @@ from .claim_audit import (
     render_attribution_md,
     render_summary_md,
     sha256_text,
-    teacher_quality_stats,
+    writer_quality_stats,
 )
 
 
@@ -134,38 +134,37 @@ def write_reader_module(
     return paths.reader_dir
 
 
-def write_teacher_module(
+def write_writer_module(
     run_dir: Path,
     *,
     calls: list[dict[str, Any]],
-    fusion_rows: list[dict[str, Any]] | None = None,
     session_texts: list[dict[str, Any]] | None = None,
 ) -> Path | None:
-    """Dump write-path teacher calls, fusion votes, and session input texts.
+    """Dump write-path calls and the session text the writer saw.
 
-    Also writes the compat ``memory/teacher_calls.jsonl`` copy. Returns None
-    when this run had no teachers.
+    Also writes the compat ``memory/writer_calls.jsonl`` copy. Returns None
+    when this run had no writer.
     """
-    if not calls and not fusion_rows and not session_texts:
+    if not calls and not session_texts:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
-    paths.teachers_dir.mkdir(parents=True, exist_ok=True)
-    write_jsonl(paths.teacher_calls, calls)
-    write_jsonl(paths.teacher_calls_compat, calls)
-    write_teacher_sessions(run_dir, session_texts or [])
+    paths.writer_dir.mkdir(parents=True, exist_ok=True)
+    write_jsonl(paths.writer_calls, calls)
+    write_jsonl(paths.writer_calls_compat, calls)
+    write_writer_sessions(run_dir, session_texts or [])
 
     index_rows = []
-    by_teacher: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_writer: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for call in calls:
-        tid = str(call.get("teacher_id") or "teacher")
-        by_teacher[tid].append(call)
+        tid = str(call.get("writer_id") or "writer")
+        by_writer[tid].append(call)
         reasoning = str(call.get("reasoning") or "")
         index_rows.append(
             {
                 "sample_id": call.get("sample_id"),
                 "session_id": call.get("session_id"),
                 "session_index": call.get("session_index"),
-                "teacher_id": tid,
+                "writer_id": tid,
                 "provider": call.get("provider"),
                 "model": call.get("model"),
                 "role": call.get("role"),
@@ -177,61 +176,55 @@ def write_teacher_module(
                 "parse": call.get("parse"),
                 "session_text_sha256": call.get("session_text_sha256"),
                 "n_session_chars": call.get("n_session_chars"),
-                "path": f"memory/teachers/by_teacher/{teacher_dir_name(tid)}/calls.jsonl",
+                "path": f"memory/writer/by_writer/{writer_dir_name(tid)}/calls.jsonl",
             }
         )
-    write_jsonl(paths.teacher_index, index_rows)
-    for tid, rows in sorted(by_teacher.items()):
-        write_jsonl(paths.teacher_calls_path(tid), rows)
-
-    if fusion_rows:
-        write_jsonl(paths.teacher_fusion, fusion_rows)
+    write_jsonl(paths.writer_index, index_rows)
+    for tid, rows in sorted(by_writer.items()):
+        write_jsonl(paths.writer_calls_path(tid), rows)
 
     write_json(
-        paths.teachers_dir / "schema.json",
+        paths.writer_dir / "schema.json",
         {
             "schema_version": AUDIT_LAYOUT_VERSION,
-            "role": "teacher",
+            "role": "writer",
             "notes": (
-                "Write-path LLM traces. Index by teacher_id + sample_id + session_id. "
-                "fusion.jsonl records which teacher proposed each triple and whether "
-                "pool/majority kept it. Gold never enters these prompts."
+                "Write-path LLM traces. Index by writer_id + sample_id + session_id. "
+                "One writer. Gold never enters these prompts."
             ),
             "files": {
-                "index.jsonl": "one row per teacher call (lookup keys, no long reasoning)",
+                "index.jsonl": "one row per writer call (lookup keys, no long reasoning)",
                 "calls.jsonl": "full call: reasoning, output_text, entities, relations",
-                "by_teacher/<id>/calls.jsonl": "same rows partitioned by teacher_id",
-                "fusion.jsonl": "per session: proposed_by[], votes, kept",
-                "sessions/by_sample/<id>/session_<k>.txt": "exact teacher input text",
+                "by_writer/<id>/calls.jsonl": "same rows partitioned by writer_id",
+                "sessions/by_sample/<id>/session_<k>.txt": "exact writer input text",
                 "sessions.jsonl": "index of session texts (sha256, path)",
-                "quality.json": "parse/yield/keep rates per teacher",
+                "quality.json": "parse and yield rates per writer",
             },
         },
     )
-    (paths.teachers_dir / "README.md").write_text(
+    (paths.writer_dir / "README.md").write_text(
         "\n".join(
             [
-                "# Teachers (write-path LLMs)",
+                "# Writer",
                 "",
-                "Attribute memory construction to a teacher:",
+                "Attribute memory construction to the one writer model:",
                 "",
-                "1. `index.jsonl` — which teacher was called for which session",
-                "2. `by_teacher/<teacher_id>/calls.jsonl` — that model's reasoning + triples",
-                "3. `sessions/by_sample/<id>/session_<k>.txt` — the session text the teacher saw",
-                "4. `fusion.jsonl` — `proposed_by` / `kept` for each graph triple",
-                "5. `quality.json` — parse / yield / keep-rate stats",
+                "1. `index.jsonl` — which session the writer was called on",
+                "2. `by_writer/<writer_id>/calls.jsonl` — that model's reasoning + triples",
+                "3. `sessions/by_sample/<id>/session_<k>.txt` — the session text the writer saw",
+                "4. `quality.json` — parse and yield stats",
                 "",
-                "Compat copy: `memory/teacher_calls.jsonl` is the same as `calls.jsonl`.",
+                "Compat copy: `memory/writer_calls.jsonl` is the same as `calls.jsonl`.",
                 "",
             ]
         ),
         encoding="utf-8",
     )
-    return paths.teachers_dir
+    return paths.writer_dir
 
 
 def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path | None:
-    """Dump fused Mem0g snapshots after pool/fusion (not the LLM call log).
+    """Dump the Mem0g snapshot the writer built (not the LLM call log).
 
     ``ingest.jsonl`` is written separately by ``write_graph_ingest`` / claim audit.
     """
@@ -261,13 +254,13 @@ def write_graph_module(run_dir: Path, graphs_by_sample: dict[str, Any]) -> Path 
             "schema_version": AUDIT_LAYOUT_VERSION,
             "role": "memory_graph",
             "notes": (
-                "Fused Mem0g snapshot after pool/fusion. Embeddings omitted. "
+                "Mem0g snapshot the writer built. Embeddings omitted. "
                 "ingest.jsonl is the MERGE/invalidate trail (claim audit), not the LLM call log."
             ),
             "files": {
                 "index.jsonl": "per-sample node/edge counts",
                 "by_sample/<id>.json": "nodes + edges after all sessions",
-                "ingest.jsonl": "per-session ops after fusion (add_edge, invalidate, skip_dup, node merge)",
+                "ingest.jsonl": "per-session ops (add_edge, invalidate, skip_dup, node merge)",
             },
         },
     )
@@ -366,8 +359,8 @@ def write_frozen_config(
     return paths.config_resolved
 
 
-def write_teacher_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -> Path | None:
-    """Dump the exact session text each teacher saw (once per sample/session).
+def write_writer_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -> Path | None:
+    """Dump the exact session text the writer saw (once per sample/session).
 
     De-dupes by ``(sample_id, session_id)`` because builders may append the
     same session again on later questions; the file is the construction input.
@@ -385,7 +378,7 @@ def write_teacher_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -
             continue
         seen.add(key)
         text = str(row.get("text") or "")
-        dest = paths.teacher_session_text_path(sample_id, session_id)
+        dest = paths.writer_session_text_path(sample_id, session_id)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(text, encoding="utf-8")
         rel = dest.relative_to(paths.run_dir).as_posix()
@@ -399,12 +392,12 @@ def write_teacher_sessions(run_dir: Path, session_texts: list[dict[str, Any]]) -
                 "path": rel,
             }
         )
-    write_jsonl(paths.teacher_sessions_index, index_rows)
-    return paths.teacher_sessions_index
+    write_jsonl(paths.writer_sessions_index, index_rows)
+    return paths.writer_sessions_index
 
 
 def write_graph_ingest(run_dir: Path, ingest_rows: list[dict[str, Any]]) -> Path | None:
-    """MERGE / invalidate / skip_dup ops after fusion, one JSONL row per session."""
+    """MERGE / invalidate / skip_dup ops, one JSONL row per session."""
     if not ingest_rows:
         return None
     paths = AuditPaths.from_run_dir(run_dir)
@@ -418,8 +411,7 @@ def write_claim_audit(
     *,
     prediction_rows: list[dict[str, Any]],
     reader_traces: list[dict[str, Any]],
-    teacher_calls: list[dict[str, Any]],
-    fusion_rows: list[dict[str, Any]],
+    writer_calls: list[dict[str, Any]],
     ingest_rows: list[dict[str, Any]] | None = None,
     retrieve_ranks: list[dict[str, Any]] | None = None,
     memories_by_sample: dict[str, Any] | None = None,
@@ -450,22 +442,20 @@ def write_claim_audit(
         memories_by_question=memories_by_question,
         retrieve_ranks=retrieve_ranks,
         ingest_rows=ingest_rows,
-        fusion_rows=fusion_rows,
-        teacher_calls=teacher_calls,
+        writer_calls=writer_calls,
     )
     if lineage:
         write_jsonl(paths.lineage, lineage)
         written["lineage"] = str(paths.lineage)
 
-    quality = teacher_quality_stats(teacher_calls, fusion_rows)
-    if teacher_calls or fusion_rows:
-        write_json(paths.teacher_quality, quality)
-        written["teacher_quality"] = str(paths.teacher_quality)
+    quality = writer_quality_stats(writer_calls)
+    if writer_calls:
+        write_json(paths.writer_quality, quality)
+        written["writer_quality"] = str(paths.writer_quality)
 
     attribution = attribution_call_rows(
         reader_traces=reader_traces,
-        teacher_calls=teacher_calls,
-        fusion_rows=fusion_rows,
+        writer_calls=writer_calls,
         lineage=lineage,
     )
     roles = attribution_role_summary(attribution)
@@ -481,7 +471,7 @@ def write_claim_audit(
     )
     written["attribution_md"] = str(paths.attribution_md)
 
-    cost = cost_rollup(reader_traces=reader_traces, teacher_calls=teacher_calls)
+    cost = cost_rollup(reader_traces=reader_traces, writer_calls=writer_calls)
     write_json(paths.cost, cost)
     written["cost"] = str(paths.cost)
 
@@ -490,11 +480,11 @@ def write_claim_audit(
         meta=meta or {},
         metrics=metrics or {},
         cost=cost,
-        quality=quality if (teacher_calls or fusion_rows) else None,
+        quality=quality if writer_calls else None,
         ingest_rows=ingest_rows,
         retrieve_ranks=retrieve_ranks,
         lineage=lineage,
-        n_teacher_calls=len(teacher_calls),
+        n_writer_calls=len(writer_calls),
         n_predictions=len(prediction_rows),
         attribution_roles=roles,
     )

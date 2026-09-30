@@ -37,14 +37,14 @@ Shared `rag_locomo10` dump does **not** need a re-upload.
 |------------|--------|--------|
 | 1 | LoCoMo + `qa_mem0_v1` + `full_context` + GPT-4o-mini judge | Answer model × thinking |
 | 2 | Same prompt + judge + **shared** `rag_locomo10` dump | Answer model × thinking × `{full_context, rag}` |
-| 3 | LoCoMo + `qa_mem0_v1` + **GPT-4o-mini reader** + GPT-4o-mini judge | Writer × thinking × `{teacher_session_summaries, teacher_graph}` |
+| 3 | LoCoMo + `qa_mem0_v1` + **GPT-4o-mini reader** + GPT-4o-mini judge | Writer × thinking × `{session_summaries, graph}` |
 
 ---
 
 ## Cell order (`CLOUD_RUN_TASK_INDEX`)
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/<that_gcs.yaml>
+python -m src.experiment_runner write-manifest configs/experiments/<that_gcs.yaml>
 ```
 
 **Experiment 1** (smoke):
@@ -73,14 +73,14 @@ python -m src.memorybench write-manifest configs/experiments/<that_gcs.yaml>
 
 | Index | Memory | Writer (API id) | Thinking |
 |-------|--------|-----------------|----------|
-| 0 | `teacher_session_summaries` | `gpt-5.6-terra` | off |
-| 1 | `teacher_session_summaries` | `gpt-5.6-terra` | on |
-| 2 | `teacher_session_summaries` | `deepseek-v4-flash` | off |
-| 3 | `teacher_session_summaries` | `deepseek-v4-flash` | on |
-| 4 | `teacher_graph` | `gpt-5.6-terra` | off |
-| 5 | `teacher_graph` | `gpt-5.6-terra` | on |
-| 6 | `teacher_graph` | `deepseek-v4-flash` | off |
-| 7 | `teacher_graph` | `deepseek-v4-flash` | on |
+| 0 | `session_summaries` | `gpt-5.6-terra` | off |
+| 1 | `session_summaries` | `gpt-5.6-terra` | on |
+| 2 | `session_summaries` | `deepseek-v4-flash` | off |
+| 3 | `session_summaries` | `deepseek-v4-flash` | on |
+| 4 | `graph` | `gpt-5.6-terra` | off |
+| 5 | `graph` | `gpt-5.6-terra` | on |
+| 6 | `graph` | `deepseek-v4-flash` | off |
+| 7 | `graph` | `deepseek-v4-flash` | on |
 
 Every cell hashes thinking and the matching max-token cap into `run_id`. Re-`write-manifest` before execute-qa.
 
@@ -111,7 +111,7 @@ gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-2026-readers-opena
 Report (no LLM):
 
 ```bash
-python -m src.memorybench report configs/analysis/campaign_2026_openai_deepseek.yaml
+python -m src.experiment_runner report configs/analysis/campaign_2026_openai_deepseek.yaml
 ```
 
 ---
@@ -120,14 +120,14 @@ python -m src.memorybench report configs/analysis/campaign_2026_openai_deepseek.
 
 ```bash
 # Smoke (4 cells)
-python -m src.memorybench write-manifest configs/experiments/2026_readers_openai_deepseek_smoke.yaml
-python -m src.memorybench execute-qa        configs/experiments/2026_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/2026_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/2026_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner write-manifest configs/experiments/2026_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/2026_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/2026_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/2026_readers_openai_deepseek_smoke.yaml
 
 # Baseline (8 cells) — repeat --run-index 1..7
-python -m src.memorybench write-manifest configs/experiments/2026_readers_openai_deepseek.yaml
-python -m src.memorybench execute-qa        configs/experiments/2026_readers_openai_deepseek.yaml --run-index 0
+python -m src.experiment_runner write-manifest configs/experiments/2026_readers_openai_deepseek.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/2026_readers_openai_deepseek.yaml --run-index 0
 ```
 
 ---
@@ -137,7 +137,7 @@ python -m src.memorybench execute-qa        configs/experiments/2026_readers_ope
 Reusable: `configs/models/pricing.yaml` + `cost:` in `configs/analysis/campaign_2026_openai_deepseek.yaml`. The same tables appear in notebooks 11–14 (pre-test estimate, post-test actual).
 
 ```bash
-python -m src.memorybench report configs/analysis/campaign_2026_openai_deepseek.yaml
+python -m src.experiment_runner report configs/analysis/campaign_2026_openai_deepseek.yaml
 ```
 
 Method: 2025 OpenAI vs DeepSeek `cost.json` token volumes (1986 questions / cell; 272 teacher calls / writer cell) × list prices as of 2026-09-16. Not an invoice. Cloud Run CPU/RAM is extra. The dollar figures below are **thinking-off style volumes**; thinking-on cells can spend up to the 8192 completion cap on reasoning, so re-price after smoke. Assumes **no prompt-cache hits**, Terra **short-context** rates (full-context mean prompt ≈ 28k ≪ 272k), DeepSeek **cache-miss**.

@@ -29,8 +29,8 @@ from scripts.analysis.campaign_insights import (
     thinking_deltas,
     year_deltas,
 )
-from src.memorybench.analysis.load_campaign import load_campaign_yaml
-from src.memorybench.analysis.report import render_campaign
+from src.experiment_runner.analysis.load_campaign import load_campaign_yaml
+from src.experiment_runner.analysis.report import render_campaign
 
 
 class TestClassifyDelta(unittest.TestCase):
@@ -582,95 +582,3 @@ class TestRenderInsightDispatch(unittest.TestCase):
         self.assertEqual(list(a["move"]), list(b["move"]))
 
 
-class TestYearFamilyYamlInsights(unittest.TestCase):
-    YAML = ROOT / "configs" / "analysis" / "campaign_year_family.yaml"
-
-    def test_year_family_yaml_lists_robustness_analyses_and_insights(self):
-        cfg = load_campaign_yaml(self.YAML)
-        ids = [spec.id for spec in cfg.campaign_analyses]
-        self.assertIn("reader_live_year_family", ids)
-        self.assertIn("writer_live_year_family", ids)
-        self.assertIn("reader_fc_category_year", ids)
-        self.assertIn("reader_latency_year", ids)
-        self.assertIn("reader_efficiency_year", ids)
-        insight_ids = [spec.id for spec in cfg.insights]
-        self.assertIn("reader_year_deltas", insight_ids)
-        self.assertIn("reader_rank_flips", insight_ids)
-        self.assertIn("writer_rank_flips", insight_ids)
-        self.assertIn("pin_vs_live_2025", insight_ids)
-        self.assertIn("reader_efficiency", insight_ids)
-        self.assertIn("reader_saturation", insight_ids)
-        self.assertIn("reader_roi_year_deltas", insight_ids)
-        self.assertTrue(cfg.cost is not None)
-        known = set(ids) | set(insight_ids)
-        for spec in cfg.insights:
-            self.assertIn(spec.source_analysis, known)
-        self.assertEqual(
-            cfg.notebook, "notebooks/15_year_family_robustness_analysis.ipynb"
-        )
-        self.assertEqual(cfg.experiments["readers"].pretest.n_cells, 8)
-        self.assertEqual(cfg.experiments["readers_2026"].pretest.n_cells, 8)
-
-    def test_year_family_notebook_is_a_thin_yaml_wrapper(self):
-        notebook = ROOT / "notebooks" / "15_year_family_robustness_analysis.ipynb"
-        text = notebook.read_text(encoding="utf-8")
-        self.assertIn("campaign_year_family.yaml", text)
-        self.assertIn("notebook_pretest", text)
-        self.assertIn("notebook_posttest", text)
-        self.assertIn("render_campaign(camp", text)
-        self.assertNotIn("matplotlib", text)
-        self.assertNotIn("groupby(", text)
-        self.assertIn("hue=thinking", text.lower())
-        self.assertIn("kind: line", text)
-        self.assertIn("rank_flip", text)
-        self.assertIn("diminishing_returns", text)
-        self.assertIn("judge_score_per_usd", text)
-
-    def test_render_campaign_writes_insight_csv_when_live_packs_exist(self):
-        cfg = load_campaign_yaml(self.YAML)
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            for year, exp, model, provider in (
-                ("2025", "locomo-2025-readers-openai-deepseek", "gpt-5", "openai"),
-                ("2026", "locomo-2026-readers-openai-deepseek", "gpt-5.6-terra", "openai"),
-            ):
-                rows = []
-                for method in ("full_context", "rag"):
-                    for think in ("off", "on"):
-                        fc = method == "full_context"
-                        score = (0.50 if year == "2025" else 0.70) if fc else (
-                            0.30 if year == "2025" else 0.35
-                        )
-                        for cat, used in ((1, score), (5, 0.0)):
-                            rows.append(
-                                {
-                                    "reader_model": model,
-                                    "reader_provider": provider,
-                                    "reader_generation": year,
-                                    "memory_method": method,
-                                    "thinking": think,
-                                    "question_category": cat,
-                                    "locomo_f1": used,
-                                    "judge_score": used,
-                                    "num_examples": 1986,
-                                }
-                            )
-                pack = root / "experiments" / exp / "aggregate"
-                pack.mkdir(parents=True)
-                frame = pd.DataFrame(rows)
-                frame.to_parquet(pack / "examples.parquet", index=False)
-                frame.head(2).assign(run_id=["a", "b"]).to_parquet(
-                    pack / "runs.parquet", index=False
-                )
-            report = render_campaign(cfg, root=root)
-            delta_path = report.out_dir / "tables" / "reader_year_deltas.csv"
-            self.assertTrue(delta_path.is_file())
-            deltas = pd.read_csv(delta_path)
-            self.assertIn("improving", set(deltas["move"].astype(str)))
-            self.assertIn("reader_live_year_family", [item.spec.id for item in report.results])
-
-
-if __name__ == "__main__":
-    unittest.main()

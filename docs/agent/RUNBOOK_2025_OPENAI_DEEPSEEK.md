@@ -38,14 +38,14 @@ Prior DeepSeek writer packs (no `teacher_thinking` in the hash) are **not** in t
 |------------|--------|--------|
 | 1 | LoCoMo + `qa_mem0_v1` + `full_context` + GPT-4o-mini judge | Answer model × thinking |
 | 2 | Same prompt + judge + **shared** `rag_locomo10` dump | Answer model × thinking × `{full_context, rag}` |
-| 3 | LoCoMo + `qa_mem0_v1` + **GPT-4o-mini reader** (thinking unset) + GPT-4o-mini judge | Writer × thinking × `{teacher_session_summaries, teacher_graph}` |
+| 3 | LoCoMo + `qa_mem0_v1` + **GPT-4o-mini reader** (thinking unset) + GPT-4o-mini judge | Writer × thinking × `{session_summaries, graph}` |
 
 ---
 
 ## Cell order (`CLOUD_RUN_TASK_INDEX`)
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/<that_gcs.yaml>
+python -m src.experiment_runner write-manifest configs/experiments/<that_gcs.yaml>
 ```
 
 **Experiment 1** (smoke):
@@ -74,14 +74,14 @@ python -m src.memorybench write-manifest configs/experiments/<that_gcs.yaml>
 
 | Index | Memory | Writer | Thinking |
 |-------|--------|--------|----------|
-| 0 | `teacher_session_summaries` | `gpt-5` | off |
-| 1 | `teacher_session_summaries` | `gpt-5` | on |
-| 2 | `teacher_session_summaries` | `deepseek-v3` | off |
-| 3 | `teacher_session_summaries` | `deepseek-v3` | on |
-| 4 | `teacher_graph` | `gpt-5` | off |
-| 5 | `teacher_graph` | `gpt-5` | on |
-| 6 | `teacher_graph` | `deepseek-v3` | off |
-| 7 | `teacher_graph` | `deepseek-v3` | on |
+| 0 | `session_summaries` | `gpt-5` | off |
+| 1 | `session_summaries` | `gpt-5` | on |
+| 2 | `session_summaries` | `deepseek-v3` | off |
+| 3 | `session_summaries` | `deepseek-v3` | on |
+| 4 | `graph` | `gpt-5` | off |
+| 5 | `graph` | `gpt-5` | on |
+| 6 | `graph` | `deepseek-v3` | off |
+| 7 | `graph` | `deepseek-v3` | on |
 
 Every cell hashes thinking and the matching max-token cap into `run_id`. Re-`write-manifest` before execute-qa.
 
@@ -112,7 +112,7 @@ gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-2025-readers-opena
 Report (no LLM):
 
 ```bash
-python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml
+python -m src.experiment_runner report configs/analysis/campaign_2025_openai_deepseek.yaml
 ```
 
 ---
@@ -121,12 +121,12 @@ python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.
 
 ```bash
 # Smoke (4 cells)
-python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek_smoke.yaml
-python -m src.memorybench execute-qa        configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/2025_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner write-manifest configs/experiments/2025_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/2025_readers_openai_deepseek_smoke.yaml
 
 # Baseline (8 cells) — repeat --run-index 1..7
-python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek.yaml
-python -m src.memorybench execute-qa        configs/experiments/2025_readers_openai_deepseek.yaml --run-index 0
+python -m src.experiment_runner write-manifest configs/experiments/2025_readers_openai_deepseek.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/2025_readers_openai_deepseek.yaml --run-index 0
 ```

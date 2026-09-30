@@ -60,9 +60,9 @@ def role_for(config_key: str, source: str) -> str:
         return "agent"
     if key.endswith("pipeline.prompt_path") or "/readers/" in src:
         return "reader"
-    if "teacher" in key or "/teachers/" in src:
-        return "teacher"
-    return "writer"
+    if "writer" in key or "/writers/" in src:
+        return "writer"
+    return "other"
 
 
 def jsonl_targets(config_key: str, cfg: dict[str, Any]) -> list[str]:
@@ -83,8 +83,8 @@ def jsonl_targets(config_key: str, cfg: dict[str, Any]) -> list[str]:
                 ]
             )
         return targets
-    if "teacher" in key:
-        return ["memory/teachers/calls.jsonl", "memory/teachers/index.jsonl"]
+    if "writer" in key or "graph_prompt" in key:
+        return ["memory/writer/calls.jsonl", "memory/writer/index.jsonl"]
     if "openai_memory" in key:
         index_run = (cfg.get("openai_memory") or {}).get("index_run_id")
         if index_run:
@@ -275,7 +275,7 @@ def _render_trace(payload: dict[str, Any], *, run_dir: Path) -> str:
             "| `reader/traces.jsonl` | Answer LLM call (filled reader prompt → completion) |",
             "| `reader/predictions.jsonl` | Same QA rows as the run-root copy |",
             "| `memory/` | `{memory}` payload actually inserted into the reader prompt |",
-            "| `memory/teachers/calls.jsonl` | Write-path teacher calls (if teachers ran) |",
+            "| `memory/writer/calls.jsonl` | Write-path calls (if a writer ran) |",
             "| `autorater/traces.jsonl` | Judge LLM (separate job; gold is visible here) |",
             "| `run_meta.json` | Pins: models, `prompt_path`, hashes |",
             "| `SUMMARY.md` | Claim audit: sandwich pins, cost, how to follow one question |",

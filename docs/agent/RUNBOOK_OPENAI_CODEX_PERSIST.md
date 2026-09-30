@@ -9,15 +9,15 @@ GPT-4o-mini backbone, thinking off. Native Codex stays audit-only unless
 | 1 | on | full | `qa_workspace_persist_v1` | write ablation; session haystack still on disk |
 | 2 | on | notes_only | `qa_workspace_notes_only_v1` | **memory method**: ingest, then hide `sessions/` |
 
-`notes_only` vs PoC `teacher_session_summaries` is a campaign takeaway, not a
+`notes_only` vs PoC `session_summaries` is a campaign takeaway, not a
 fourth QA cell. New experiment name → new hashed ids; first wave does not need
 `--force`.
 
 Local mock (no Codex, no API):
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/openai_codex_persist_memory.yaml
-python -m src.memorybench execute-qa configs/experiments/openai_codex_persist_memory.yaml --run-index 0
+python -m src.experiment_runner write-manifest configs/experiments/openai_codex_persist_memory.yaml
+python -m src.experiment_runner execute-qa configs/experiments/openai_codex_persist_memory.yaml --run-index 0
 ```
 
 Use `--reader mock` only on `python -m src.locomo_eval.run` smokes, not on this
@@ -31,7 +31,7 @@ From repo root, conda env `distillation`. Image must include this commit
 (notes prompts, ingest/hide, ledger). Redeploy after pull.
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/openai_codex_persist_memory_gcs.yaml
+python -m src.experiment_runner write-manifest configs/experiments/openai_codex_persist_memory_gcs.yaml
 
 $env:EXPERIMENT_YAML = "configs/experiments/openai_codex_persist_memory_gcs.yaml"
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
@@ -74,10 +74,10 @@ gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/$writers/aggregate" "expe
 Report + notebook 17 wrapper (no LLM):
 
 ```powershell
-python -m src.memorybench report configs/analysis/campaign_openai_codex_persist_memory.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_codex_persist_memory.yaml
 ```
 
 Notebook: `notebooks/17_openai_codex_persist_memory_analysis.ipynb`.
 Hop/qidx also land on the PoC and agents notebooks after
-`python -m src.memorybench report configs/analysis/campaign_openai_codex_poc.yaml`
+`python -m src.experiment_runner report configs/analysis/campaign_openai_codex_poc.yaml`
 and `campaign_openai_agents.yaml`.

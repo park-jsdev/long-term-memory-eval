@@ -1,6 +1,6 @@
 # Experiment matrix YAML (`experiment_matrix.v1`)
 
-Harness input for `python -m src.memorybench`. Scientific execution still uses one locomo_eval method YAML per cell (`full_context.yaml`, `mem0.yaml`, …).
+Harness input for `python -m src.experiment_runner`. Scientific execution still uses one locomo_eval method YAML per cell (`full_context.yaml`, `mem0.yaml`, …).
 
 ## Required blocks
 
@@ -28,7 +28,7 @@ judge:
 storage:
   backend: local|gcs
   path: experiments          # locomo_eval --output-dir (scratch on Cloud Run)
-  bucket: PROJECT-memorybench   # gcs only; or env MEMORYBENCH_BUCKET
+  bucket: # gcs only; env EXPERIMENT_RUNNER_BUCKET (MEMORYBENCH_BUCKET still accepted)
   dataset_object: data/locomo10.json  # gcs blob; upload once
 ```
 
@@ -43,7 +43,7 @@ storage:
 ## Expansion
 
 Cartesian product over axes in order `reader`, `memory_method`, `writer`, `seed`.  
-When `matrix.writer` is set, cells that do not use a live teacher (`full_context`, `rag`, `mem0`, …) keep only `writer: none`; `teacher_graph` keeps only non-null writers.  
+When `matrix.writer` is set, cells that do not use a live writer (`full_context`, `rag`, `mem0`, …) keep only `writer: none`; `session_summaries` and `graph` keep a writer.  
 `run_id = <experiment-slug>-<sha256(identity)[:8]>`. Identity excludes timestamps and judge model.
 
 ## On-disk after execute-qa
@@ -58,7 +58,7 @@ experiments/<run_id>/          # locomo_eval audit pack + harness files
   autorater/_SUCCESS           # after execute-autorater
 experiments/<experiment_name>/
   manifest/runs.jsonl
-  aggregate/                   # after `memorybench aggregate` / memorybench-aggregate job
+  aggregate/                   # after `experiment_runner aggregate` / memorybench-aggregate job
     SUMMARY.md
     status.json
     cells.jsonl
@@ -66,7 +66,7 @@ experiments/<experiment_name>/
     examples.parquet
     by_run/<run_id>/           # copied SUMMARY, TRACE, ATTRIBUTION, metrics, cost
     _SUCCESS
-  collected/                   # after `memorybench collect-full` (on-demand)
+  collected/                   # after `experiment_runner collect-full` (Cloud Run job memorybench-collect-full)
     SUMMARY.md
     runs/<run_id>/             # complete pack including memory/, reader/, plots
     _SUCCESS

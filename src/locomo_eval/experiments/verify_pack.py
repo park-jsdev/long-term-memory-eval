@@ -2,7 +2,7 @@
 
 No LLM. Reads a finished ``experiments/<run_id>/`` (or a thin aggregate
 catalog copy) and returns ordered checks. Analysis/CLI import this module;
-do not import ``run``, ``teachers``, or ``audit_writer``.
+do not import ``run``, the writer model, or ``audit_writer``.
 """
 
 from __future__ import annotations
@@ -21,10 +21,8 @@ from src.locomo_eval.prompts import locate_prompt_file
 SCHEMA_VERSION = "experiment_verify.v1"
 QA_MEM0_V1 = "prompts/readers/qa_mem0_v1.txt"
 QA_MEM0_V1_SHA256 = "85c626a7eaf0631e17d3fcdaa020e47afb2d85802f1d4543d6363f812fbfe31c"
-GRAPH_PROMPT = "prompts/teachers/teacher_graph_v1.txt"
-GRAPH_METHODS = frozenset(
-    {"teacher_graph", "pooled_teacher_graph", "fused_teacher_graph"}
-)
+GRAPH_PROMPT = "prompts/writers/graph_v1.txt"
+GRAPH_METHODS = frozenset({"graph"})
 SANDWICH_READER = "gpt-4o-mini"
 PARSE_FALLBACK_MAX = 0.20
 GOLD_MIN_CHARS = 12
@@ -495,7 +493,7 @@ def _prompt_checks(paths: AuditPaths, memory_type: str | None) -> list[Check]:
             for r in rows
             if "graph_prompt" in str(r.get("config_key") or "")
             or str(r.get("source_path") or "").replace("\\", "/").endswith(
-                "teacher_graph_v1.txt"
+                "graph_v1.txt"
             )
         ]
         if graph_rows:
@@ -509,7 +507,7 @@ def _prompt_checks(paths: AuditPaths, memory_type: str | None) -> list[Check]:
                     _ok(
                         "prompt.graph_timeless",
                         "prompt",
-                        "teacher_graph_v1 asks for timeless relation types "
+                        "graph_v1 asks for timeless relation types "
                         "(dates are stripped by design, not a dump bug)",
                         severity=SEVERITY_INFO,
                     )
@@ -528,7 +526,7 @@ def _prompt_checks(paths: AuditPaths, memory_type: str | None) -> list[Check]:
                 _fail(
                     "prompt.graph_timeless",
                     "prompt",
-                    "graph pack has no teacher_graph_v1 in the prompt bundle",
+                    "graph pack has no graph_v1 in the prompt bundle",
                     severity=SEVERITY_WARNING,
                 )
             )
@@ -613,13 +611,13 @@ def _memory_checks(
                     _fail(
                         "memory.graph_grammar",
                         "memory",
-                        "teacher_graph memory text is not Graph relations: triples",
+                        "graph memory text is not Graph relations: triples",
                     )
                 )
             n_dates = len(DATE_TOKEN_RE.findall(text))
             date_detail = (
                 f"{n_dates} date-like tokens in graph {{memory}} "
-                "(teacher_graph_v1 is timeless; temporal LoCoMo items "
+                "(graph_v1 is timeless; temporal LoCoMo items "
                 "cannot be answered from dates in the graph string)"
             )
             if n_dates >= 5:
@@ -657,7 +655,7 @@ def _graph_checks(
             )
         ]
     gidx = load_jsonl(paths.graph_index)
-    quality = load_json(paths.teacher_quality)
+    quality = load_json(paths.writer_quality)
     if not gidx:
         sev = SEVERITY_WARNING if kind == "thin_catalog" else SEVERITY_ERROR
         return [
@@ -688,13 +686,13 @@ def _graph_checks(
                 evidence={"min": min(valid), "max": max(valid), "n_samples": len(valid)},
             )
         )
-    by_teacher = (quality.get("by_teacher") or {}) if quality else {}
-    if not by_teacher:
+    by_writer = (quality.get("by_writer") or {}) if quality else {}
+    if not by_writer:
         out.append(
             _fail(
                 "graph.parse_rate",
                 "graph",
-                "missing memory/teachers/quality.json parse rates",
+                "missing memory/writer/quality.json parse rates",
                 severity=SEVERITY_WARNING,
             )
         )
@@ -703,7 +701,7 @@ def _graph_checks(
     worst_tid = ""
     total_calls = 0
     total_fallback = 0
-    for tid, rec in sorted(by_teacher.items()):
+    for tid, rec in sorted(by_writer.items()):
         n_calls = int(rec.get("n_calls") or 0)
         n_fb = int(rec.get("n_parse_fallback") or 0)
         total_calls += n_calls
@@ -712,11 +710,9 @@ def _graph_checks(
         if rate >= worst_rate:
             worst_rate = rate
             worst_tid = str(tid)
-    fusion = quality.get("fusion") or {}
-    keep = fusion.get("keep_rate")
     if total_calls == 0:
         out.append(
-            _fail("graph.parse_rate", "graph", "quality.json has zero teacher calls")
+            _fail("graph.parse_rate", "graph", "quality.json has zero writer calls")
         )
     elif worst_rate > PARSE_FALLBACK_MAX:
         out.append(
@@ -730,7 +726,7 @@ def _graph_checks(
                     "fallback_rate": round(worst_rate, 4),
                     "n_parse_fallback": total_fallback,
                     "n_calls": total_calls,
-                    "teacher_id": worst_tid,
+                    "writer_id": worst_tid,
                 },
             )
         )
@@ -745,17 +741,6 @@ def _graph_checks(
                     "n_parse_fallback": total_fallback,
                     "n_calls": total_calls,
                 },
-            )
-        )
-    if keep == 1.0 and int(fusion.get("n_triples_discarded") or 0) == 0:
-        out.append(
-            _ok(
-                "graph.fusion_keep_all",
-                "graph",
-                "fusion keep_rate=1.0 (single-teacher / fusion=none keeps every "
-                "parsed triple; this is not a quality score)",
-                severity=SEVERITY_INFO,
-                evidence={"keep_rate": keep, "fusion": fusion},
             )
         )
     return out

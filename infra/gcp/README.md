@@ -191,5 +191,5 @@ In your own project (region `us-central1`). Console URLs below take `?project=$P
 Laptops: `conda activate distillation`. Image: `uv` or the Dockerfile `pip install -r requirements.txt`. Same CLI:
 
 ```bash
-python -m src.memorybench execute-qa configs/experiments/poc.yaml --run-index 0
+python -m src.experiment_runner execute-qa configs/experiments/poc.yaml --run-index 0
 ```

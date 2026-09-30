@@ -21,11 +21,11 @@ models:
     model_snapshot: TO_CONFIRM
     notes: >
       Hosted gpt-5 rejects reasoning_effort=none; locomo_eval sends minimal.
-      Catalog teacher: is the default when matrix.thinking is absent (parked
+      Catalog writer: is the default when matrix.thinking is absent (parked
       three-family). OpenAI vs DeepSeek campaigns set matrix.thinking and
       override these knobs (off 8192 / on 32768).
     status: runnable
-    teacher:
+    writer:
       thinking: false
       max_tokens: 8192
 
@@ -37,7 +37,7 @@ models:
     api_model_id: gpt-5.6-sol
     model_snapshot: TO_CONFIRM
     status: runnable
-    teacher:
+    writer:
       thinking: false
       max_tokens: 8192
 
@@ -50,7 +50,7 @@ models:
     model_snapshot: TO_CONFIRM
     notes: "Frozen reader uses reasoning_effort=none (accepted on 5.6). List price 2026-07-30: $2 / $12 per 1M (short context)."
     status: runnable
-    teacher:
+    writer:
       thinking: false
       max_tokens: 8192
 
@@ -162,7 +162,7 @@ models:
     api_model_id: TO_CONFIRM
     model_snapshot: TO_CONFIRM
     status: to_confirm
-    teacher:
+    writer:
       thinking: false
       max_tokens: 8192
 

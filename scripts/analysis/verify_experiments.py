@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--graph-years",
         action="store_true",
-        help="Diagnose teacher_graph 2025 vs 2026 stagnation from these dirs",
+        help="Diagnose graph 2025 vs 2026 stagnation from these dirs",
     )
     p.add_argument("--json", dest="json_out", default=None, help="Write JSON report")
     p.add_argument("--md", dest="md_out", default=None, help="Write Markdown report")

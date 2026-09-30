@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.mem0_baselines import paper_full_context_memory_tokens
-from src.memorybench.analysis.context_window import (
+from src.experiment_runner.analysis.context_window import (
     coverage_kind,
     judged_mask,
     load_context_windows,
@@ -68,7 +68,7 @@ class TestPaperFullContextPin(unittest.TestCase):
 class TestCoverageKind(unittest.TestCase):
     def test_full_context_covers_all_turns_rag_is_topk(self):
         self.assertEqual(coverage_kind("full_context"), "all_turns")
-        self.assertEqual(coverage_kind("teacher_session_summaries"), "all_sessions_compressed")
+        self.assertEqual(coverage_kind("session_summaries"), "all_sessions_compressed")
         self.assertEqual(coverage_kind("rag"), "topk_chunks")
         self.assertEqual(coverage_kind("mem0g"), "retrieved_facts_plus_graph")
 

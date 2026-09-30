@@ -2,7 +2,7 @@
 
 HLD:
   i)   pre-processing  ← this file (ingest, session blocks, persist)
-  ii)  teacher orchestrator — passthrough seam only (no LLM)
+  ii)  model orchestrator — passthrough seam only (no LLM)
   iii) post-processing — not this file
   iv)  evaluation — tests/test_evaluation_pipeline.py
 
@@ -29,8 +29,8 @@ from src.locomo_eval.preprocess import (
     segment_sessions,
     write_conversation_run_log,
 )
-from src.locomo_eval.teacher_orchestrator import (
-    TeacherOrchestrator,
+from src.locomo_eval.model_orchestrator import (
+    ModelOrchestrator,
     iter_session_blocks,
     process_session_block,
 )
@@ -163,7 +163,7 @@ class TestPreprocessingPipelineOmitsGold(unittest.TestCase):
         self.assertEqual(processed.question_ids, ["conv-pre-q-0"])
 
 
-class TestTeacherOrchestratorWalksOneBlockAtATime(unittest.TestCase):
+class TestModelOrchestratorWalksOneBlockAtATime(unittest.TestCase):
     def test_iter_session_blocks_yields_first_session_then_second(self):
         processed = PreprocessingPipeline().process(_ingest_mini())
         blocks = list(iter_session_blocks(processed))
@@ -182,9 +182,9 @@ class TestTeacherOrchestratorWalksOneBlockAtATime(unittest.TestCase):
             ["conv-pre:s1:t000", "conv-pre:s1:t001"],
         )
 
-    def test_teacher_orchestrator_class_matches_module_functions(self):
+    def test_model_orchestrator_class_matches_module_functions(self):
         processed = PreprocessingPipeline().process(_ingest_mini())
-        orch = TeacherOrchestrator()
+        orch = ModelOrchestrator()
         first = next(orch.iter_session_blocks(processed))
         self.assertEqual(
             orch.process_session_block(first),

@@ -45,9 +45,13 @@ PAPER_METHOD_AXIS = (
 )
 MEMORY_LANE_AXIS = (
     "full_context",
-    "teacher_session_summaries",
-    "teacher_graph",
+    "session_summaries",
+    "graph",
 )
+_MEMORY_LANE_ALIAS = {
+    "session_summaries": "session_summaries",
+    "graph": "graph",
+}
 SYSTEM_HARNESS_AXIS = ("chat_completions", "codex")
 MINI_SIDE_AXIS = ("4o-mini", "4o-mini + Codex")
 GAP_STACK_AXIS = ("2024 model", "2024 model + harness", "2026 model")
@@ -1098,9 +1102,9 @@ def _live_paper_compare(
         )
     if not is_codex_writer:
         return method or None, None
-    if method == "teacher_graph":
+    if method in ("graph", "graph"):
         return "mem0g", COMPARE_SOURCE_CODEX
-    if method == "teacher_session_summaries":
+    if method in ("session_summaries", "session_summaries"):
         return "session_summaries", COMPARE_SOURCE_CODEX
     return method or None, None
 
@@ -1155,8 +1159,8 @@ def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
 
     Persist-off ``workspace_files`` is the Codex analog of stuffed
     ``full_context``. Persist-on workspace and Codex facts are not lanes
-    (no Chat Completions twin). ``teacher_graph`` stays ``teacher_graph``
-    (not paper Mem0g).
+    (no Chat Completions twin). ``graph`` stays ``graph``
+    (not paper Mem0g). Older packs named ``graph`` map here.
     """
     out = df.copy()
     if out.empty:
@@ -1168,6 +1172,7 @@ def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
     lanes: list[str | None] = []
     for i in range(n):
         method = "" if methods is None else str(methods.iloc[i] or "")
+        method = _MEMORY_LANE_ALIAS.get(method, method)
         flag = None if persist is None else persist.iloc[i]
         if method == "workspace_files":
             lanes.append(None if _truthy_flag(flag) else "full_context")

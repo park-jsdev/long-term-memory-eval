@@ -4,7 +4,7 @@
 # sandwich-style memory-method cell. Native Codex stays audit-only unless
 # comparison_status=comparable.
 #
-#   python -m src.memorybench write-manifest configs/experiments/openai_codex_persist_memory.yaml
+#   python -m src.experiment_runner write-manifest configs/experiments/openai_codex_persist_memory.yaml
 experiment:
   name: locomo-openai-codex-persist-memory
   type: agent

@@ -100,8 +100,7 @@ Try other memory methods offline. Each is one flag, no new code:
 ```bash
 python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --reader mock --max-questions 5 --run-id smoke_raw
 python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --reader mock --max-questions 5 --run-id smoke_sess
-python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_graph
-python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused
+python -m src.locomo_eval.run --config configs/writers/graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_graph
 ```
 
 Compare two arms offline, with no API:
@@ -121,11 +120,11 @@ python scripts/compare_full_runs.py --runs experiments/smoke_raw experiments/smo
 Now use the harness instead of a single run. `configs/experiments/poc.yaml` is a mock matrix.
 
 ```bash
-python -m src.memorybench write-manifest configs/experiments/poc.yaml
-python -m src.memorybench execute-qa        configs/experiments/poc.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/poc.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/poc.yaml
-python -m src.memorybench status            configs/experiments/poc.yaml
+python -m src.experiment_runner write-manifest configs/experiments/poc.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/poc.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/poc.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/poc.yaml
+python -m src.experiment_runner status            configs/experiments/poc.yaml
 ```
 
 **Checkpoint.** `status` reports `qa_completed` and `autorater_completed` greater than zero, and
@@ -150,7 +149,7 @@ python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml \
 Then verify the write-path providers you plan to use:
 
 ```bash
-python -m src.locomo_eval.ping_teachers --providers openai,anthropic,deepseek
+python -m src.locomo_eval.ping_writers --providers openai,anthropic,deepseek
 ```
 
 **Checkpoint.** `reader/traces.jsonl` shows a real model id and real token usage, and `cost.json` is
@@ -174,7 +173,7 @@ Three experiments, run in order. Each is one sandwich claim.
 |---|---|---|---|---|
 | 1 smoke | Do the two 2025 readers work at all? | LoCoMo, `qa_mem0_v1`, `full_context`, judge | reader: GPT-5, DeepSeek-V3 | 2 |
 | 2 baseline | Full-context vs Mem0-paper RAG, per reader | prompt, judge, shared `rag_locomo10` dump | reader × `{full_context, rag}` | 4 |
-| 3 writers | Which 2025 writer builds better memory? | **reader frozen** to `gpt-4o-mini` + `qa_mem0_v1`, judge | writer × `{teacher_session_summaries, teacher_graph}` | 4 |
+| 3 writers | Which 2025 writer builds better memory? | **reader frozen** to `gpt-4o-mini` + `qa_mem0_v1`, judge | writer × `{session_summaries, graph}` | 4 |
 
 Parked three-family (adds Claude Sonnet 4.5): 3 / 6 / 6 cells. Operator: [`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md).
 
@@ -204,10 +203,10 @@ Each cell is one command. Run the indices in order; watch cost between cells.
 
 ```bash
 # Experiment 1 (smoke, 4 cells: 2 readers × thinking)
-python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek_smoke.yaml
-python -m src.memorybench execute-qa        configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/2025_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner write-manifest configs/experiments/2025_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/2025_readers_openai_deepseek_smoke.yaml
 ```
 
 Repeat `--run-index 1 … 7` for experiment 2 (8 cells) and experiment 3 (8 writer cells), using
@@ -219,7 +218,7 @@ partial answer set.
 Confirm which index is which cell at any time:
 
 ```bash
-python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek.yaml
+python -m src.experiment_runner write-manifest configs/experiments/2025_readers_openai_deepseek.yaml
 ```
 
 ### Option B — Cloud Run
@@ -272,10 +271,10 @@ and never calls an API.
 
 ```bash
 # One experiment
-python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml --experiment smoke
+python -m src.experiment_runner report configs/analysis/campaign_2025_openai_deepseek.yaml --experiment smoke
 
 # Every experiment plus the cross-experiment campaign concat
-python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml
+python -m src.experiment_runner report configs/analysis/campaign_2025_openai_deepseek.yaml
 ```
 
 Outputs:
@@ -372,5 +371,5 @@ the incomplete cells.
 - On-disk contracts: [`schemas/experiment_pack.md`](schemas/experiment_pack.md),
   [`schemas/analysis_campaign.md`](schemas/analysis_campaign.md)
 - Freeze and extend rules: [`reports/engineering_notebook.md`](reports/engineering_notebook.md)
-- Teacher and fusion methodology: [`reports/multi_teacher_methodologies.md`](reports/multi_teacher_methodologies.md)
+- Writer and fusion methodology: [`reports/multi_teacher_methodologies.md`](reports/multi_teacher_methodologies.md)
 - Dataset and third-party prompt terms: [`NOTICE.md`](../NOTICE.md)

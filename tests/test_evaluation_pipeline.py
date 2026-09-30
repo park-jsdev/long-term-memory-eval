@@ -2,7 +2,7 @@
 
 HLD components:
   i)   pre-processing — tests/test_preprocessing_pipeline.py (not wired into run.py)
-  ii)  teacher orchestrator — pooling/fusion in teacher_orchestrator.py (passthrough if no teachers)
+  ii)  model orchestrator — one writer model in model_orchestrator.py (passthrough if no model)
   iii) post-processing — not this file
   iv)  evaluation  ← this file (string metrics + LoCoMo F1)
 
@@ -11,8 +11,8 @@ Online / LLM autoraters are out of scope until that split is designed.
 Parse and memory-builder checks remain in this module as the frozen *inputs*
 to the scorer, including a raw_chunks vs session_summaries prompt-text
 check (different memories must fill different reader prompts).
-Dedicated pre-processing / teacher-memory test modules wait on HLD lock-in —
-do not rename production classes to match an unfinished LLD.
+Dedicated pre-processing and writer-memory checks live in their own modules.
+Do not rename production classes to match an unfinished design note.
 """
 
 from __future__ import annotations

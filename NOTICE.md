@@ -1,6 +1,7 @@
 # Third-party terms
 
-The MIT license in `LICENSE` covers the code in this repository. It does not
+The MIT license in `LICENSE` covers the code in this repository,
+Long-Term Memory Eval (Copyright (c) 2026 Junsoo Park and Bryan Triana). It does not
 cover the dataset or the third-party prompts described below, which carry their
 own terms.
 

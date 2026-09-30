@@ -2,13 +2,13 @@
 
 Frozen GPT-4o-mini + `qa_mem0_v1` reader. New pack writes the two structured
 artifacts Codex already wrote in the PoC: session summaries and Mem0g-shaped
-`teacher_graph`. Codex facts stay out (no Chat Completions twin). Native Codex
+`graph`. Codex facts stay out (no Chat Completions twin). Native Codex
 is audit-only unless `comparison_status` is `comparable`.
 
 | Cell | YAML | Writer | Method | Claim |
 |------|------|--------|--------|-------|
-| 0 | `openai_mini_writers_structured` | Chat Completions `gpt-4o-mini` | `teacher_session_summaries` | model-only summary writer |
-| 1 | `openai_mini_writers_structured` | Chat Completions `gpt-4o-mini` | `teacher_graph` | model-only Mem0g-shaped graph writer |
+| 0 | `openai_mini_writers_structured` | Chat Completions `gpt-4o-mini` | `session_summaries` | model-only summary writer |
+| 1 | `openai_mini_writers_structured` | Chat Completions `gpt-4o-mini` | `graph` | model-only Mem0g-shaped graph writer |
 | (existing) | `openai_codex_poc_writers` | Codex `gpt-4o-mini` | same two methods | model + harness |
 
 Not dataset `session_summaries`. Not OSS `mem0g` extract/update. Needs
@@ -18,9 +18,9 @@ already exists).
 Local mock (no API):
 
 ```powershell
-python -m src.locomo_eval.run --config configs/writers/teacher_session_summaries.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_mini_summaries
-python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_mini_graph
-python -m src.memorybench write-manifest configs/experiments/openai_mini_writers_structured.yaml
+python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_mini_summaries
+python -m src.locomo_eval.run --config configs/writers/graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_mini_graph
+python -m src.experiment_runner write-manifest configs/experiments/openai_mini_writers_structured.yaml
 ```
 
 ---
@@ -30,13 +30,13 @@ python -m src.memorybench write-manifest configs/experiments/openai_mini_writers
 From repo root, conda env `distillation`. Two QA cells then two autorater cells.
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/openai_mini_writers_structured.yaml
-python -m src.memorybench execute-qa configs/experiments/openai_mini_writers_structured.yaml --run-index 0
-python -m src.memorybench execute-qa configs/experiments/openai_mini_writers_structured.yaml --run-index 1
-python -m src.memorybench execute-autorater configs/experiments/openai_mini_writers_structured.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/openai_mini_writers_structured.yaml --run-index 1
-python -m src.memorybench aggregate configs/experiments/openai_mini_writers_structured.yaml
-python -m src.memorybench collect-full configs/experiments/openai_mini_writers_structured.yaml
+python -m src.experiment_runner write-manifest configs/experiments/openai_mini_writers_structured.yaml
+python -m src.experiment_runner execute-qa configs/experiments/openai_mini_writers_structured.yaml --run-index 0
+python -m src.experiment_runner execute-qa configs/experiments/openai_mini_writers_structured.yaml --run-index 1
+python -m src.experiment_runner execute-autorater configs/experiments/openai_mini_writers_structured.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/openai_mini_writers_structured.yaml --run-index 1
+python -m src.experiment_runner aggregate configs/experiments/openai_mini_writers_structured.yaml
+python -m src.experiment_runner collect-full configs/experiments/openai_mini_writers_structured.yaml
 ```
 
 If a cell must be paid again after `_SUCCESS`, add `--force`.
@@ -48,7 +48,7 @@ If a cell must be paid again after `_SUCCESS`, add `--force`.
 Image does not need the Codex binary. Redeploy after this commit.
 
 ```powershell
-python -m src.memorybench write-manifest configs/experiments/openai_mini_writers_structured_gcs.yaml
+python -m src.experiment_runner write-manifest configs/experiments/openai_mini_writers_structured_gcs.yaml
 
 $env:EXPERIMENT_YAML = "configs/experiments/openai_mini_writers_structured_gcs.yaml"
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
@@ -78,7 +78,7 @@ gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/$codex/aggregate" "experi
 Report + notebook 17 wrapper (no LLM):
 
 ```powershell
-python -m src.memorybench report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
 ```
 
 Notebook: `notebooks/17_openai_mini_vs_codex_writers_analysis.ipynb`.

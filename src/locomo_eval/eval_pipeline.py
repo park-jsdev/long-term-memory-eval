@@ -33,10 +33,7 @@ METHOD_CONFIGS: dict[str, str] = {
     "mem0g": "configs/writers/mem0g.yaml",
     "raw_chunks": "configs/writers/raw_chunks.yaml",
     "session_summaries": "configs/writers/session_summaries.yaml",
-    "teacher_session_summaries": "configs/writers/teacher_session_summaries.yaml",
-    "teacher_graph": "configs/writers/teacher_graph.yaml",
-    "pooled_teacher_graph": "configs/writers/pooled_teacher_graph.yaml",
-    "fused_teacher_graph": "configs/writers/fused_teacher_graph.yaml",
+    "graph": "configs/writers/graph.yaml",
     "workspace_files": "configs/writers/workspace_files.yaml",
     "mem0_baseline": "configs/presets/mem0_baseline.yaml",
 }
@@ -155,8 +152,9 @@ def _qa_overrides(args: argparse.Namespace, index_run_id: str | None) -> argpars
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         message_layout=args.message_layout,
-        teacher=args.teacher,
-        teacher_model=args.teacher_model,
+        writer=args.writer,
+        writer_model=args.writer_model,
+        writer_max_tokens=getattr(args, "writer_max_tokens", None),
         prompt=args.prompt,
         output_dir=args.output_dir,
         run_id=args.run_id,
@@ -173,8 +171,6 @@ def _qa_overrides(args: argparse.Namespace, index_run_id: str | None) -> argpars
         preprocess_index_run_id=None,
         retrieve_top_k=None,
         config=getattr(args, "config", None),
-        pool=getattr(args, "pool", None),
-        fusion=getattr(args, "fusion", None),
         thinking=getattr(args, "thinking", None),
     )
 
@@ -298,7 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--method",
         required=True,
         help="rag | full_context | openai_memory | mem0 | mem0g | raw_chunks | "
-        "session_summaries | teacher_session_summaries | mem0_baseline | custom YAML via --config",
+        "session_summaries | graph | mem0_baseline | custom YAML via --config",
     )
     p.add_argument("--config", default=None, help="Override YAML (default: configs/<method>.yaml)")
     p.add_argument("--data", default=None)
@@ -308,8 +304,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--temperature", type=float, default=None)
     p.add_argument("--max-tokens", type=int, default=None)
     p.add_argument("--message-layout", default=None)
-    p.add_argument("--teacher", default=None)
-    p.add_argument("--teacher-model", default=None)
+    p.add_argument("--writer", default=None)
+    p.add_argument("--writer-model", default=None)
+    p.add_argument("--writer-max-tokens", type=int, default=None)
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)

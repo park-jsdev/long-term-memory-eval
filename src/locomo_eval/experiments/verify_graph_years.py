@@ -1,4 +1,4 @@
-"""Year-stagnation diagnosis for teacher_graph sandwich cells.
+"""Year-stagnation diagnosis for graph sandwich cells.
 
 Uses finished audit packs plus optional campaign Parquet. No LLM.
 Separates technical invalidity (parse fallback, empty graphs, gold leak)
@@ -100,7 +100,7 @@ def load_graph_cells_from_parquet(experiment_dir: str | Path) -> list[dict[str, 
     if examples_path.is_file():
         examples = pd.read_parquet(examples_path)
     for rec in runs.to_dict(orient="records"):
-        if str(rec.get("memory_method") or "") != "teacher_graph":
+        if str(rec.get("memory_method") or "") != "graph":
             continue
         writer = rec.get("writer_model")
         thinking = str(rec.get("thinking") or "off")
@@ -116,7 +116,7 @@ def load_graph_cells_from_parquet(experiment_dir: str | Path) -> list[dict[str, 
         }
         if examples is not None and len(examples):
             sub = examples[
-                (examples["memory_method"] == "teacher_graph")
+                (examples["memory_method"] == "graph")
                 & (examples["writer_model"] == writer)
                 & (examples["thinking"].astype(str) == thinking)
             ]
@@ -138,7 +138,7 @@ def diagnose_graph_year_stagnation(
     cells: list[dict[str, Any]] | None = None,
     eps: float = MOVE_EPS,
 ) -> GraphYearDiagnosis:
-    """Explain why teacher_graph scores did not move 2025 → 2026."""
+    """Explain why graph scores did not move 2025 → 2026."""
     loaded: list[dict[str, Any]] = list(cells or [])
     if not loaded:
         for directory in experiment_dirs:
@@ -169,7 +169,7 @@ def diagnose_graph_year_stagnation(
                 seen_ids.add(report.run_id)
 
     graph_reports = [
-        r for r in reports if r.memory_type == "teacher_graph"
+        r for r in reports if r.memory_type == "graph"
     ]
     technical: list[str] = []
     scientific: list[str] = []
@@ -206,14 +206,14 @@ def diagnose_graph_year_stagnation(
                 technical.append(f"{report.run_id}: {check.detail}")
             if check.id == "prompt.graph_timeless" and check.status == "pass":
                 note = (
-                    "teacher_graph_v1 strips timestamps on purpose; temporal "
-                    "LoCoMo items cannot improve just because the teacher year moved."
+                    "graph_v1 strips timestamps on purpose; temporal "
+                    "LoCoMo items cannot improve just because the writer year moved."
                 )
                 if note not in scientific:
                     scientific.append(note)
             if check.id == "config.sandwich_reader" and check.status == "pass":
                 note = (
-                    "Sandwich reader is frozen gpt-4o-mini. A better 2026 teacher "
+                    "Sandwich reader is frozen gpt-4o-mini. A better 2026 writer "
                     "only helps if {memory} changes in a way that mini can use."
                 )
                 if note not in scientific:
@@ -233,7 +233,7 @@ def diagnose_graph_year_stagnation(
     if score_pairs and not improving:
         labels = sorted({p.label for p in score_pairs})
         scientific.append(
-            "Matched 2025->2026 teacher_graph F1/J cells did not improve "
+            "Matched 2025->2026 graph F1/J cells did not improve "
             f"(eps={eps}; labels={labels}). Year did not buy graph accuracy "
             "under the frozen reader."
         )
@@ -262,7 +262,7 @@ def diagnose_graph_year_stagnation(
         )
     if similar_input:
         scientific.append(
-            "Reader input size on teacher_graph stayed within "
+            "Reader input size on graph stayed within "
             f"{TOKEN_EPS_FRAC:.0%} year-on-year, so gpt-4o-mini saw a similar "
             "triple dump, not a new memory method."
         )
@@ -281,7 +281,7 @@ def diagnose_graph_year_stagnation(
 
     if not cells:
         incomplete.append(
-            "No teacher_graph rows in aggregate/runs.parquet; year scores "
+            "No graph rows in aggregate/runs.parquet; year scores "
             "cannot be confirmed from these paths."
         )
     if not technical and not scientific and not incomplete:
@@ -376,7 +376,7 @@ def _headline(
         return (
             "Technical issues exist, and year-matched graph scores still did "
             "not improve; do not attribute the flat or down line to a better "
-            "2026 teacher."
+            "2026 writer."
         )
     if technical:
         return "Pack logs show technical defects; fix those before a year-move claim."
@@ -398,7 +398,7 @@ def _headline(
 
 
 def _session_summary_gap(experiment_dirs: list[str | Path]) -> str | None:
-    """Same sandwich reader/teachers: narrative summaries vs timeless graph."""
+    """Same sandwich reader and writer year: narrative summaries vs timeless graph."""
     graph: list[float] = []
     summaries: list[float] = []
     for directory in experiment_dirs:
@@ -413,13 +413,13 @@ def _session_summary_gap(experiment_dirs: list[str | Path]) -> str | None:
         graph.extend(
             float(v)
             for v in frame.loc[
-                frame["memory_method"] == "teacher_graph", "locomo_f1"
+                frame["memory_method"] == "graph", "locomo_f1"
             ].dropna()
         )
         summaries.extend(
             float(v)
             for v in frame.loc[
-                frame["memory_method"] == "teacher_session_summaries", "locomo_f1"
+                frame["memory_method"] == "session_summaries", "locomo_f1"
             ].dropna()
         )
     if not graph or not summaries:
@@ -430,9 +430,9 @@ def _session_summary_gap(experiment_dirs: list[str | Path]) -> str | None:
     if gap < 0.05:
         return None
     return (
-        f"teacher_session_summaries mean LoCoMo F1 {smean:.3f} vs teacher_graph "
-        f"{gmean:.3f} (gap {gap:.3f}) under the same frozen reader and teacher "
-        "year, so the bottleneck is graph encoding, not teacher generation."
+        f"session_summaries mean LoCoMo F1 {smean:.3f} vs graph "
+        f"{gmean:.3f} (gap {gap:.3f}) under the same frozen reader and writer "
+        "year, so the bottleneck is graph encoding, not summary generation."
     )
 
 
@@ -447,7 +447,7 @@ def _as_float(value: Any) -> float | None:
 
 def render_graph_year_markdown(diag: GraphYearDiagnosis) -> str:
     lines = [
-        "## teacher_graph year stagnation",
+        "## graph year stagnation",
         "",
         diag.headline,
         "",

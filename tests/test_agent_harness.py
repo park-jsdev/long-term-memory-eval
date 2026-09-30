@@ -59,8 +59,8 @@ from src.locomo_eval.agents.workspace import (
 )
 from src.locomo_eval.dataset import load_conversations
 from src.locomo_eval.run import run_locomo_pipeline_with_memory_config
-from src.memorybench.expand_run_matrix import expand_run_matrix
-from src.memorybench.load_experiment_yaml import load_experiment_yaml
+from src.experiment_runner.expand_run_matrix import expand_run_matrix
+from src.experiment_runner.load_experiment_yaml import load_experiment_yaml
 
 GOLD = "UNIQ_GOLD_REF_ZZZ"
 MINI = [

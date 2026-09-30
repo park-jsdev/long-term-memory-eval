@@ -1,9 +1,9 @@
 # Frozen GPT-4o-mini reader; GPT-4o-mini Chat Completions writes the two
 # structured sandwich artifacts that Codex already wrote in the PoC:
-# session summaries and Mem0g-shaped teacher_graph. Compare harness, not paper
+# session summaries and Mem0g-shaped graph. Compare harness, not paper
 # extract/Mem0g. 2 cells. Dataset session_summaries and OSS mem0g stay out.
 #
-#   python -m src.memorybench write-manifest configs/experiments/openai_mini_writers_structured.yaml
+#   python -m src.experiment_runner write-manifest configs/experiments/openai_mini_writers_structured.yaml
 experiment:
   name: locomo-openai-mini-writers-structured
   type: sandwich
@@ -19,7 +19,7 @@ matrix:
   writer:
     - catalog: gpt-4o-mini
   thinking: [false]
-  memory_method: [teacher_session_summaries, teacher_graph]
+  memory_method: [session_summaries, graph]
   seed: [1]
 judge:
   provider: openai

@@ -21,8 +21,8 @@ QA_WORKSPACE_V1 = "prompts/agents/qa_workspace_v1.txt"
 QA_WORKSPACE_PERSIST_V1 = "prompts/agents/qa_workspace_persist_v1.txt"
 QA_WORKSPACE_NOTES_ONLY_V1 = "prompts/agents/qa_workspace_notes_only_v1.txt"
 INGEST_NOTES_V1 = "prompts/agents/ingest_notes_v1.txt"
-TEACHER_SESSION_V1 = "prompts/teachers/teacher_session_v1.txt"
-TEACHER_GRAPH_V1 = "prompts/teachers/teacher_graph_v1.txt"
+SESSION_SUMMARY_PROMPT_V1 = "prompts/writers/session_summary_v1.txt"
+GRAPH_PROMPT_V1 = "prompts/writers/graph_v1.txt"
 AUTORATER_MEM0_V1 = "prompts/autoraters/autorater_mem0_v1.txt"
 MEM0_EXTRACT_V1 = "prompts/writers/mem0_extract_v1.txt"
 MEM0_UPDATE_V1 = "prompts/writers/mem0_update_v1.txt"
@@ -72,7 +72,7 @@ def render_autorater_prompt(
     )
 
 
-def render_teacher_session_prompt(
+def render_session_summary_prompt(
     template: str,
     *,
     date: str,
@@ -80,7 +80,7 @@ def render_teacher_session_prompt(
     speaker_a: str,
     speaker_b: str,
 ) -> str:
-    """Fill prompts/teachers/teacher_session_v1.txt. Gold answers must not appear here."""
+    """Fill prompts/writers/session_summary_v1.txt. Gold answers must not appear here."""
     return template.format(
         date=date,
         session_text=session_text,
@@ -89,6 +89,6 @@ def render_teacher_session_prompt(
     )
 
 
-def render_teacher_graph_prompt(template: str, *, user_id: str, text: str) -> str:
-    """Fill prompts/teachers/teacher_graph_v1.txt. Gold answers must not appear here."""
+def render_graph_prompt(template: str, *, user_id: str, text: str) -> str:
+    """Fill prompts/writers/graph_v1.txt. Gold answers must not appear here."""
     return template.format(user_id=user_id, text=text)

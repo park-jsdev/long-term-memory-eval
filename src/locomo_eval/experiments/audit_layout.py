@@ -3,13 +3,13 @@
 This module names folders and files. It does not read or write them.
 
 A sandwich run freezes data + reader/eval and varies memory. The on-disk
-tree is the **audit** of those layers (reader, teachers, memory graph, judge)
+tree is the **audit** of those layers (reader, writer, memory graph, judge)
 so later analysis can map a condition to its results without re-running LLMs.
 
 ``AuditPaths`` is the shared map so the dump side (``audit_writer``) and the
 analysis side (``audit_loader``) never invent different filenames.
 
-Do not import teachers, readers, or ``run.py`` from here.
+Do not import the writer model, readers, or ``run.py`` from here.
 """
 
 from __future__ import annotations
@@ -17,24 +17,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-AUDIT_LAYOUT_VERSION = "audit_pack.v2"
+AUDIT_LAYOUT_VERSION = "audit_pack.v3"
 
 READER = "reader"
 AGENT = "agent"
 MEMORY = "memory"
-TEACHERS = "memory/teachers"
+WRITER_ROOT = "memory/writer"
 GRAPH = "memory/graph"
 AUTORATER = "autorater"
 PROMPTS = "prompts"
 TRACE = "TRACE.md"
-# Run-root copies so older compare scripts need not know about reader/ / teachers/.
+# Run-root copies so older compare scripts need not know about reader/ / writer/.
 COMPAT_PREDICTIONS = "predictions.jsonl"
-COMPAT_TEACHER_CALLS = "memory/teacher_calls.jsonl"
+COMPAT_WRITER_CALLS = "memory/writer_calls.jsonl"
 LINEAGE = "memory/lineage.jsonl"
 RETRIEVE_RANKS = "memory/retrieve_ranks.jsonl"
 GRAPH_INGEST = "memory/graph/ingest.jsonl"
-TEACHER_QUALITY = "memory/teachers/quality.json"
-TEACHER_SESSIONS = "memory/teachers/sessions.jsonl"
+WRITER_QUALITY = "memory/writer/quality.json"
+WRITER_SESSIONS = "memory/writer/sessions.jsonl"
 COST = "cost.json"
 SUMMARY = "SUMMARY.md"
 ATTRIBUTION = "attribution.jsonl"
@@ -54,7 +54,7 @@ def audit_layout_meta() -> dict[str, str]:
         "reader": f"{READER}/",
         "agent": f"{AGENT}/",
         "memory": f"{MEMORY}/",
-        "teachers": f"{TEACHERS}/",
+        "writer": f"{WRITER_ROOT}/",
         "graph": f"{GRAPH}/",
         "autorater": f"{AUTORATER}/",
         "prompts": f"{PROMPTS}/",
@@ -63,8 +63,8 @@ def audit_layout_meta() -> dict[str, str]:
         "lineage": LINEAGE,
         "retrieve_ranks": RETRIEVE_RANKS,
         "graph_ingest": GRAPH_INGEST,
-        "teacher_quality": TEACHER_QUALITY,
-        "teacher_sessions": TEACHER_SESSIONS,
+        "writer_quality": WRITER_QUALITY,
+        "writer_sessions": WRITER_SESSIONS,
         "cost": COST,
         "summary": SUMMARY,
         "attribution": ATTRIBUTION,
@@ -74,14 +74,14 @@ def audit_layout_meta() -> dict[str, str]:
     }
 
 
-def teacher_dir_name(teacher_id: str) -> str:
-    """Filesystem-safe folder for ``memory/teachers/by_teacher/<id>/``.
+def writer_dir_name(writer_id: str) -> str:
+    """Filesystem-safe folder for ``memory/writer/by_writer/<id>/``.
 
-    Teacher ids can contain ``+`` or provider punctuation; those are not
+    Writer ids can contain ``+`` or provider punctuation; those are not
     legal directory names on every OS.
     """
-    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(teacher_id))
-    return safe or "teacher"
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(writer_id))
+    return safe or "writer"
 
 
 @dataclass(frozen=True)
@@ -102,13 +102,12 @@ class AuditPaths:
     agent_events: Path
     agent_metrics: Path
     memory_dir: Path
-    teachers_dir: Path
-    teacher_index: Path
-    teacher_calls: Path
-    teacher_fusion: Path
-    teacher_calls_compat: Path  # memory/teacher_calls.jsonl; same as teachers/calls.jsonl
-    teacher_quality: Path
-    teacher_sessions_index: Path
+    writer_dir: Path
+    writer_index: Path
+    writer_calls: Path
+    writer_calls_compat: Path  # memory/writer_calls.jsonl; same as writer/calls.jsonl
+    writer_quality: Path
+    writer_sessions_index: Path
     graph_dir: Path
     graph_index: Path
     graph_ingest: Path
@@ -136,7 +135,7 @@ class AuditPaths:
         root = Path(run_dir)
         reader = root / READER
         agent = root / AGENT
-        teachers = root / TEACHERS
+        writer = root / WRITER_ROOT
         graph = root / GRAPH
         autorater = root / AUTORATER
         prompts = root / PROMPTS
@@ -155,13 +154,12 @@ class AuditPaths:
             agent_events=agent / "events.jsonl",
             agent_metrics=agent / "metrics.json",
             memory_dir=root / MEMORY,
-            teachers_dir=teachers,
-            teacher_index=teachers / "index.jsonl",
-            teacher_calls=teachers / "calls.jsonl",
-            teacher_fusion=teachers / "fusion.jsonl",
-            teacher_calls_compat=root / COMPAT_TEACHER_CALLS,
-            teacher_quality=root / TEACHER_QUALITY,
-            teacher_sessions_index=root / TEACHER_SESSIONS,
+            writer_dir=writer,
+            writer_index=writer / "index.jsonl",
+            writer_calls=writer / "calls.jsonl",
+            writer_calls_compat=root / COMPAT_WRITER_CALLS,
+            writer_quality=root / WRITER_QUALITY,
+            writer_sessions_index=root / WRITER_SESSIONS,
             graph_dir=graph,
             graph_index=graph / "index.jsonl",
             graph_ingest=root / GRAPH_INGEST,
@@ -181,18 +179,18 @@ class AuditPaths:
             config_resolved=root / CONFIG_RESOLVED,
         )
 
-    def teacher_calls_path(self, teacher_id: str) -> Path:
-        """Per-teacher partition of ``calls.jsonl`` (same rows, one model)."""
-        return self.teachers_dir / "by_teacher" / teacher_dir_name(teacher_id) / "calls.jsonl"
+    def writer_calls_path(self, writer_id: str) -> Path:
+        """Per-writer partition of ``calls.jsonl`` (same rows, one model)."""
+        return self.writer_dir / "by_writer" / writer_dir_name(writer_id) / "calls.jsonl"
 
     def graph_sample_path(self, sample_id: str) -> Path:
-        """Fused Mem0g snapshot for one conversation (embeddings omitted)."""
+        """Mem0g snapshot for one conversation (embeddings omitted)."""
         return self.graph_dir / "by_sample" / f"{sample_id}.json"
 
-    def teacher_session_text_path(self, sample_id: str, session_id: str | int) -> Path:
-        """Exact session text that teacher(s) saw for this sample/session."""
+    def writer_session_text_path(self, sample_id: str, session_id: str | int) -> Path:
+        """Exact session text the writer saw for this sample/session."""
         return (
-            self.teachers_dir
+            self.writer_dir
             / "sessions"
             / "by_sample"
             / str(sample_id)

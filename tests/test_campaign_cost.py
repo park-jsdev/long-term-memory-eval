@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.pricing import estimate_usd, load_pricing
-from src.memorybench.analysis.cost import render_cost
-from src.memorybench.analysis.load_campaign import load_campaign_yaml
-from src.memorybench.analysis.notebook_protocol import _posttest_rows
-from src.memorybench.analysis.report import ReportResult
+from src.experiment_runner.analysis.cost import render_cost
+from src.experiment_runner.analysis.load_campaign import load_campaign_yaml
+from src.experiment_runner.analysis.notebook_protocol import _posttest_rows
+from src.experiment_runner.analysis.report import ReportResult
 
 
 def _write_cell(
@@ -228,50 +228,20 @@ experiments:
             self.assertTrue(actual.isna().all())
 
 
-class TestCampaignYamlCost(unittest.TestCase):
-    def test_2026_overlay_has_terra_map_and_parked_fable(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_2026_openai_deepseek.yaml"
-        )
-        self.assertEqual(cfg.cost.map_models["gpt-5"], "gpt-5.6-terra")
-        self.assertEqual(cfg.cost.parked[0]["api_model_id"], "claude-fable-5-1")
-        self.assertEqual(cfg.experiments["smoke"].pretest.n_cells, 4)
-        self.assertIs(cfg.experiments["smoke"].pretest.scientific_claim, False)
-        self.assertEqual(cfg.experiments["baseline"].pretest.n_cells, 8)
-
-    def test_2025_openai_deepseek_pretest_overrides_three_family_counts(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_2025_openai_deepseek.yaml"
-        )
-        self.assertEqual(cfg.experiments["smoke"].pretest.n_cells, 4)
-        self.assertEqual(cfg.experiments["writers"].pretest.n_cells, 8)
-
-    def test_2026_notebooks_are_pretest_posttest_wrappers(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_2026_openai_deepseek.yaml"
-        )
-        for ref in cfg.experiments.values():
-            notebook = ROOT / str(ref.notebook)
-            self.assertTrue(notebook.is_file(), ref.notebook)
-            text = notebook.read_text(encoding="utf-8")
-            self.assertIn("notebook_pretest", text)
-            self.assertIn("notebook_posttest", text)
-            self.assertIn("render_experiment(camp,", text)
-            self.assertNotIn("matplotlib", text)
 
 
 class TestPosttestChecks(unittest.TestCase):
     def test_missing_pack_is_skip_not_fail(self):
         cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_2026_openai_deepseek.yaml"
+            ROOT / "configs" / "analysis" / "campaign_openai_codex_poc.yaml"
         )
         report = ReportResult(
-            scope="experiment:smoke",
+            scope="experiment:readers",
             out_dir=ROOT,
             results=[],
-            missing_packs=[cfg.experiments["smoke"].name],
+            missing_packs=[cfg.experiments["readers"].name],
         )
-        rows = _posttest_rows(cfg, "smoke", report, ROOT)
+        rows = _posttest_rows(cfg, "readers", report, ROOT)
         results = {r["check"]: r["result"] for r in rows}
-        self.assertEqual(results["smoke.pack"], "SKIP")
-        self.assertEqual(results["smoke.scientific_claim"], "SKIP")
+        self.assertEqual(results["readers.pack"], "SKIP")
+        self.assertEqual(results["readers.scientific_claim"], "SKIP")

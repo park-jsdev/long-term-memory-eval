@@ -37,17 +37,10 @@ if str(ROOT) not in sys.path:
 from src.config import load_config
 from src.locomo_eval.dataset import iter_questions, load_conversations, select_question_pairs
 from src.locomo_eval.env import load_env
-from src.locomo_eval.fusion import (
-    FUSION_MAJORITY,
-    FUSION_NONE,
-    FUSION_POLICIES,
-    POOL_EQUAL_WEIGHT,
-    POOL_SINGLE,
-)
 from src.locomo_eval.memory import (
     AgentFactMemoryBuilder,
     ORCHESTRATED_GRAPH_NAMES,
-    TeacherSessionMemoryBuilder,
+    SessionSummaryMemoryBuilder,
     get_memory_builder,
     is_question_independent,
     resolve_memory_name,
@@ -75,15 +68,14 @@ from src.locomo_eval.experiments.audit_writer import (
     write_frozen_config,
     write_graph_module,
     write_reader_module,
-    write_teacher_module,
+    write_writer_module,
 )
 from src.locomo_eval.experiments.prompt_bundle import repo_rel, write_prompt_bundle
 from src.locomo_eval.memory_log import (
-    collect_fusion_log,
     collect_ingest_log,
     collect_retrieve_log,
     collect_session_texts,
-    collect_teacher_call_log,
+    collect_writer_call_log,
     write_memory_run_log,
 )
 from src.locomo_eval.experiments.audit_layout import audit_layout_meta
@@ -99,16 +91,11 @@ from src.locomo_eval.prompts import (
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
-from src.locomo_eval.teacher_callers import DEFAULT_TEACHER_THINKING
-from src.locomo_eval.teacher_orchestrator import TeacherOrchestrator
-from src.locomo_eval.teachers import get_teacher
+from src.locomo_eval.writer_callers import DEFAULT_WRITER_THINKING
+from src.locomo_eval.model_orchestrator import ModelOrchestrator
+from src.locomo_eval.writer_model import get_writer
 
 
-_ORCH_DEFAULTS = {
-    "teacher_graph": (POOL_SINGLE, FUSION_NONE),
-    "pooled_teacher_graph": (POOL_EQUAL_WEIGHT, FUSION_NONE),
-    "fused_teacher_graph": (POOL_EQUAL_WEIGHT, FUSION_MAJORITY),
-}
 
 
 def _mem0_builder_kwargs(
@@ -263,8 +250,17 @@ def _as_bool(value: object, default: bool) -> bool:
     raise SystemExit(f"Invalid boolean {value!r}; use on/off or true/false")
 
 
-def _teacher_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None) -> dict:
-    tcfg = cfg.get("teacher") or {}
+def _writer_block(cfg: dict) -> dict:
+    """One writer block. ``writer:`` is canonical; ``teacher:`` still loads."""
+    block = cfg.get("writer")
+    if isinstance(block, dict) and block:
+        return block
+    legacy = cfg.get("teacher")
+    return legacy if isinstance(legacy, dict) else {}
+
+
+def _writer_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None) -> dict:
+    wcfg = _writer_block(cfg)
     thinking = None
     if overrides is not None:
         flag = getattr(overrides, "thinking", None)
@@ -273,30 +269,30 @@ def _teacher_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None)
         elif flag == "off":
             thinking = False
     if thinking is None:
-        thinking = _as_bool(tcfg.get("thinking"), DEFAULT_TEACHER_THINKING)
-    budget = tcfg.get("thinking_budget_tokens", 1024)
-    max_tokens = int(tcfg.get("max_tokens", 512))
+        thinking = _as_bool(wcfg.get("thinking"), DEFAULT_WRITER_THINKING)
+    budget = wcfg.get("thinking_budget_tokens", 1024)
+    max_tokens = int(wcfg.get("max_tokens", 512))
     if overrides is not None:
-        teacher_max = getattr(overrides, "teacher_max_tokens", None)
-        if teacher_max is not None:
-            max_tokens = int(teacher_max)
+        writer_max = getattr(overrides, "writer_max_tokens", None)
+        if writer_max is not None:
+            max_tokens = int(writer_max)
     return {
-        "temperature": float(tcfg.get("temperature", 0.0)),
+        "temperature": float(wcfg.get("temperature", 0.0)),
         "max_tokens": max_tokens,
-        "max_retries": int(tcfg.get("max_retries", 8)),
-        "min_request_interval_s": float(tcfg.get("min_request_interval_s", 0.5)),
-        "max_wait_s": float(tcfg.get("max_wait_s", 3600.0)),
-        "prompt_path": tcfg.get("prompt_path"),
-        "graph_prompt_path": tcfg.get("graph_prompt_path"),
+        "max_retries": int(wcfg.get("max_retries", 8)),
+        "min_request_interval_s": float(wcfg.get("min_request_interval_s", 0.5)),
+        "max_wait_s": float(wcfg.get("max_wait_s", 3600.0)),
+        "prompt_path": wcfg.get("prompt_path"),
+        "graph_prompt_path": wcfg.get("graph_prompt_path"),
         "thinking": thinking,
         "thinking_budget_tokens": int(budget),
     }
 
 
-def _force_mock_teachers(overrides: argparse.Namespace, reader_name: str) -> bool:
+def _force_mock_writer(overrides: argparse.Namespace, reader_name: str) -> bool:
     if str(reader_name).lower() == "mock":
         return True
-    return str(getattr(overrides, "teacher", None) or "").lower() == "mock"
+    return str(getattr(overrides, "writer", None) or "").lower() == "mock"
 
 
 def _resolve_agent_run(
@@ -373,111 +369,74 @@ def _select_workspace_prompt(agent_run: dict[str, Any], requested: Path) -> Path
     return locate_prompt_file(QA_WORKSPACE_V1)
 
 
-def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
-    """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML."""
-    if resolve_memory_name(memory_name) not in (
-        TeacherSessionMemoryBuilder.name,
+def _one_writer(
+    cfg: dict, overrides: argparse.Namespace, reader_name: str
+) -> dict | None:
+    """The single writer model for this run, or None when the method has no writer."""
+    if cfg.get("teachers") or cfg.get("writers"):
+        raise SystemExit("Only one writer model is supported. Use writer.model.")
+    wcfg = _writer_block(cfg)
+    provider = getattr(overrides, "writer", None) or wcfg.get("provider")
+    model = getattr(overrides, "writer_model", None) or wcfg.get("model")
+    if not model:
+        return None
+    if not provider:
+        provider = "mock" if _force_mock_writer(overrides, reader_name) else "openai"
+    return {"id": str(wcfg.get("id") or provider), "provider": provider, "model": model}
+
+
+def _build_writer(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
+    """Construct the writer for session summaries and fact lists. Graph uses the orchestrator."""
+    resolved = resolve_memory_name(memory_name)
+    if resolved not in (
+        SessionSummaryMemoryBuilder.name,
         AgentFactMemoryBuilder.name,
     ):
         return None
-    tcfg = cfg.get("teacher") or {}
-    provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
-    model = getattr(overrides, "teacher_model", None) or tcfg.get("model")
-    if not provider:
-        provider = "mock" if str(reader_name).lower() == "mock" else "openai"
-    if not model:
-        raise SystemExit(
-            "teacher_session_summaries requires teacher.model in YAML or --teacher-model"
-        )
-    kwargs = _teacher_call_kwargs(cfg, overrides)
-    return get_teacher(provider, model=model, **kwargs)
-
-
-def _teacher_roster(
-    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
-) -> list[dict]:
-    """Resolved teacher slots for this memory method (before get_teacher).
-
-    ``teacher_graph`` + ``--teacher-model`` replaces the one sandwich writer.
-    Pooled/fused keep the YAML roster (cheap_k3); experiment matrices must
-    not schedule those methods.
-    """
-    resolved = resolve_memory_name(memory_name)
-    force_mock = _force_mock_teachers(overrides, reader_name)
-    tcfg = cfg.get("teacher") or {}
-    roster = list(cfg.get("teachers") or [])
-    if not roster:
-        provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
-        model = getattr(overrides, "teacher_model", None) or tcfg.get("model")
-        if not provider:
-            provider = "mock" if force_mock else "openai"
-        if not model:
-            return []
-        return [{"id": provider, "provider": provider, "model": model}]
-    if getattr(overrides, "teacher_model", None) and resolved == "teacher_graph":
-        roster = [{**roster[0], "model": overrides.teacher_model}]
-        if getattr(overrides, "teacher", None):
-            roster[0]["provider"] = overrides.teacher
-            roster[0]["id"] = overrides.teacher
-    return roster
-
-
-def _teacher_cardinality(
-    orch: TeacherOrchestrator | None, teacher
-) -> tuple[int, list[str]]:
-    """How many write-path teachers this run constructed (0 if none)."""
-    if orch is not None:
-        ids = [str(t.teacher_id) for t in orch.teachers]
-        return len(ids), ids
-    if teacher is not None:
-        tid = str(getattr(teacher, "teacher_id", None) or teacher.model_name)
-        return 1, [tid]
-    return 0, []
+    slot = _one_writer(cfg, overrides, reader_name)
+    if slot is None:
+        if resolved == AgentFactMemoryBuilder.name:
+            raise SystemExit("agent_codex_mem0_facts requires writer.model or --writer-model")
+        return None
+    if _force_mock_writer(overrides, reader_name):
+        slot = {**slot, "provider": "mock"}
+    kwargs = _writer_call_kwargs(cfg, overrides)
+    return get_writer(
+        slot["provider"],
+        model=slot["model"],
+        writer_id=slot["id"],
+        **kwargs,
+    )
 
 
 def _build_orchestrator(
     cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
-) -> TeacherOrchestrator | None:
-    """K teachers + pool/fusion for graph memory conditions. None for other builders."""
+) -> ModelOrchestrator | None:
+    """One writer model for graph memory. None for other builders."""
     resolved = resolve_memory_name(memory_name)
     if resolved not in ORCHESTRATED_GRAPH_NAMES:
         return None
-    force_mock = _force_mock_teachers(overrides, reader_name)
-    roster = _teacher_roster(cfg, overrides, memory_name, reader_name)
-    if not roster:
-        raise SystemExit(
-            f"{resolved} requires teacher.model in YAML, teachers:, or --teacher-model"
-        )
-
-    kwargs = _teacher_call_kwargs(cfg, overrides)
-    teachers = []
-    for i, slot in enumerate(roster):
-        provider = "mock" if force_mock else (slot.get("provider") or "openai")
-        model = slot.get("model")
-        if not model:
-            raise SystemExit(f"{resolved} teacher slot {i} is missing model")
-        tid = str(slot.get("id") or model)
-        teachers.append(get_teacher(provider, model=model, teacher_id=tid, **kwargs))
-
+    slot = _one_writer(cfg, overrides, reader_name)
+    if slot is None:
+        raise SystemExit(f"{resolved} requires writer.model in YAML or --writer-model")
+    if _force_mock_writer(overrides, reader_name):
+        slot = {**slot, "provider": "mock"}
+    kwargs = _writer_call_kwargs(cfg, overrides)
+    writer = get_writer(
+        slot["provider"],
+        model=slot["model"],
+        writer_id=slot["id"],
+        **kwargs,
+    )
     ocfg = cfg.get("orchestrator") or {}
-    default_pool, default_fusion = _ORCH_DEFAULTS[resolved]
-    pool = getattr(overrides, "pool", None) or ocfg.get("pool") or default_pool
-    fusion = getattr(overrides, "fusion", None) or ocfg.get("fusion") or default_fusion
-    majority_k = ocfg.get("majority_k")
-    if majority_k is not None:
-        majority_k = int(majority_k)
     embed_cfg = ocfg.get("embed") or {}
     embed_provider = embed_cfg.get("provider") or "mock"
-    if force_mock:
+    if _force_mock_writer(overrides, reader_name):
         embed_provider = "mock"
     from src.locomo_eval.mem0.embeddings import get_embedder
 
-    return TeacherOrchestrator(
-        teachers,
-        pool=str(pool),
-        fusion=str(fusion),
-        min_votes=majority_k,
-        rng_seed=int(ocfg.get("rng_seed", 0)),
+    return ModelOrchestrator(
+        writer,
         embedder=get_embedder(
             embed_provider,
             model=embed_cfg.get("model") or "text-embedding-3-small",
@@ -560,10 +519,9 @@ def _dump_memory_and_claim_audit(
         memories_by_question=used_memories_by_question or None,
         question_sample_ids=question_sample_ids or None,
     )
-    write_teacher_module(
+    write_writer_module(
         run_dir,
-        calls=collect_teacher_call_log(builder),
-        fusion_rows=collect_fusion_log(builder),
+        calls=collect_writer_call_log(builder),
         session_texts=collect_session_texts(builder),
     )
     write_graph_module(run_dir, getattr(builder, "graphs_by_sample", {}) or {})
@@ -571,8 +529,7 @@ def _dump_memory_and_claim_audit(
         run_dir,
         prediction_rows=prediction_rows,
         reader_traces=reader_traces,
-        teacher_calls=collect_teacher_call_log(builder),
-        fusion_rows=collect_fusion_log(builder),
+        writer_calls=collect_writer_call_log(builder),
         ingest_rows=collect_ingest_log(builder),
         retrieve_ranks=collect_retrieve_log(builder),
         memories_by_sample=used_memories,
@@ -683,7 +640,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
-    teacher = _build_teacher(cfg, overrides, memory_name, reader_name)
+    writer = _build_writer(cfg, overrides, memory_name, reader_name)
     orchestrator = _build_orchestrator(cfg, overrides, memory_name, reader_name)
     mem0_kwargs = _mem0_builder_kwargs(cfg, overrides, memory_name, reader_name)
     preprocess_kwargs = _preprocess_builder_kwargs(cfg, overrides, memory_name)
@@ -695,7 +652,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     builder = get_memory_builder(
         memory_name,
         max_chars=max_chars,
-        teacher=teacher,
+        writer=writer,
         orchestrator=orchestrator,
         **mem0_kwargs,
         **preprocess_kwargs,
@@ -823,19 +780,13 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             pairs, int(max_questions), mode=str(question_sample)
         )
 
-    teacher_model = getattr(builder, "teacher_model", None)
-    teacher_provider = getattr(builder, "teacher_provider", None)
+    writer_model = getattr(builder, "writer_model", None)
+    writer_provider = getattr(builder, "writer_provider", None)
     orch = getattr(builder, "orchestrator", None)
-    n_teachers, teacher_ids = _teacher_cardinality(orchestrator, teacher)
     print(
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
         f"{'agent' if agent_runner else 'reader'}={answer_provider}/{answer_model_name}"
-        + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
-        + (
-            f" | pool={orch.pool} fusion={orch.fusion}"
-            if orch is not None
-            else ""
-        )
+        + (f" | writer={writer_provider}/{writer_model}" if writer_model else "")
         + (
             f" | persist={agent_run.get('persist_memory')} tools={agent_run.get('tools')}"
             if agent_runner is not None
@@ -990,8 +941,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 prompt_version=prompt_version,
                 evidence=list(q.evidence),
                 run_id=run_id,
-                teacher_model=memory.teacher_model,
-                teacher_provider=memory.teacher_provider,
+                writer_model=memory.writer_model,
+                writer_provider=memory.writer_provider,
             )
             row = pred.to_dict()
             row["latency_s"] = meta.get("latency_s")
@@ -1086,14 +1037,13 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             question_sample_ids=question_sample_ids or None,
         )
         print(f"Memory audit: {mem_log_dir}")
-        teachers_dir = write_teacher_module(
+        writer_dir = write_writer_module(
             run_dir,
-            calls=collect_teacher_call_log(builder),
-            fusion_rows=collect_fusion_log(builder),
+            calls=collect_writer_call_log(builder),
             session_texts=collect_session_texts(builder),
         )
-        if teachers_dir is not None:
-            print(f"Teacher traces: {teachers_dir}")
+        if writer_dir is not None:
+            print(f"Writer traces: {writer_dir}")
         graph_dir = write_graph_module(
             run_dir, getattr(builder, "graphs_by_sample", {}) or {}
         )
@@ -1105,25 +1055,17 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     summary["reader_model"] = answer_model_name
     summary["reader_family"] = resolve_model(answer_model_name).family
     summary["prompt_version"] = prompt_version
-    if teacher_model:
-        summary["teacher_model"] = teacher_model
-        summary["teacher_provider"] = teacher_provider
-        if "+" in str(teacher_model):
-            summary["teacher_family"] = "multi"
-        else:
-            summary["teacher_family"] = resolve_model(teacher_model).family
-    teacher_thinking = None
+    if writer_model:
+        summary["writer_model"] = writer_model
+        summary["writer_provider"] = writer_provider
+        summary["writer_family"] = resolve_model(writer_model).family
+    writer_thinking = None
     if orch is not None:
-        teacher_thinking = getattr(orch, "thinking", None)
-    elif teacher is not None:
-        teacher_thinking = getattr(teacher, "thinking", None)
-    if orch is not None:
-        summary["teacher_pool"] = orch.pool
-        summary["teacher_fusion"] = orch.fusion
-    summary["n_teachers"] = n_teachers
-    summary["teacher_ids"] = teacher_ids
-    if teacher_thinking is not None:
-        summary["teacher_thinking"] = teacher_thinking
+        writer_thinking = getattr(orch, "thinking", None)
+    elif writer is not None:
+        writer_thinking = getattr(writer, "thinking", None)
+    if writer_thinking is not None:
+        summary["writer_thinking"] = writer_thinking
 
     agent_metric_rows: list[dict] = []
     if trajectories_by_qid:
@@ -1177,18 +1119,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "reader_provider": answer_provider,
         "reader_model": answer_model_name,
         "reader_family": resolve_model(answer_model_name).family,
-        "teacher_provider": teacher_provider,
-        "teacher_model": teacher_model,
-        "teacher_family": (
-            "multi"
-            if teacher_model and "+" in str(teacher_model)
-            else (resolve_model(teacher_model).family if teacher_model else None)
-        ),
-        "teacher_pool": orch.pool if orch is not None else None,
-        "teacher_fusion": orch.fusion if orch is not None else None,
-        "n_teachers": n_teachers,
-        "teacher_ids": teacher_ids,
-        "teacher_thinking": teacher_thinking,
+        "writer_provider": writer_provider,
+        "writer_model": writer_model,
+        "writer_family": resolve_model(writer_model).family if writer_model else None,
+        "writer_thinking": writer_thinking,
         "temperature": reader_temperature,
         "reader_thinking": reader_thinking,
         "max_tokens": reader_max_tokens,
@@ -1249,8 +1183,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         run_dir,
         prediction_rows=prediction_rows,
         reader_traces=reader_traces,
-        teacher_calls=collect_teacher_call_log(builder),
-        fusion_rows=collect_fusion_log(builder),
+        writer_calls=collect_writer_call_log(builder),
         ingest_rows=collect_ingest_log(builder),
         retrieve_ranks=collect_retrieve_log(builder),
         memories_by_sample=used_memories,
@@ -1288,7 +1221,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, full_context, rag, openai_memory, mem0, mem0g, workspace_files)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, graph, full_context, rag, openai_memory, mem0, mem0g, workspace_files)",
     )
     p.add_argument("--reader", default=None, help="openai | deepseek | anthropic | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
@@ -1330,38 +1263,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override Chat Completions message layout",
     )
     p.add_argument(
-        "--teacher",
+        "--writer",
         default=None,
-        help="Teacher provider: openai | anthropic | deepseek | mock",
+        help="Writer provider: openai | anthropic | deepseek | mock",
     )
     p.add_argument(
-        "--teacher-model",
+        "--writer-model",
         default=None,
-        help="Teacher model id (single-teacher conditions), e.g. gpt-4o-mini or claude-haiku-4-5",
-    )
-    p.add_argument(
-        "--pool",
-        default=None,
-        choices=("single", "equal_weight", "random", "round_robin"),
-        help="Override orchestrator.pool for teacher graph conditions",
-    )
-    p.add_argument(
-        "--fusion",
-        default=None,
-        choices=FUSION_POLICIES,
-        help="Override orchestrator.fusion for teacher graph conditions",
+        help="Writer model id, e.g. gpt-4o-mini or claude-haiku-4-5",
     )
     p.add_argument(
         "--thinking",
         default=None,
         choices=("on", "off"),
-        help="Teacher thinking/reasoning (default: on). Frozen reader is unchanged.",
+        help="Writer thinking/reasoning (default: on). Frozen reader is unchanged.",
     )
     p.add_argument(
-        "--teacher-max-tokens",
+        "--writer-max-tokens",
         type=int,
         default=None,
-        help="Override teacher completion-token limit (not the frozen reader).",
+        help="Override writer completion-token limit (not the frozen reader).",
     )
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)

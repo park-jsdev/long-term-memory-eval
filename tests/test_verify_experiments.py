@@ -49,7 +49,7 @@ def _graph_pack(
     run.mkdir(parents=True, exist_ok=True)
     meta = {
         "run_id": run.name,
-        "memory_type": "teacher_graph",
+        "memory_type": "graph",
         "reader_model": "gpt-4o-mini",
         "teacher_model": "gpt-5",
         "prompt_path": QA_MEM0_V1,
@@ -60,7 +60,7 @@ def _graph_pack(
     _write_json(run / "run_meta.json", meta)
     _write_json(
         run / "metrics.json",
-        {"metrics": {"locomo_f1": 0.3}, "memory_type": "teacher_graph"},
+        {"metrics": {"locomo_f1": 0.3}, "memory_type": "graph"},
     )
     text = memory_text or (
         "Conversation between Caroline and Melanie.\n\n"
@@ -78,13 +78,13 @@ def _graph_pack(
     }
     _write_jsonl(run / "predictions.jsonl", [pred])
     (run / "TRACE.md").write_text("# TRACE\n", encoding="utf-8")
-    (run / "config.source.yaml").write_text("pipeline: {memory: teacher_graph}\n", encoding="utf-8")
+    (run / "config.source.yaml").write_text("pipeline: {memory: graph}\n", encoding="utf-8")
     (run / "config.resolved.yaml").write_text("yaml: {}\n", encoding="utf-8")
     _write_json(run / "cost.json", {"reader": {"prompt_tokens": 10}})
     qa_src = locate_prompt_file(QA_MEM0_V1)
-    graph_src = locate_prompt_file("prompts/teachers/teacher_graph_v1.txt")
+    graph_src = locate_prompt_file("prompts/writers/graph_v1.txt")
     qa_dest = run / QA_MEM0_V1
-    graph_dest = run / "prompts/teachers/teacher_graph_v1.txt"
+    graph_dest = run / "prompts/writers/graph_v1.txt"
     qa_dest.parent.mkdir(parents=True, exist_ok=True)
     graph_dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(qa_src, qa_dest)
@@ -105,8 +105,8 @@ def _graph_pack(
                 {
                     "role": "teacher",
                     "config_key": "teacher.graph_prompt_path",
-                    "source_path": "prompts/teachers/teacher_graph_v1.txt",
-                    "snapshot_path": "prompts/teachers/teacher_graph_v1.txt",
+                    "source_path": "prompts/writers/graph_v1.txt",
+                    "snapshot_path": "prompts/writers/graph_v1.txt",
                     "sha256": graph_hash,
                 },
             ]
@@ -118,7 +118,7 @@ def _graph_pack(
             [
                 {
                     "sample_id": "conv-26",
-                    "memory_type": "teacher_graph",
+                    "memory_type": "graph",
                     "n_chars": len(text),
                     "n_source_ids": n_valid_edges,
                     "key_kind": "sample",
@@ -139,22 +139,15 @@ def _graph_pack(
             ],
         )
         _write_json(
-            run / "memory" / "teachers" / "quality.json",
+            run / "memory" / "writer" / "quality.json",
             {
-                "by_teacher": {
+                "by_writer": {
                     "openai": {
                         "n_calls": n_calls,
                         "n_parse_ok": n_calls - parse_fallback,
                         "n_parse_fallback": parse_fallback,
                         "n_relations": n_valid_edges,
                     }
-                },
-                "fusion": {
-                    "n_sessions": 19,
-                    "n_triples_proposed": n_valid_edges,
-                    "n_triples_kept": n_valid_edges,
-                    "n_triples_discarded": 0,
-                    "keep_rate": 1.0,
                 },
             },
         )

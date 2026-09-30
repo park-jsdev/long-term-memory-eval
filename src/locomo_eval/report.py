@@ -40,7 +40,7 @@ def write_predictions_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "locomo_f1",
         "memory_type",
         "reader_model",
-        "teacher_model",
+        "writer_model",
         "prompt_version",
         "memory_chars",
         "memory_preview",

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.memorybench.analysis.context_window import (  # noqa: E402
+from src.experiment_runner.analysis.context_window import (  # noqa: E402
     DEFAULT_AUDIT_RUN,
     DEFAULT_LOCAL_RUNS,
     DEFAULT_PACKS,

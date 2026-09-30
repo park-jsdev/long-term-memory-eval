@@ -1,10 +1,10 @@
-# memorybench — LoCoMo long-term memory research harness
+# Long-Term Memory Eval
 
-Research pipeline for **long-term conversational memory** on [LoCoMo](https://github.com/snap-research/locomo).
-Local clones of the Mem0-paper methods (`full_context`, `rag`, `openai_memory`, `mem0`, `mem0g`) plus a
-**multi-teacher write path** (`teacher_session_summaries`, `teacher_graph`, pooled and fused variants),
-and an **agent-harness** path (`workspace_files` + Codex first; Claude Code / OpenCode / Pi later),
-all evaluated under one frozen answer model and one frozen judge.
+This repository is an **evaluation harness**. `src/locomo_eval` scores one memory method on a fixed benchmark. `src/experiment_runner` schedules experiments: it expands a YAML matrix into hashed run ids and runs **one cell per task**. A cell still answers questions one at a time. What runs in parallel is independent cells, not a faster model.
+
+**LoCoMo** is the benchmark (token F1 and category rules). The **Mem0 judge** is a second protocol on the same predictions. This repo did not author either one. It fixes the data and the scorer, and varies the memory method in the middle.
+
+One interchangeable writer model (`session_summaries`, `graph`), plus model-only answering versus a Codex agent. Layout: `docs/LAYOUT.md`. GCP stays in `infra/gcp/` and `docs/agent/GCP_RUNBOOK.md`.
 
 Plain YAML, plain JSON, Parquet, CSV, matplotlib. No Hydra, no W&B, no database.
 
@@ -40,10 +40,10 @@ The repo is deliberately split so that **what you want to measure** is data, and
 | Layer | Contract | Lives in |
 |---|---|---|
 | **Recipe** | Declarative YAML. Names models, memory methods, groupings, metrics, plot kinds. Carries no logic. | `configs/` |
-| **Engine** | Shared deterministic scripts. Same input always produces the same table and figure. Never forked per campaign. | `scripts/analysis/`, `src/locomo_eval/`, `src/metrics/` |
-| **Experiment** | One sandwich claim: fixed top and bottom, exactly one varying middle. Declares its own validation. | `configs/experiments/*.yaml` |
+| **Engine** | The eval harness. Same input produces the same score. Never forked per campaign. | `src/locomo_eval/`, `src/metrics/`, `scripts/analysis/` |
+| **Experiment** | One sandwich claim: fixed data and scorer, one varying memory method. | `configs/experiments/*.yaml` |
 | **Campaign** | An ordered set of experiments sharing a freeze note and cross-experiment analyses. | `configs/analysis/*.yaml` |
-| **Job** | One execution of one matrix cell, or one collector pass. Idempotent, hash-identified, resumable. | `src/memorybench/` |
+| **Job** | The experiment runner. One matrix cell, or one collector pass. Idempotent and hash-identified. | `src/experiment_runner/` |
 | **Audit log** | Per-run observability snapshot: inputs, prompts, memory, traces, lineage, cost, git hash. | `experiments/<run_id>/` |
 | **Test** | Deterministic verifier. Locks the contracts above so a refactor cannot silently change a claim. | `tests/` |
 
@@ -58,18 +58,18 @@ flowchart TB
   subgraph RECIPE["RECIPE — declarative"]
     XC["configs/experiments/*.yaml<br/>matrix, freeze, storage"]
     AC["configs/analysis/*.yaml<br/>campaign + analyses"]
-    CC["configs/{readers,writers,agents,teachers,layouts,stacks,models}/"]
-    PR["prompts/{readers,writers,teachers,autoraters}/"]
+    CC["configs/{readers,writers,agents,layouts,stacks,models}/"]
+    PR["prompts/{readers,writers,autoraters}/"]
   end
 
-  subgraph CONTROL["CONTROL PLANE — src/memorybench"]
+  subgraph CONTROL["CONTROL PLANE — src/experiment_runner"]
     EXP["expand_run_matrix<br/>hashed_run_id"]
     CLI["experiment_cli<br/>7 subcommands"]
     SKIP["completed_run_skip<br/>_SUCCESS markers"]
   end
 
   subgraph ENGINE["ENGINE — deterministic"]
-    LE["src/locomo_eval<br/>memory, readers, teachers, autorater"]
+    LE["src/locomo_eval<br/>memory, readers, writer model, autorater"]
     MET["src/metrics/locomo_qa.py<br/>official LoCoMo F1"]
     AN["scripts/analysis<br/>campaign_tables + campaign_plots"]
   end
@@ -81,7 +81,7 @@ flowchart TB
   end
 
   subgraph AUDIT["OBSERVABILITY PLANE"]
-    PACK["experiments/[run_id]/<br/>audit_pack.v2"]
+    PACK["experiments/[run_id]/<br/>audit_pack.v3"]
     AGG["experiments/[name]/aggregate/<br/>runs + examples parquet"]
     REP["analysis/<br/>tables, plots, SUMMARY.md"]
   end
@@ -127,7 +127,6 @@ flowchart LR
 
   S["stacks/qa_mem0_parity.yaml<br/>FROZEN BOTTOM"]
   W["writers/[method].yaml<br/>VARIABLE MIDDLE"]
-  T["teachers/<br/>write-path roster"]
   P["presets/<br/>one-axis overlay"]
   X["experiments/<br/>multi-cell matrix"]
   A["analysis/<br/>campaign recipes"]
@@ -137,25 +136,35 @@ flowchart LR
   R --> S
   RUN --> S
   S --> W
-  T -.-> W
   W --> P
   W --> X
   X --> A
 ```
 
-| Directory | Role | Key YAML keys |
+| Directory | What it is for | How to use it |
 |---|---|---|
-| `configs/data/` | Dataset pin | `data.raw_path`, `data.locomo_commit` |
-| `configs/layouts/` | Answer prompt and Chat Completions message shape | `pipeline.prompt_path`, `reader.message_layout` |
-| `configs/readers/` | Answer LLM request controls | `reader.provider`, `reader.model`, `reader.temperature` |
-| `configs/stacks/` | Frozen bottom of the sandwich | `includes:` of data + layout + reader + run |
-| `configs/writers/` | The variable middle: memory method | `pipeline.memory`, plus `rag.*` / `mem0.*` / `orchestrator.*` |
-| `configs/teachers/` | Write-path teacher roster | `teachers[]`, `teacher.prompt_path`, `teacher.thinking` |
-| `configs/autoraters/` | Judge config, separate from QA | `autorater.provider`, `autorater.model`, `autorater.skip_category` |
-| `configs/models/` | Pinned model identities | `models.<id>.api_model_id`, `model_snapshot`, `status` |
-| `configs/experiments/` | Memorybench matrices | `experiment`, `matrix`, `judge`, `subset`, `storage`, `shared_indexes` |
-| `configs/analysis/` | Campaign and experiment report recipes | `campaign`, `defaults`, `campaign_analyses`, `experiments` |
-| `configs/presets/` | Single-axis overlays for `locomo_eval.run` | `includes:` writer + reader |
+| `configs/data/` | Pin the LoCoMo file and commit | Include it from a stack. Do not point a run at a different JSON without changing this pin. |
+| `configs/layouts/` | Answer prompt and Chat Completions message shape | Swap the reader prompt by including another layout after the stack. |
+| `configs/readers/` | Answer LLM request controls | `reader.provider`, `reader.model`, `reader.temperature`. The sandwich default is `gpt-4o-mini`. |
+| `configs/writers/` | Memory method and, when set, the one write-path model | A writer file includes `stacks/qa_default.yaml`. `pipeline.memory` is `session_summaries`, `graph`, or a retrieval clone. |
+| `configs/agents/` | Codex harness: persist, tools, comparison profile | Use with `answer_mode: agent`. Comparison profiles live in `configs/agents/comparison/`. |
+| `configs/autoraters/` | Judge, separate from QA | Not included by a QA run. The autorater job loads it. |
+| `configs/stacks/` | Frozen bottom: data + layout + reader + run | Start here. Later includes override one piece. |
+| `configs/run/` | Where packs are written | `run.output_dir` (default `experiments`). Kept so a later run can change the output root. |
+| `configs/presets/` | One runnable overlay for `locomo_eval.run` | CLI default: `configs/presets/mem0_baseline.yaml`. |
+| `configs/models/` | Catalog ids, list prices, context windows | `generation_catalog.yaml` fills `api_model_id` and `model_snapshot`. |
+| `configs/experiments/` | Matrices the harness expands into cells | `python -m src.experiment_runner write-manifest configs/experiments/<name>.yaml` |
+| `configs/analysis/` | Tables and plots over finished packs | `python -m src.experiment_runner report configs/analysis/<name>.yaml` |
+
+Compose with `includes:` (deep-merge; later keys win; lists replace). A writer file is runnable because it includes a stack. Swap one piece by including another file after it:
+
+```yaml
+includes:
+  - configs/writers/session_summaries.yaml
+  - configs/readers/gpt-5.6-luna.yaml
+```
+
+`session_summaries` with no `writer` block uses the dataset summaries. The same memory id with `writer.model` set means that one model writes the summaries. `graph` always uses the one writer and the locked graph schema.
 
 **Model pinning.** `configs/models/generation_catalog.yaml` holds `api_model_id` (what is sent) and
 `model_snapshot` (the dated identity that makes a live cell reproducible). A model carrying
@@ -175,8 +184,7 @@ flowchart LR
   end
 
   subgraph Write["write path engine"]
-    TO["teacher_orchestrator.py"]
-    FU["fusion.py<br/>pool + fusion policies"]
+    MO["model_orchestrator.py"]
     GM["mem0/graph_memory.py<br/>locked Mem0g schema"]
   end
 
@@ -185,7 +193,7 @@ flowchart LR
     CP["campaign_plots.py<br/>bar, grouped_bar, metrics_grouped_bar, line"]
   end
 
-  TO --> FU --> GM --> MEM
+  MO --> GM --> MEM
   MEM --> RD --> SC
   SC --> CT --> CP
 ```
@@ -216,7 +224,7 @@ flowchart TB
     direction LR
     M1["deterministic<br/>raw_chunks, session_summaries, full_context"]
     M2["retrieval clones<br/>rag, openai_memory, mem0, mem0g"]
-    M3["teacher write path<br/>teacher_session_summaries, teacher_graph,<br/>pooled_teacher_graph, fused_teacher_graph"]
+    M3["one writer model<br/>session_summaries or graph"]
   end
 
   subgraph BOT["FIXED BOTTOM — measurement"]
@@ -244,8 +252,9 @@ flowchart TB
 | `ablation` | Remove or degrade one write-path component |
 | `calibration` | Plumbing and cost calibration cells |
 
-Matrix axes expand in fixed order `reader → memory_method → writer → seed`. Combinations are dropped
-when a `writer` is supplied to a non-teacher memory method, or omitted from a teacher method.
+Matrix axes expand in fixed order `reader → memory_method → writer → seed`. A writer is attached
+only when the memory method is `session_summaries`, `graph`, or `agent_codex_mem0_facts`.
+Retrieval clones and dataset-only methods do not take a writer.
 
 ### 4. Campaign layer
 
@@ -253,7 +262,7 @@ A campaign is an ordered set of experiments plus the analyses that span them.
 
 ```mermaid
 flowchart LR
-  subgraph CAMP["configs/analysis/campaign_2025_live.yaml"]
+  subgraph CAMP["configs/analysis/campaign_openai_agents.yaml"]
     CID["campaign: id, title, freeze_note"]
     DEF["defaults: source, metrics, output_subdir"]
     CA["campaign_analyses<br/>reader_family_*, writer_family_*"]
@@ -351,7 +360,7 @@ flowchart TB
   Y["experiment YAML"] --> WM["wave 0 — write-manifest<br/>OFFLINE"]
   WM --> M["manifest/runs.jsonl"]
 
-  M --> QA["wave 1 — execute-qa<br/>N parallel cells<br/>ONLINE: reader, teachers, embedder"]
+  M --> QA["wave 1 — execute-qa<br/>N parallel cells<br/>ONLINE: reader, writer, embedder"]
   QA --> RP["experiments/[run_id]/<br/>predictions, memory, reader, cost, _SUCCESS"]
 
   RP --> AU["wave 2 — execute-autorater<br/>N parallel cells<br/>ONLINE: judge"]
@@ -367,7 +376,7 @@ flowchart TB
 | Wave | Command | API? | Writes | Parallelism |
 |---|---|---|---|---|
 | 0 | `write-manifest <exp.yaml>` | No | `manifest/runs.jsonl` | single |
-| 1 | `execute-qa <exp.yaml> --run-index i` | **Yes** — reader, plus teachers and embedders when the method needs them | run pack + `_SUCCESS` | one task per cell |
+| 1 | `execute-qa <exp.yaml> --run-index i` | **Yes** — reader, plus the writer and embedder when the method needs them | run pack + `_SUCCESS` | one task per cell |
 | 2 | `execute-autorater <exp.yaml> --run-index i` | **Yes** — judge only | `autorater/` + `autorater/_SUCCESS` | one task per cell |
 | 3 | `aggregate` / `collect-full <exp.yaml>` | No | `aggregate/` or `collected/` | single collector |
 | — | `report <analysis.yaml>` | No | `analysis/` | single |
@@ -385,18 +394,17 @@ sequenceDiagram
   participant H as harness
   participant WS as workspace
   participant MB as MemoryBuilder
-  participant TW as teacher write path
+  participant TW as writer
   participant RD as reader
   participant SC as scorer
   participant AW as audit writer
 
   H->>WS: fetch dataset + shared index
   H->>MB: resolve memory_method
-  alt teacher method
+  alt writer method
     MB->>TW: session blocks
-    TW->>TW: LLM summarize or extract graph
-    TW->>TW: pool then fuse (software)
-    TW-->>MB: locked Mem0g graph
+    TW->>TW: one model summarizes or extracts a graph
+    TW-->>MB: session summaries or locked graph
   else retrieval clone
     MB->>WS: load prebuilt index
     MB->>MB: embed query, top-k
@@ -420,8 +428,8 @@ answers; the **judge** scores. Only the read path and judge are frozen for a mem
 | Role | Path | Module | Prompt | Providers |
 |---|---|---|---|---|
 | Answer / reader | read | `readers.py` | `prompts/readers/qa_mem0_v1.txt` | openai, deepseek, anthropic, mock |
-| Teacher session summary | write | `teachers.py` | `prompts/teachers/teacher_session_v1.txt` | openai, anthropic, deepseek, mock |
-| Teacher graph extraction | write | `teachers.py` | `prompts/teachers/teacher_graph_v1.txt` | openai, anthropic, deepseek, mock |
+| Writer session summary | write | `writer_model.py` | `prompts/writers/session_summary_v1.txt` | openai, anthropic, deepseek, mock |
+| Writer graph extraction | write | `writer_model.py` | `prompts/writers/graph_v1.txt` | openai, anthropic, deepseek, mock |
 | Mem0 fact extract | write index | `mem0/extract.py` | `prompts/writers/mem0_extract_v1.txt` | openai, mock |
 | Mem0 update ADD/UPDATE/DELETE/NONE | write index | `mem0/update.py` | `prompts/writers/mem0_update_v1.txt` | openai, mock |
 | Mem0g entities | write index | `mem0/graph_memory.py` | `prompts/writers/mem0g_entities_v1.txt` | openai, mock |
@@ -431,36 +439,27 @@ answers; the **judge** scores. Only the read path and judge are frozen for a mem
 | Embedding, index and query | both | `mem0/embeddings.py` | none | openai `text-embedding-3-small`, mock |
 | Autorater / judge | score | `autorater.py` | `prompts/autoraters/autorater_mem0_v1.txt` | openai, mock |
 
-**Not LLM calls:** pooling and fusion (`fusion.py`), the orchestrator, preprocessing, the
-deterministic builders, every metric, and every analysis script. Fusion is software, not one large
-prompt.
+**Not LLM calls:** the model orchestrator, preprocessing, the
+deterministic builders, every metric, and every analysis script.
 
 **Request-shape pinning** lives in `models.py`, because provider APIs drift:
 
 - Hosted `gpt-5` rejects `reasoning_effort=none`, so it is pinned to `minimal`; GPT-5.6 keeps `none`.
 - Anthropic SDK 1.0 removed `temperature` from `messages.create`, so it moves into `extra_body`.
-- Teacher *thinking* is a write-path knob. The frozen reader never gains reasoning effort from it.
+- Writer *thinking* is a write-path knob. The frozen reader never gains reasoning effort from it.
 
 Every memory method, and whether it spends tokens at QA time:
 
 | Memory method | Write-path LLM | Read-path LLM | Notes |
 |---|---|---|---|
 | `raw_chunks` | none | none | chronological dialog |
-| `session_summaries` | none | none | dataset-provided summaries |
+| `session_summaries` | none, unless `writer.model` is set | none | dataset summaries, or one model per session |
+| `graph` | **per session** | node embedding | one writer into the locked graph |
 | `full_context` | none | none | entire timestamped transcript |
 | `rag` | index built earlier | query embedding | Mem0-paper clone: 256-token chunks, k=2 |
 | `openai_memory` | index built earlier | none | privileged extract-all protocol clone |
 | `mem0` | index built earlier | query embedding | vector store |
 | `mem0g` | index built earlier | query embedding | vector + graph |
-| `teacher_session_summaries` | **per session** | none | one teacher summarizes |
-| `teacher_graph` | **per session** | node embedding | single teacher to locked graph |
-| `pooled_teacher_graph` | **per session × K** | node embedding | naive pool |
-| `fused_teacher_graph` | **per session × K** | node embedding | majority vote or slot resolve |
-
-Pool policies: `single`, `round_robin`, `random`, `equal_weight`.
-Fusion policies: `none`, `majority_vote`, `resolve_top_voted`, `resolve_first`, `resolve_random`,
-`resolve_round_robin`, `resolve_confidence`. The `resolve_*` family is a baseline heuristic set;
-claim-level fusion and LLM validators are future work.
 
 ---
 
@@ -504,7 +503,7 @@ flowchart TB
   subgraph U["Unit — one function, one behavior"]
     U1["metrics, stats, preprocessing"]
     U2["mem0 / rag / openai_memory index"]
-    U3["orchestrator, pool, fusion"]
+    U3["one writer orchestrator"]
   end
   subgraph S["Sanity — protocol plumbing"]
     S1["autorater protocol + category-5 skip"]
@@ -518,7 +517,7 @@ flowchart TB
     R4["gold answers stay scorer-only"]
   end
   subgraph I["Integration — seams"]
-    I1["reader and teacher family swap"]
+    I1["reader and writer family swap"]
     I2["LoCoMo vs SPEC scorer"]
   end
   subgraph C["Recipe and harness"]
@@ -532,11 +531,11 @@ flowchart TB
 
 | Group | Files | Locks |
 |---|---|---|
-| Unit | `test_preprocessing_pipeline`, `test_session_documents`, `test_preprocess_index`, `test_stats`, `test_evaluation_pipeline`, `test_mem0_index`, `test_rag_index`, `test_openai_memory`, `test_teacher_orchestrator`, `test_compare_to_paper` | Scoring, indexing, pooling, fusion behave as specified |
+| Unit | `test_preprocessing_pipeline`, `test_session_documents`, `test_preprocess_index`, `test_stats`, `test_evaluation_pipeline`, `test_mem0_index`, `test_rag_index`, `test_openai_memory`, `test_model_orchestrator`, `test_compare_to_paper` | Scoring and indexing behave as specified |
 | Sanity | `test_autorater_sanity`, `test_claim_audit`, `test_experiment_pack`, `test_prompt_bundle` | Judge protocol, lineage and cost audit, pack round-trip |
 | Regression | `test_regressions`, `test_run_isolation` | Sandwich contracts, no hidden caching, gold never in a prompt |
 | Integration | `test_integration_sanity` | Model-swap seams stay pluggable |
-| Recipe / harness | `test_config_includes`, `test_memorybench_matrix`, `test_memorybench_execute_qa`, `test_memorybench_aggregate`, `test_gcs_run_workspace`, `test_analysis_campaign` | Merge semantics, hashed ids, staged pipeline, deterministic reports |
+| Recipe / harness | `test_config_includes`, `test_experiment_runner_matrix`, `test_experiment_runner_execute_qa`, `test_experiment_runner_aggregate`, `test_gcs_run_workspace`, `test_analysis_campaign` | Merge semantics, hashed ids, staged pipeline, deterministic reports |
 
 The analysis verifiers are worth calling out, because they are what keep the recipe/engine split
 honest: every campaign analysis must reference a configured experiment; every plot `x`, `hue` and `y`
@@ -582,12 +581,12 @@ flowchart TB
   end
 
   subgraph OP["OBSERVABILITY PLANE — explains what happened"]
-    O1["run_meta.json: models, prompt, data hash, git hash, audit_pack.v2"]
+    O1["run_meta.json: models, prompt, data hash, git hash, audit_pack.v3"]
     O2["config.source.yaml + config.resolved.yaml"]
     O3["prompts/ + TRACE.md"]
     O4["reader/traces.jsonl"]
     O5["memory/ + lineage.jsonl + retrieve_ranks.jsonl"]
-    O6["memory/teachers/ calls, fusion votes, quality"]
+    O6["memory/writer/ calls and quality"]
     O7["cost.json + attribution.jsonl + SUMMARY.md"]
     O8["autorater/traces.jsonl"]
     O9["cells.jsonl + status.json"]
@@ -607,18 +606,18 @@ flowchart LR
   C --> D["run pack<br/>experiments/[run_id]/"]
   D --> E["reader/traces.jsonl<br/>exact request and response"]
   D --> F["memory/by_question or by_sample<br/>exact memory text"]
-  F --> G["memory/lineage.jsonl<br/>question to item to teacher"]
-  G --> H["memory/teachers/calls.jsonl<br/>write-path call"]
+  F --> G["memory/lineage.jsonl<br/>question to item to writer"]
+  G --> H["memory/writer/calls.jsonl<br/>write-path call"]
   D --> I["run_meta.json<br/>git hash + data hash + model pins"]
   D --> J["config.resolved.yaml<br/>YAML merge + CLI overrides"]
   A --> K["autorater/traces.jsonl<br/>judge reasoning"]
 ```
 
-Each run pack (`audit_pack.v2`) always contains predictions in JSONL and CSV, `metrics.json` and
+Each run pack (`audit_pack.v3`) always contains predictions in JSONL and CSV, `metrics.json` and
 `metrics_by_category.csv`, `run_meta.json`, both frozen config files, `cost.json`, `SUMMARY.md`,
 `ATTRIBUTION.md` with `attribution.jsonl`, `TRACE.md`, `plots/`, `reader/`, `prompts/`, and `memory/`.
-Teacher conditions add `memory/teachers/` (calls, session text, fusion votes, `quality.json`); graph
-conditions add `memory/graph/` including `ingest.jsonl` recorded after fusion. Retrieval conditions
+Writer conditions add `memory/writer/` (calls, the session text the writer saw, `quality.json`); graph
+conditions add `memory/graph/` including `ingest.jsonl`. Retrieval conditions
 record losers as well as winners in `retrieve_ranks.jsonl`, so a retrieval claim is auditable rather
 than asserted.
 
@@ -647,11 +646,11 @@ python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml \
 ## Repository layout
 
 ```text
-configs/            recipes: data, layouts, readers, writers, teachers,
-                    autoraters, stacks, presets, models, experiments, analysis
-prompts/            readers/, writers/, teachers/, autoraters/
+configs/            recipes: data, layouts, readers, writers, agents,
+                    autoraters, stacks, run, presets, models, experiments, analysis
+prompts/            readers/, writers/, agents/, autoraters/
 src/locomo_eval/    read + write path engine, audit pack writer
-src/memorybench/    control plane: matrix, jobs, storage, aggregation
+src/experiment_runner/  experiment runner: matrix, hashed ids, one cell per task
 src/metrics/        official LoCoMo category F1
 scripts/            fetch, prepare, deploy, compare
 scripts/analysis/   campaign_tables, campaign_plots, run_benchmark, comparisons
@@ -677,13 +676,25 @@ Step-by-step reproduction, local and Cloud Run: **[`docs/REPRODUCE.md`](docs/REP
 | [`docs/agent/AGENTS.md`](docs/agent/AGENTS.md) | Coding-agent operating notes |
 | [`docs/schemas/`](docs/schemas/) | On-disk contracts: audit pack, analysis campaign, indexes |
 | [`docs/reports/engineering_notebook.md`](docs/reports/engineering_notebook.md) | System map, freeze and extend rules |
-| [`docs/reports/multi_teacher_methodologies.md`](docs/reports/multi_teacher_methodologies.md) | Teacher, pooling, and fusion methodology |
+| [`docs/reports/multi_teacher_methodologies.md`](docs/reports/multi_teacher_methodologies.md) | Retired note: the old multi-writer design |
 | [`configs/README.md`](configs/README.md) | The `includes:` compose mechanism |
 | [`NOTICE.md`](NOTICE.md) | Dataset and third-party prompt terms |
 
 ## Citation
 
-Dataset and evaluator:
+If you use this repository, cite the software. There is no paper for the harness itself. Machine-readable metadata is in [`CITATION.cff`](CITATION.cff).
+
+```bibtex
+@software{park2026longtermmemoryeval,
+  author = {Park, Junsoo and Triana, Bryan},
+  title = {Long-Term Memory Eval},
+  year = {2026},
+  url = {https://github.com/park-jsdev/long-term-memory-eval},
+  license = {MIT}
+}
+```
+
+LoCoMo is the benchmark this harness runs. Cite it separately:
 
 ```bibtex
 @article{maharana2024evaluating,

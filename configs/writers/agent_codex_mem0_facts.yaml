@@ -2,7 +2,7 @@ includes:
   - configs/stacks/qa_default.yaml
 pipeline:
   memory: agent_codex_mem0_facts
-teacher:
+writer:
   provider: codex
   model: gpt-5
   prompt_path: prompts/agents/memory_write_facts_v1.txt

@@ -6,8 +6,8 @@ The reusable table and figure code lives in `scripts/analysis/campaign_tables.py
 and `scripts/analysis/campaign_plots.py`. A new campaign is a new YAML; do not
 fork plot code.
 
-Glue: `src/memorybench/analysis/` (load YAML, read aggregate parquet, write
-`analysis/`). CLI: `python -m src.memorybench report configs/analysis/<file>.yaml`.
+Glue: `src/experiment_runner/analysis/` (load YAML, read aggregate parquet, write
+`analysis/`). CLI: `python -m src.experiment_runner report configs/analysis/<file>.yaml`.
 No LLM.
 
 `campaign: 2025_live` in `configs/analysis/campaign_2025_live.yaml` is the parked three-family recipe (includes Claude). The budget overlay `configs/analysis/campaign_2025_openai_deepseek.yaml` includes that file, remaps pack names, and adds `openai_deepseek_thinking_axis.yaml` (thinking on/off group_by plus reasoning-token vs latency plots). `configs/analysis/campaign_year_family.yaml` is the 2024–2026 robustness plane (pins + live packs; notebook 15). Insight CSVs label year moves, family gaps, method-rank flips, thinking deltas, and category holes. Year-family recipes also emit `kind: line` plots (`x: generation`) so each condition is a time series next to the bars. Missing 2026 packs are omitted; do not invent zero bars. The 2026 overlay `configs/analysis/campaign_2026_openai_deepseek.yaml` does the same for GPT-5.6 Terra vs DeepSeek-V4.
@@ -70,10 +70,10 @@ When `question_category` is **not** in `group_by`, overall means drop LoCoMo cat
 OpenAI vs DeepSeek overlays add `thinking` (`on`/`off`) to `group_by` and plot
 `hue=thinking` with `x` = family / reader / writer so on vs off is compared
 **within** each family (do not average those cells). Metrics
-`agent_reasoning_tokens` (reader, per question) / `teacher_reasoning_tokens`
+`agent_reasoning_tokens` (reader, per question) / `writer_reasoning_tokens`
 (writer, cell total from `cost.json`) sit next to latency. Parked three-family
 YAML omits that axis. Older catalog packs without a parquet `thinking` column
-are labeled from `aggregate/by_run/*/run_meta.json` (`teacher_thinking` /
+are labeled from `aggregate/by_run/*/run_meta.json` (`writer_thinking` /
 reader thinking) when present.
 
 Mem0 Table 2 latency is **search** p50/p95 (retrieval) and **total** p50/p95
@@ -88,11 +88,11 @@ present. `full_context` search is 0; RAG search stays empty until those times
 exist — do not treat missing RAG retrieval as 0. Total latency still adds
 generate + 0 when search was never stored, so those bars do not disappear.
 
-Prices live in `configs/models/pricing.yaml`. Engine: `src/memorybench/analysis/cost.py`. Notebooks call `notebook_pretest` / `notebook_posttest` (no plot code). Missing actuals stay empty (not $0). Parked models are costed and excluded from the launched total.
+Prices live in `configs/models/pricing.yaml`. Engine: `src/experiment_runner/analysis/cost.py`. Notebooks call `notebook_pretest` / `notebook_posttest` (no plot code). Missing actuals stay empty (not $0). Parked models are costed and excluded from the launched total.
 
-Live packs get `generation` from `configs/models/generation_catalog.yaml` (writer model when `family_from: writer`, else `reader_generation`) and `result_source=live`. Do not average paper pins into live question rows: group by `result_source`. Notebooks 17 paper-compare plots use `paper_method` (Table 2 ids) with `compare_source` on the full_context figure (`paper` / `local clone` / `live model` / `gpt-4o-mini + Codex` / 2025 / 2026) and `live_source` on the methods figure (`paper` / `live model` / `gpt-4o-mini + Codex`; local-clone pins fill methods this pack did not re-run as Chat Completions). Methods tables also report `locomo_f1`. Session-summaries **paper F1** is Maharana et al. 2024 Table 3 Summary RAG top-5 (0.325 overall, includes adversarial, 50 conversations / n=7512) — not locomo10 and not Mem0 J (`judge_score` stays empty until a live judge run). Persist-off `workspace_files` is the full_context Codex bar. Codex facts map to `mem0` and Codex `teacher_graph` to `mem0g` for literature context only. `mean_table` keeps those group columns (re-annotating if a concat dropped them) so methods are not averaged into one family bar. Missing 2026 packs are omitted from the axis until you add them; do not invent zero bars.
+Live packs get `generation` from `configs/models/generation_catalog.yaml` (writer model when `family_from: writer`, else `reader_generation`) and `result_source=live`. Do not average paper pins into live question rows: group by `result_source`. Notebooks 17 paper-compare plots use `paper_method` (Table 2 ids) with `compare_source` on the full_context figure (`paper` / `local clone` / `live model` / `gpt-4o-mini + Codex` / 2025 / 2026) and `live_source` on the methods figure (`paper` / `live model` / `gpt-4o-mini + Codex`; local-clone pins fill methods this pack did not re-run as Chat Completions). Methods tables also report `locomo_f1`. Session-summaries **paper F1** is Maharana et al. 2024 Table 3 Summary RAG top-5 (0.325 overall, includes adversarial, 50 conversations / n=7512) — not locomo10 and not Mem0 J (`judge_score` stays empty until a live judge run). Persist-off `workspace_files` is the full_context Codex bar. Codex facts map to `mem0` and Codex `graph` to `mem0g` for literature context only. `mean_table` keeps those group columns (re-annotating if a concat dropped them) so methods are not averaged into one family bar. Missing 2026 packs are omitted from the axis until you add them; do not invent zero bars.
 
-Notebooks 17 (`campaign_openai_codex_poc.yaml`, `campaign_openai_agents.yaml`, `campaign_openai_codex_persist_memory.yaml`, `campaign_openai_mini_vs_codex_writers.yaml`) pin Mem0 Table 2 Full-context / RAG k=2 256 / OpenAI / Mem0 / Mem0g plus local_clone J on the PoC/agents planes. Catalog generation is the **model year**; Codex CLI is a 2026 harness around that model. Sandwich `writer_harness` is `chat_completions` vs `codex` (`campaign_openai_mini_vs_codex_writers.yaml` is that comparison on `teacher_session_summaries` and Mem0g-shaped `teacher_graph`, plus a `memory_lane` x `system_harness` ceiling overlay against stuffed `full_context` and persist-off workspace). Native Codex cells stay audit-only unless `comparison_status=comparable`. Score plots do not group by that
+Notebooks 17 (`campaign_openai_codex_poc.yaml`, `campaign_openai_agents.yaml`, `campaign_openai_codex_persist_memory.yaml`, `campaign_openai_mini_vs_codex_writers.yaml`) pin Mem0 Table 2 Full-context / RAG k=2 256 / OpenAI / Mem0 / Mem0g plus local_clone J on the PoC/agents planes. Catalog generation is the **model year**; Codex CLI is a 2026 harness around that model. Sandwich `writer_harness` is `chat_completions` vs `codex` (`campaign_openai_mini_vs_codex_writers.yaml` is that comparison on `session_summaries` and Mem0g-shaped `graph`, plus a `memory_lane` x `system_harness` ceiling overlay against stuffed `full_context` and persist-off workspace). Native Codex cells stay audit-only unless `comparison_status=comparable`. Score plots do not group by that
 status. A partial workspace-read miss is `harness_failed_rate` / failure-mode
 counts, not a cell-level `harness_failed` bar. `notes_only` is the persist
 memory-method cell; persist-on with sessions visible is a write ablation.

@@ -27,10 +27,10 @@ change a running execution.
 Pull aggregate directories before:
 
 ```powershell
-python -m src.memorybench report configs/analysis/campaign_openai_codex_poc.yaml
-python -m src.memorybench report configs/analysis/campaign_openai_agents.yaml
-python -m src.memorybench report configs/analysis/campaign_openai_codex_persist_memory.yaml
-python -m src.memorybench report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_codex_poc.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_agents.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_codex_persist_memory.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
 ```
 
 Reports include tool-audit bars (`n_web_search`, `n_mcp` should be ~0),

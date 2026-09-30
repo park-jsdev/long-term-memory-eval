@@ -25,8 +25,8 @@ class TestDeepMerge(unittest.TestCase):
         self.assertEqual(merged["keep"], 1)
 
     def test_lists_replace_rather_than_concatenate(self):
-        merged = deep_merge({"teachers": [1]}, {"teachers": [2, 3]})
-        self.assertEqual(merged["teachers"], [2, 3])
+        merged = deep_merge({"items": [1]}, {"items": [2, 3]})
+        self.assertEqual(merged["items"], [2, 3])
 
 
 class TestIncludesComposeRunnableWriters(unittest.TestCase):
@@ -59,14 +59,12 @@ class TestIncludesComposeRunnableWriters(unittest.TestCase):
         self.assertEqual(cfg["mem0"]["index_run_id"], "mem0g_locomo10")
         self.assertEqual(cfg["mem0"]["extract"]["model"], "gpt-4o-mini")
 
-    def test_resolve_writer_only_changes_fusion(self):
-        base = load_config(ROOT / "configs" / "writers" / "fused_teacher_graph.yaml")
-        resolved = load_config(
-            ROOT / "configs" / "writers" / "fused_teacher_graph_resolve_first.yaml"
-        )
-        self.assertEqual(base["orchestrator"]["fusion"], "majority_vote")
-        self.assertEqual(resolved["orchestrator"]["fusion"], "resolve_first")
-        self.assertEqual(len(resolved["teachers"]), 3)
+    def test_graph_includes_one_writer_model(self):
+        cfg = load_config(ROOT / "configs" / "writers" / "graph.yaml")
+        self.assertEqual(cfg["writer"]["model"], "gpt-4o-mini")
+        self.assertNotIn("teachers", cfg)
+        self.assertNotIn("pool", cfg.get("orchestrator") or {})
+        self.assertNotIn("fusion", cfg.get("orchestrator") or {})
 
     def test_include_cycle_raises(self):
         with tempfile.TemporaryDirectory() as tmp:

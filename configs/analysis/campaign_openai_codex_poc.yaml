@@ -2,7 +2,7 @@
 # Native Codex is audit-only unless comparison_status=comparable.
 # Paper / local_clone pins are literature context, not OSS-clone Table 2 J.
 #
-#   python -m src.memorybench report configs/analysis/campaign_openai_codex_poc.yaml
+#   python -m src.experiment_runner report configs/analysis/campaign_openai_codex_poc.yaml
 # Notebook: notebooks/17_openai_codex_poc_analysis.ipynb
 
 campaign:
@@ -20,8 +20,8 @@ campaign:
     short gold, J is the Mem0 paraphrase judge. Gold-id recall is union
     over retrieve events (partial chains included). n_web_search / n_mcp
     should be 0 (web_search disabled, user MCP ignored). Sandwich writers
-    freeze the mini Chat Completions reader; teacher_session_summaries /
-    agent_codex_mem0_facts / teacher_graph are not paper Mem0 extract or
+    freeze the mini Chat Completions reader; session_summaries /
+    agent_codex_mem0_facts / graph are not paper Mem0 extract or
     Mem0g.     Paper and local_clone rows are Table 2 / clone pins (n=1540
     judged subset), not this pack. Do not mix reader-sweep scores into
     the writer sandwich claim. Paper / local-clone / gpt-4o-mini + Codex J
@@ -30,7 +30,7 @@ campaign:
     separate bars. The methods plot is paper vs live model vs Codex (clone
     pins stand in for live model when this pack has no Chat Completions
     cell). Codex facts map to
-    mem0 and Codex teacher_graph to mem0g for literature context only — not
+    mem0 and Codex graph to mem0g for literature context only — not
     paper extract/Mem0g. The reader_stack J plot is a system
     comparison (2024 mini model-only vs 2024 mini+Codex persist-off vs
     paper/local_clone, plus 2025 GPT-5 and 2026 Terra model-only from
@@ -385,7 +385,7 @@ takeaways:
     claim: harness_writer_weaker_than_chat_reader
     from: writer_artifacts
     from_right: reader_j_vs_f1
-    left: {memory_method: teacher_session_summaries}
+    left: {memory_method: [session_summaries, session_summaries]}
     right: {memory_method: full_context}
     left_label: codex_session_summaries
     right_label: chat_full_context
@@ -399,10 +399,10 @@ takeaways:
     title: Codex writers ranked (frozen mini reader)
     claim: summaries_beat_facts_beat_graph
     from: writer_artifacts
-    left: {memory_method: teacher_session_summaries}
-    right: {memory_method: teacher_graph}
+    left: {memory_method: [session_summaries, session_summaries]}
+    right: {memory_method: [graph, graph]}
     left_label: session_summaries
-    right_label: teacher_graph
+    right_label: graph
     metrics: [judge_score, locomo_f1]
     finding: >
       Among Codex writers, session summaries beat facts beat graph. Graph
@@ -435,7 +435,7 @@ experiments:
       scientific_claim: false
       hypotheses:
         - Frozen mini Chat Completions reader; Codex only writes summaries, facts, or graph.
-        - teacher_graph / summaries are not paper Mem0 or Mem0g; pin bars are literature context.
+        - graph / summaries are not paper Mem0 or Mem0g; pin bars are literature context.
   year_2025:
     name: locomo-2025-readers-openai-deepseek
     pack: experiments/locomo-2025-readers-openai-deepseek

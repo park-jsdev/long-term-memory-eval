@@ -12,7 +12,7 @@
     },
     "memory_type": {
       "type": "string",
-      "description": "Condition / builder id (raw_chunks, session_summaries, teacher_session_summaries, …)"
+      "description": "Condition / builder id (raw_chunks, session_summaries, graph, …)"
     },
     "text": {
       "type": "string",
@@ -23,13 +23,13 @@
       "items": { "type": "string" },
       "description": "Provenance keys (dia_id or session_k_summary)"
     },
-    "teacher_model": {
+    "writer_model": {
       "type": ["string", "null"],
-      "description": "Write-path teacher model id when memory_type is teacher_session_summaries"
+      "description": "Write-path model id when a writer produced this memory"
     },
-    "teacher_provider": {
+    "writer_provider": {
       "type": ["string", "null"],
-      "description": "Teacher provider (openai | mock)"
+      "description": "Writer provider (openai | mock)"
     }
   },
   "additionalProperties": false

@@ -158,7 +158,7 @@ Optional local check (no GCP):
 
 ```powershell
 conda activate distillation
-python -m src.memorybench execute-qa configs/experiments/poc.yaml --run-index 0
+python -m src.experiment_runner execute-qa configs/experiments/poc.yaml --run-index 0
 ```
 
 ---

@@ -141,47 +141,28 @@ class SandwichAudit:
     metrics: dict[str, Any]
     predictions: list[dict[str, Any]]
     reader_traces: list[dict[str, Any]] = field(default_factory=list)
-    teacher_index: list[dict[str, Any]] = field(default_factory=list)
-    teacher_calls: list[dict[str, Any]] = field(default_factory=list)
-    fusion: list[dict[str, Any]] = field(default_factory=list)
+    writer_index: list[dict[str, Any]] = field(default_factory=list)
+    writer_calls: list[dict[str, Any]] = field(default_factory=list)
     lineage: list[dict[str, Any]] = field(default_factory=list)
     retrieve_ranks: list[dict[str, Any]] = field(default_factory=list)
     graph_ingest: list[dict[str, Any]] = field(default_factory=list)
-    teacher_quality: dict[str, Any] = field(default_factory=dict)
+    writer_quality: dict[str, Any] = field(default_factory=dict)
     cost: dict[str, Any] = field(default_factory=dict)
     attribution: list[dict[str, Any]] = field(default_factory=list)
     autorater_verdicts: list[dict[str, Any]] = field(default_factory=list)
     autorater_traces: list[dict[str, Any]] = field(default_factory=list)
 
-    def teacher_calls_for(self, teacher_id: str) -> list[dict[str, Any]]:
-        """Calls for one teacher_id.
+    def writer_calls_for(self, writer_id: str) -> list[dict[str, Any]]:
+        """Calls for one writer_id.
 
         Prefers the in-memory ``calls.jsonl`` load; falls back to the
-        ``by_teacher/<id>/`` partition if the combined file is empty.
+        ``by_writer/<id>/`` partition if the combined file is empty.
         """
-        wanted = str(teacher_id)
-        rows = [row for row in self.teacher_calls if str(row.get("teacher_id")) == wanted]
+        wanted = str(writer_id)
+        rows = [row for row in self.writer_calls if str(row.get("writer_id")) == wanted]
         if rows:
             return rows
-        return load_jsonl(self.paths.teacher_calls_path(wanted))
-
-    def fusion_kept_for(self, *, sample_id: str | None = None) -> list[dict[str, Any]]:
-        """Kept triples only (fusion software, not an LLM). Optional one sample."""
-        out: list[dict[str, Any]] = []
-        for session in self.fusion:
-            if sample_id is not None and str(session.get("sample_id")) != str(sample_id):
-                continue
-            for rel in session.get("relations") or []:
-                if not rel.get("kept"):
-                    continue
-                out.append(
-                    {
-                        "sample_id": session.get("sample_id"),
-                        "session_id": session.get("session_id"),
-                        **rel,
-                    }
-                )
-        return out
+        return load_jsonl(self.paths.writer_calls_path(wanted))
 
     def lineage_for(
         self,
@@ -220,7 +201,7 @@ class SandwichAudit:
         self,
         *,
         role: str | None = None,
-        teacher_id: str | None = None,
+        writer_id: str | None = None,
         question_id: str | None = None,
         sample_id: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -234,9 +215,9 @@ class SandwichAudit:
         if role is not None:
             wanted = str(role)
             rows = [row for row in rows if str(row.get("role")) == wanted]
-        if teacher_id is not None:
-            wanted = str(teacher_id)
-            rows = [row for row in rows if str(row.get("teacher_id")) == wanted]
+        if writer_id is not None:
+            wanted = str(writer_id)
+            rows = [row for row in rows if str(row.get("writer_id")) == wanted]
         if question_id is not None:
             wanted = str(question_id)
             rows = [
@@ -257,27 +238,26 @@ class SandwichAudit:
 def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
     """Load the full sandwich pack for analysis (no LLM).
 
-    Missing optional layers (teachers, graph, autorater, attribution) load
-    as empty lists. Teacher calls fall back to the compat path.
+    Missing optional layers (writer, graph, autorater, attribution) load
+    as empty lists. Writer calls fall back to the compat path.
     """
     paths = AuditPaths.from_run_dir(run_dir)
     pred_path = predictions_jsonl(paths.run_dir)
-    calls = load_jsonl(paths.teacher_calls)
+    calls = load_jsonl(paths.writer_calls)
     if not calls:
-        calls = load_jsonl(paths.teacher_calls_compat)
+        calls = load_jsonl(paths.writer_calls_compat)
     return SandwichAudit(
         paths=paths,
         meta=load_json(paths.run_meta),
         metrics=load_json(paths.metrics),
         predictions=load_jsonl(pred_path) if pred_path is not None else [],
         reader_traces=load_jsonl(paths.reader_traces),
-        teacher_index=load_jsonl(paths.teacher_index),
-        teacher_calls=calls,
-        fusion=load_jsonl(paths.teacher_fusion),
+        writer_index=load_jsonl(paths.writer_index),
+        writer_calls=calls,
         lineage=load_jsonl(paths.lineage),
         retrieve_ranks=load_jsonl(paths.retrieve_ranks),
         graph_ingest=load_jsonl(paths.graph_ingest),
-        teacher_quality=load_json(paths.teacher_quality),
+        writer_quality=load_json(paths.writer_quality),
         cost=load_json(paths.cost),
         attribution=load_jsonl(paths.attribution),
         autorater_verdicts=load_jsonl(paths.autorater_verdicts),

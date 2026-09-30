@@ -1,6 +1,8 @@
-# Multi-teacher methodologies — researcher guide
+# Multi-teacher methodologies — retired
 
-One-page overview of how teachers, pooling, and fusion fit in the LoCoMo sandwich pipeline. For implementation detail see `docs/reports/engineering_notebook.md` §4.3 and `src/locomo_eval/fusion.py`.
+**Retired.** `fusion.py`, pool, majority, and resolve are deleted. `ModelOrchestrator` accepts one writer model. This note is historical. Current layout: `docs/LAYOUT.md`.
+
+One-page overview of how teachers, pooling, and fusion used to fit in the LoCoMo sandwich pipeline.
 
 ---
 
@@ -16,20 +18,20 @@ Change only one middle variable per experimental claim. Reader-model or prompt s
 
 ---
 
-## 2. Teacher methodologies (condition ids)
+## 2. Writer methodologies (condition ids)
 
 ### Single-teacher (summary path)
 
 | Condition | Write path | Research question |
 |-----------|------------|-------------------|
 | `session_summaries` | LoCoMo-released session summaries (no LLM) | Baseline structured memory |
-| `teacher_session_summaries` | One LLM summarizes each session | Does a live teacher beat released summaries? |
+| `session_summaries` | One LLM summarizes each session | Does a live teacher beat released summaries? |
 
 ### Single-teacher (graph path)
 
 | Condition | Write path | Research question |
 |-----------|------------|-------------------|
-| `teacher_graph` | One teacher extracts Mem0g triples per session | Does a live graph teacher help? |
+| `graph` | One teacher extracts Mem0g triples per session | Does a live graph teacher help? |
 
 ### Multi-teacher (graph path)
 
@@ -62,16 +64,16 @@ All multi-teacher graph conditions share:
 | Provider | Module | Models (default roster) | Role |
 |----------|--------|-------------------------|------|
 | OpenAI | `teacher_callers.py` → `OpenAIChatCaller` | `gpt-4o-mini` | Graph/summary extraction |
-| Anthropic | `teacher_callers.py` → `AnthropicTeacherCaller` | `claude-haiku-4-5` | Graph/summary extraction |
+| Anthropic | `teacher_callers.py` → `AnthropicWriterCaller` | `claude-haiku-4-5` | Graph/summary extraction |
 | DeepSeek | `teacher_callers.py` → `OpenAIChatCaller` + DeepSeek base URL | `deepseek-v4-flash` | Graph/summary extraction |
-| Mock | `MockTeacherCaller` | tagged mock ids | Offline smoke |
+| Mock | `MockWriterCaller` | tagged mock ids | Offline smoke |
 
 **Connection to orchestrator:**
 
 ```
 TeacherOrchestrator._propose()
-  → Teacher.extract_session_graph()   [teachers.py]
-    → TeacherCaller.complete()          [teacher_callers.py]
+  → Writer.extract_session_graph()   [teachers.py]
+    → WriterCaller.complete()          [teacher_callers.py]
   → fuse_proposals()                    [fusion.py]
   → Mem0GraphMemory.ingest_triples()
 ```
@@ -80,7 +82,7 @@ TeacherOrchestrator._propose()
 
 **Thinking default:** on for teachers (`teacher.thinking: true`). Ping forces off. Reader stays unchanged.
 
-**Prompts:** `prompts/teachers/teacher_graph_v1.txt` (graph), `prompts/teachers/teacher_session_v1.txt` (summaries).
+**Prompts:** `prompts/writers/graph_v1.txt` (graph), `prompts/writers/session_summary_v1.txt` (summaries).
 
 ### Read path (frozen for memory comparisons)
 
@@ -180,7 +182,7 @@ pip install -r requirements.txt
 python scripts/fetch_locomo.py
 
 # Mock smoke (no API)
-python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml \
+python -m src.locomo_eval.run --config configs/writers/graph.yaml \
   --reader mock --teacher mock --max-questions 3 --run-id smoke_teacher_graph
 python -m src.locomo_eval.run --config configs/writers/pooled_teacher_graph.yaml \
   --reader mock --teacher mock --max-questions 3 --run-id smoke_pooled
@@ -190,7 +192,7 @@ python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resol
   --reader mock --teacher mock --max-questions 3 --run-id smoke_resolve_top_voted
 
 # Provider plumbing (live keys in .env)
-python -m src.locomo_eval.ping_teachers
+python -m src.locomo_eval.ping_writers
 
 # Live run (costly) — example
 python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph_resolve_first.yaml \
@@ -209,10 +211,10 @@ Override fusion without a new YAML: `--fusion resolve_top_voted`.
 | File | Role |
 |------|------|
 | `src/locomo_eval/teacher_callers.py` | Write-path LLM clients (not reader) |
-| `src/locomo_eval/teachers.py` | Teacher ABC + graph/summary extraction |
+| `src/locomo_eval/teachers.py` | Writer ABC + graph/summary extraction |
 | `src/locomo_eval/teacher_orchestrator.py` | Session walk, pool, fuse, graph ingest |
 | `src/locomo_eval/fusion.py` | Pool/fusion/resolve policies |
-| `src/locomo_eval/memory.py` | Condition builders (`teacher_graph`, `pooled_*`, `fused_*`) |
+| `src/locomo_eval/memory.py` | Condition builders (`graph`, `pooled_*`, `fused_*`) |
 | `src/locomo_eval/run.py` | Single-condition CLI (dumps a sandwich audit via `audit_writer`) |
 | `src/locomo_eval/experiments/audit_writer.py` | Write `reader/`, `memory/teachers/`, `memory/graph/` during a run |
 | `src/locomo_eval/experiments/audit_loader.py` | Read a finished `experiments/<run_id>/` sandwich audit |
@@ -224,5 +226,5 @@ Override fusion without a new YAML: `--fusion resolve_top_voted`.
 
 - OSS Mem0/Mem0g clones are **not** paper Table 1–2 J numbers.
 - Multi-teacher resolve policies are **baseline heuristics**; claim-level fusion and LLM validators are future work.
-- Teacher attribution in this branch is **fusion/call logs** (`memory/teachers/fusion.jsonl`, `calls.jsonl`), not a per-question “which teacher answered this QA item” join.
+- Writer attribution in this branch is **fusion/call logs** (`memory/teachers/fusion.jsonl`, `calls.jsonl`), not a per-question “which teacher answered this QA item” join.
 - Do not mix reader/prompt changes into a fusion claim without labeling that axis separately.

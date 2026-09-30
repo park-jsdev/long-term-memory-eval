@@ -1,7 +1,7 @@
 # Local mock harness smoke (no Codex binary, no API).
-#   python -m src.memorybench write-manifest configs/experiments/agent_codex_poc.yaml
-#   python -m src.memorybench execute-qa configs/experiments/agent_codex_poc.yaml --run-index 0
-#   python -m src.memorybench execute-autorater configs/experiments/agent_codex_poc.yaml --run-index 0
+#   python -m src.experiment_runner write-manifest configs/experiments/agent_codex_poc.yaml
+#   python -m src.experiment_runner execute-qa configs/experiments/agent_codex_poc.yaml --run-index 0
+#   python -m src.experiment_runner execute-autorater configs/experiments/agent_codex_poc.yaml --run-index 0
 experiment:
   name: locomo-agent-codex-poc
   type: agent
