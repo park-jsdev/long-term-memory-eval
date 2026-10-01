@@ -40,6 +40,7 @@ The pack is written to `experiments/smoke_mock/`.
 
 ## Docs
 
+- [**Unrolling the experiment pipeline**](docs/loop.md) — one question, from config to notebook
 - [**Documentation**](docs/documentation.md) — architecture, including the experiment runner
 - [**Installing, building, and running**](docs/runbook.md)
 - [**Cloud Run**](docs/gcp.md)

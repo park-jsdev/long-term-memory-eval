@@ -1,6 +1,6 @@
 # Installing, building, and running
 
-Local steps for the evaluation harness. Campaign reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md).
+Local steps for the evaluation harness. Campaign reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The GPT-4o-mini writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
 
 Never commit `.env` or an API key.
 

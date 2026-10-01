@@ -116,6 +116,7 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `notebooks/` | `NN_<frozen>_<variable>[_protocol|_analysis].ipynb` — gitignored; see `notebooks/README.md` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
 | `README.md` | Landing page: harness diagram, local quickstart, license, citation |
+| `docs/loop.md` | Teaching note: one question from config to notebook |
 | `docs/documentation.md` | Architecture, including the experiment runner |
 | `docs/runbook.md` | Install, build, and run |
 | `docs/REPRODUCE.md` | Staged reproduction runbook (offline stages 0–3, paid stages 4–7) |

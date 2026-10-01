@@ -37,11 +37,6 @@ def load_locomo(path: str | Path) -> list[dict[str, Any]]:
     return data
 
 
-def load_predictions(path: str | Path) -> list[dict[str, Any]]:
-    """Load prediction JSON in LoCoMo-style sample list format."""
-    return load_locomo(path)
-
-
 def format_conversation(conversation: dict[str, Any], include_captions: bool = True) -> str:
     """Flatten sessions into the text style used by LoCoMo HF eval."""
     session_nums = sorted(
