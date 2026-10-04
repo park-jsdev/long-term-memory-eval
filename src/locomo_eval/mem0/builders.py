@@ -51,7 +51,7 @@ class Mem0IndexMemoryBuilder(MemoryBuilder):
         candidates = rank_speaker_facts(store_a, q_emb, self.top_k)
         candidates.extend(rank_speaker_facts(store_b, q_emb, self.top_k))
         if self.enable_graph:
-            from ..experiments.claim_audit import preview
+            from ..experiment_pack.claim_audit import preview
 
             graph = load_graph(sample_dir, self.embedder)
             ranked_edges = graph.rank_relations(question.question)
@@ -74,7 +74,7 @@ class Mem0IndexMemoryBuilder(MemoryBuilder):
                         "target": edge.target,
                     }
                 )
-        from ..experiments.claim_audit import retrieve_rank_row
+        from ..experiment_pack.claim_audit import retrieve_rank_row
 
         self.retrieve_log.append(
             retrieve_rank_row(

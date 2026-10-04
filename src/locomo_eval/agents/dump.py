@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.audit_layout import AuditPaths
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
 from src.locomo_eval.report import write_json, write_jsonl
 
 from .metrics import summarize_agent_rows

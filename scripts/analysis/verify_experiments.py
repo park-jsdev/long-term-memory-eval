@@ -19,11 +19,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.verify_graph_years import (
+from src.locomo_eval.experiment_pack.verify_graph_years import (
     diagnose_graph_year_stagnation,
     render_graph_year_markdown,
 )
-from src.locomo_eval.experiments.verify_pack import (
+from src.locomo_eval.experiment_pack.verify_pack import (
     SCHEMA_VERSION,
     discover_run_dirs,
     dump_report_json,

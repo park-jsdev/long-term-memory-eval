@@ -4,8 +4,8 @@ Repo layout mirrors ``configs/`` roles so a human can walk YAML → txt → json
 
 - ``prompts/readers/`` — answer LLM (``pipeline.prompt_path`` / layouts)
 - ``prompts/agents/`` — coding-agent harness (workspace files, not stuffed memory)
-- ``prompts/writers/`` — mem0 / mem0g / openai_memory extract
-- ``prompts/teachers/`` — session summary + graph teachers
+- ``prompts/writers/`` — session summaries, graph, mem0 / mem0g, and
+  openai_memory write-path prompts
 - ``prompts/autoraters/`` — LLM-as-a-Judge (separate job from QA)
 """
 

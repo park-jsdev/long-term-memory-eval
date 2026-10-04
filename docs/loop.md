@@ -1,192 +1,318 @@
-# Unrolling the Experiment Pipeline
+# Unrolling the Evaluation and Agent Loops
 
-This repository scores long-term memory systems on a fixed test. LoCoMo supplies the conversations, the questions, and the token-F1 rules. A model or a Codex agent supplies an answer. Mem0 supplies a second judge on that same answer. We did not author those protocols. We fix the data and the scorer, and we change only how memory is built and read.
+This is the audit guide for one long-term-memory result. It follows one
+LoCoMo question from the released JSON to an answer, then through two
+independent scoring protocols. The explanatory structure mirrors
+[OpenAI's description of the Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/):
+identify the prompt, identify each tool boundary, and record what enters the
+next model call.
 
-The shape is a sandwich. The top is LoCoMo. The bottom is the scorer. The middle is the system under test. A fair comparison changes the middle and leaves the bread alone.
+The central boundary is simple: the answerer may see conversation-derived
+memory and the question, it must not see the gold answer or LoCoMo evidence
+IDs. The string scorer and the later Mem0 judge may see gold.
 
-One question moves through several systems. Each system owns a different computation. This note unrolls that path twice: once as a researcher auditing files, and once as whatever is allowed to "think" at that step. The second view is the contamination check. If the model can see the gold answer, the result is not a memory result.
+## Protocols, repository code, and ownership
 
-## Who owns what
-
-| System | Owns | Does not own |
+| Owner | Supplies | This repository does |
 |---|---|---|
-| LoCoMo (Maharana et al., 2024) | The released dialogues, questions, gold answers, evidence ids, and the category F1 rules | The Mem0 judge, our memory methods, the agent loop |
-| This repository | Loading, the memory middle, the answer call, string scoring, the audit pack, the experiment runner | The benchmark text, the paper's published tables |
-| The answer model | One Chat Completions completion, or the model turns inside Codex | Retrieval policy, the score, the gold |
-| Codex | The agent loop: model, tool, model, until it writes an answer | Which files we put on disk, and how we score |
-| Mem0 (Chhikara et al., 2025) | The answer-prompt wording we pin, the CORRECT/WRONG judge, and the extract/update/graph prompts used by the optional `mem0` / `mem0g` clones | Our `graph` writer, and any number in a paper table |
+| LoCoMo (Maharana et al., 2024) | Dialogues, questions, gold answers, evidence IDs, and category-aware F1 rules | Loads the released `locomo10` subset without editing it, ports the released scorer rules |
+| Mem0 (Chhikara et al., 2025) | The released judge prompt, JSON CORRECT/WRONG convention, and category-5 exclusion | Pins the judge prompt/code shape and implements local memory-method clones separately |
+| Codex CLI | The model/tool/model loop after `codex exec` starts | Provides the workspace, disables web search, records raw/normalized events, and scores only the returned answer |
+| This repository | Config composition, memory builders, reader invocation, pack artifacts, runner, and analysis | Does not own either benchmark or recreate paper-table numbers |
 
-A number in a notebook is one of those owners' numbers. It is not automatically the others'.
+`mem0`, `mem0g`, `rag`, and `openai_memory` are local implementations of
+published-method shapes. `graph` is this repository's single-writer graph
+method, not Mem0g. Mem0 Table 1–2 values remain literature pins. A local
+judge run, an OSS clone, or an agent run must not be called a paper result.
 
-## One question, from YAML to a notebook
+## The provenance path
 
-Take a single LoCoMo question. The same outer path runs for every question. What changes is the middle.
-
-```text
-configs/*.yaml
-    → experiment runner          one cell, hashed id, no scoring
-        → eval harness           load LoCoMo, build memory, ask, score strings
-            → model or Codex     the only place an answer is invented
-        → audit pack             predictions, traces, prompts, cost
-    → autorater job              Mem0 judge, later, separate process
-    → aggregate                  parquet over finished cells
-    → notebook                   tables and plots, no new answers
+```mermaid
+flowchart LR
+  source["LoCoMo locomo10.json"] --> load["dataset.py: Conversation and Question"]
+  load --> middle["memory middle"]
+  middle --> answer["reader completion or Codex answer"]
+  answer --> prediction["predicted_answer"]
+  prediction --> locomo["LoCoMo F1: local deterministic scorer"]
+  prediction --> judge["Mem0 judge: separate online job"]
+  load -.->|"gold and evidence stay scorer-side"| locomo
+  load -.->|"question, gold, prediction"| judge
+  middle --> pack["experiment pack"]
+  answer --> pack
+  locomo --> pack
+  judge --> pack
 ```
 
-### 1. Configs declare the cell
+A configuration matrix expands to **run specs**. Each run spec has a hashed
+run ID and writes one `experiments/<run_id>/` pack. The experiment runner
+schedules run specs, it does not answer or score questions itself.
 
-A YAML file names the memory method, the model, the prompt, and the seed. It does not contain logic. `includes:` deep-merges files; later keys win; lists replace.
+## What LoCoMo data contain
 
-**Researcher.** Open `config.resolved.yaml` in the finished pack. That is the file that actually ran, after includes and CLI overrides. `config.source.yaml` is the file you pointed at. `prompts/` in the pack is a copy of every prompt path that YAML named.
+`src/locomo_eval/dataset.py` parses `data/raw/locomo10.json`, pinned to
+LoCoMo commit `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`. It creates
+`question_id` as `{sample_id}-q-{qa_index}` in source-array order.
 
-**Model.** Nothing. No model has been called. A config cannot leak a gold answer into a prompt by itself, but a prompt file can. The check is later, in the trace.
-
-The experiment runner reads `configs/experiments/*.yaml` and expands a matrix into cells. One cell is one memory method, one reader or agent, one seed. The run id is `<experiment-slug>-<8 hex>`, hashed from that identity. Change the memory method and you get a new directory. Change the judge and you do not: the judge is a later job on the same predictions.
-
-### 2. The experiment runner starts one cell
-
-`src/experiment_runner` is a scheduler. It does not answer questions and it does not make the model faster. Inside a cell, questions are still answered one at a time. What can run in parallel is independent cells: one Cloud Run task per cell, after the YAML has been expanded.
-
-The runner skips a cell that already has `_SUCCESS`, unless `--force`. A retry replaces the pack. It does not resume mid-question.
-
-**Researcher.** `manifest/runs.jsonl` lists the cells. `_SUCCESS` means that stage finished. It does not mean the answers are good.
-
-**Model.** Still nothing. The runner's job is to launch `locomo_eval` with the resolved config.
-
-### 3. The harness loads LoCoMo and keeps gold on the side
-
-`src/locomo_eval` is the evaluation harness. `dataset.py` reads `data/raw/locomo10.json` and does not edit it. The pin is commit `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376` of the LoCoMo release: ten conversations.
-
-Each sample has sessions of turns (`dia_id`, speaker, text, a date string), optional dataset-written session summaries, optional observations, and a `qa` list. We assign `question_id` as `{sample_id}-q-{index}` in that list's order.
-
-| Field | Researcher | Model |
+| Source field | Model visibility | Scorer/audit use |
 |---|---|---|
-| Dialogue turns | Source of memory text and of workspace files | May see them, depending on the middle |
-| Dataset session summaries | Used only when the memory method is `session_summaries` and no writer model is set | Sees the concatenated summaries, not the raw turns |
-| Observations | Parsed onto the sample. Preprocess dumps can list them. Answer builders do not | Does not see them |
-| `qa[].question` | The question we ask | Sees it |
-| `qa[].answer` | Gold. Scorers and the later judge | Must not see it |
-| `qa[].evidence` | Gold `dia_id`s. Used after the answer, to score a trajectory | Must not be used to choose what a live model reads |
+| `conversation.session_N` turns, dates, speakers, `dia_id` | May enter a memory string or agent workspace | Traceable source text |
+| `session_summary` | Only dataset-summary `session_summaries` memory | Audit lineage |
+| `observation` | Not injected by current builders or workspaces | Parsed only |
+| `qa[].question` | Reader/agent task input | Stored in predictions |
+| `qa[].answer` | Never reader/writer/workspace input | LoCoMo scorer and Mem0 judge |
+| `qa[].evidence` | Never reader/writer/workspace input | Post-hoc agent-trajectory audit |
 
-Questions inside one conversation run in qa-array order. A smoke cap (`--max-questions`) is round-robin across conversations. A full run is file order. There is no thread pool over questions.
+Questions run sequentially inside one run: source conversation order, then
+`qa` array order. A capped subset is the deterministic file-order prefix and
+is not a benchmark result. The runner parallelizes independent run specs, such
+as one Cloud Run task per matrix entry, it does not parallelize questions
+within a run.
 
-### 4. The middle builds what the answerer may see
+## LLM call scheduling and reproducibility
 
-This is the variable slice of the sandwich. Python builds it before the answer, except for Codex, where the model has to read files itself.
+This repository does not use provider batch APIs. One QA run is deliberately
+single-threaded:
 
-**Dataset text, no write-time model.** `raw_chunks` is the turns. `full_context` is the timestamped transcript. `session_summaries` with no `writer.model` is LoCoMo's own session-summary strings. These are deterministic. The same conversation yields the same memory text for every question.
-
-**One writer model, then a frozen reader.** If `writer.model` is set, that one model writes `session_summaries` (one call per session, `prompts/writers/session_summary_v1.txt`) or a `graph` (entity/relation JSON, then software writes the locked graph schema). The reader that answers is still the frozen reader, usually `gpt-4o-mini` and `prompts/readers/qa_mem0_v1.txt`. A writer-model change is not a reader-model change.
-
-**Optional Mem0-paper clones.** `mem0`, `mem0g`, `rag`, and `openai_memory` are built by a separate index job and reused. QA reads the dump. They are not in the current OpenAI-and-Codex claim. They exist so a later cell can compare against those methods without rewriting the scorer.
-
-**Codex workspace.** Python writes `sessions/session_N.md` and `INDEX.md` with no model. Each turn keeps its `dia_id`. Gold answers are not in the files. `Memory.text` here is a pointer to the workspace, not the transcript.
-
-**Researcher.** For a stuffed or written memory, `predictions.jsonl` field `memory_text` is what the reader received. Writer calls are under `memory/writer/`. A graph also has `memory/graph/`. For Codex, open `agent/workspaces/<sample_id>/` and confirm the gold string is absent.
-
-**Model.** The writer sees one session at a time: speakers, date, session text. It does not see the question list and it does not see gold. The reader, on the next step, sees `{memory}` and `{question}` only. The Codex model sees the workspace files it chooses to read, plus the question in its prompt.
-
-### 5. The answer is one call, or a loop we do not run ourselves
-
-Two answer paths. Both produce one string, `predicted_answer`. LoCoMo F1 and the Mem0 judge both score that string.
-
-**Chat Completions.** One request per question, temperature 0. The harness calls the API. There is no tool loop. The trace is one row in `reader/traces.jsonl`.
-
-**Codex.** The harness starts one `codex exec` per question and then waits. Codex runs its own loop: the model asks to read a file, Codex returns the file, the model asks again, until it writes `agent_answer.json` or the timeout hits. We do not pick the next tool. We do turn off web search, ignore user config and user rules, and sandbox the process. Persist-off is read-only and ephemeral. Persist-on may write notes that the next question in the *same* conversation can see. `notes_only` hides `sessions/` after an ingest pass, so the only store left is the notes.
-
-A question with no successful workspace read is a harness failure, not a wrong memory. Native Codex that cannot enforce the shared tool limits is an audit, not a comparison, until `comparison_status` is `comparable`.
-
-**Researcher.** Path A/B: one completion in `reader/traces.jsonl`. Path C: `agent/events.jsonl` is the CLI loop; `agent/trajectory.jsonl` is the normalized retrieve and write events. `agent_answer.json` should match `predicted_answer` after the JSON wrapper is stripped.
-
-**Model.** This is the only step that invents an answer. It knows the question and the memory it was given or the files it opened. It does not know the gold string, the category, or which `dia_id`s the benchmark marked as evidence. The mock agent used in tests *does* open session files that contain gold evidence ids, and it returns `Unknown.`. That mock is plumbing. It is not a result.
-
-### 6. String scoring happens in the same process, with no model
-
-When the answer returns, `score_prediction` in `src/metrics/locomo_qa.py` runs. This is the LoCoMo metric, kept close to `task_eval/evaluation.py` at the same pin. No API.
-
-| Category | JSON id | Rule |
+| Pipeline stage | Scheduling inside one run | Why it is serialized |
 |---|---|---|
-| Single-hop | 4 | Stemmed token F1 against the gold string |
-| Multi-hop | 1 | Split prediction and gold on commas; multi-answer F1 |
-| Temporal | 2 | Stemmed token F1 |
-| Open-domain | 3 | Gold is cut at the first `;`, then stemmed token F1 |
-| Adversarial | 5 | 1 if the prediction says "not mentioned" or "no information available", else 0 |
+| Model-only reader | One Chat Completions request per question | Preserves source question order and makes one trace, usage record, and retry history per answer. |
+| Writer summaries / graphs | One write request per session or write step | Later state may depend on earlier writes, calls are logged in write order. |
+| Codex harness | One `codex exec` process per question | A persisted workspace and its notes can affect later questions in that conversation. |
+| Mem0-style autorater | One judge request per stored prediction | Produces one fresh verdict/trace at a time, category 5 is skipped by the judge protocol. |
 
-Normalization lowercases, strips punctuation, drops `a`/`an`/`the`/`and`, and stems. Reporting order is 4, 1, 2, 3, 5. Those ids are the ids in the JSON. They are not the prose numbering in the paper's section 4.1.
+There is no hidden request fan-out or in-process concurrency. A reader's
+`min_request_interval_s` is a spacing floor between its sequential live calls,
+rate-limit retries remain attached to that one call.
 
-The pack also stores SPEC `exact_match` and `token_f1`. Those do not stem, and they do not use the category rules. They are a second string metric. They are not the LoCoMo number.
+The experiment runner can run **independent cells** in parallel. Locally,
+`execute-qa` executes one matrix cell. On Cloud Run, one task executes one
+cell, the deployment default permits up to eight concurrent tasks, while the
+operator's `--tasks=N` sets how many cells are launched. Thus simultaneous
+provider calls can reach `min(N, configured Cloud Run parallelism)`, but only
+across independent cells - not within a cell.
 
-`offline_evaluate` recomputes the string metrics from `predictions.jsonl`. It does not call a model. Use it when you want to confirm `metrics.json` without trusting the process that wrote it.
+This scheduling is an implementation control, not a LoCoMo or Mem0 scoring
+rule. LoCoMo and the Mem0-style judge define data/scoring protocols, not API
+batch size or worker count. Full benchmark scores are valid under this
+execution because every condition evaluates the complete frozen dataset with
+the same per-cell order. For persisted agents, serial execution is required:
+parallel questions would create an undefined notes-write order and change the
+condition.
 
-**Researcher.** `metrics.json` and `predictions.csv` hold these scores. The pack's overall F1 includes category 5. Campaign tables that follow the Mem0 subset drop category 5 from the overall mean and keep it in the category plot. Read the column name before comparing two overalls.
+## Cloud Run environment
 
-**Model.** No model. The scorer is the first component that is supposed to see the gold answer.
+Live jobs run as Docker containers on **Google Cloud Run Jobs**. Cloud Run
+provides virtual CPU and memory, the deployment config does not request GPUs. 
+The deployment scripts default to `us-central1`, but region, resource limits, 
+and parallelism are environment overrides. Report the deployed revision rather
+than treating these defaults as an immutable hardware claim.
 
-### 7. The Mem0 judge is a later job, and it is allowed to see gold
+| Job | Work unit | Default resources | Task timeout / retries | Parallelism |
+|---|---|---:|---:|---:|
+| `memorybench-qa` | One matrix cell per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
+| `memorybench-autorater` | One finished QA cell per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
+| `memorybench-aggregate` | One campaign aggregation | 1 vCPU, 4 GiB RAM | 12 h / 2 | 1 |
+| `memorybench-collect-full` | One full-pack collection | 8 vCPU, 32 GiB RAM | 12 h / 2 | 1 |
 
-`execute-autorater` reads the finished predictions and asks a judge model, prompt pinned from Mem0's `ACCURACY_PROMPT`, whether the prediction is CORRECT or WRONG. Category 5 is skipped, not scored as zero. J is the mean over the questions that were judged.
+At execution, `--tasks=N` selects the number of matrix cells in that wave.
+The concurrent-task upper bound is `min(N, job parallelism)`. Each task owns
+one `experiments/<experiment>/runs/<run_id>/` GCS prefix. Workers never append
+to a shared Parquet file. QA must finish before the autorater wave, aggregation
+and full-pack collection run afterward.
 
-The judge sees the question, the gold answer, and the prediction. That is the protocol. It must not run inside the answer process. If you find the gold string in `reader/traces.jsonl`, `memory_text`, or a workspace file, the cell is invalid. If you find it only in `autorater/traces.jsonl`, that is correct.
+For paper reporting, record the following from the actual
+deployment and pack, not only the repository defaults:
 
-J and LoCoMo F1 are not interchangeable. J accepts paraphrase. A long answer can be J-correct and F1 near zero against a two-word gold string. That gap is the metric.
+1. GCP region, Cloud Run job revision, task count, parallelism, vCPU, memory,
+   timeout, and retry settings for every wave.
+2. Container image digest (a short Git tag is convenient but not immutable),
+   repository Git hash, Python/package lock or image build record.
+3. Experiment YAML hash, expanded manifest/run IDs, LoCoMo data hash and pin,
+   prompt hashes, model IDs/snapshots, and all reader/writer/judge controls.
+4. GCS prefix layout plus the `_SUCCESS` markers proving completed QA and judge
+   waves. Store run packs, traces, and generated tables/plots with the result.
+5. The fact that API credentials were injected from Secret Manager and were
+   not stored in the image, config, logs, or archived run pack.
 
-A mock judge writes plumbing output. It must not be reported as J. Paper Table 1–2 J is a literature pin. An OSS clone, a Codex cell, or a local judge run is not that number.
+The deployment scripts are `scripts/deploy_gcp.ps1` and
+`scripts/deploy_gcp.sh`, `infra/gcp/README.md` defines the resource layout.
+Before reporting results, export the active job definitions, for example:
 
-### 8. The pack is the audit
+```bash
+gcloud run jobs describe memorybench-qa --region="$REGION" --format=yaml
+gcloud run jobs describe memorybench-autorater --region="$REGION" --format=yaml
+gcloud run jobs describe memorybench-aggregate --region="$REGION" --format=yaml
+gcloud run jobs describe memorybench-collect-full --region="$REGION" --format=yaml
+```
 
-Each cell writes `experiments/<run_id>/` and then stops. The runner does not interpret it.
+## Three answer paths
 
-| Path | What it proves |
+```mermaid
+flowchart TB
+  question["Question"] --> stuffed["Stuffed reader"]
+  question --> writer["Writer then reader"]
+  question --> agent["Codex workspace"]
+
+  stuffed --> readerA["One Chat Completions answer"]
+  writer --> writerCall["Writer calls per session"]
+  writerCall --> readerB["Same frozen reader"]
+  agent --> workspace["Session markdown files"]
+  workspace --> codex["codex exec: model ↔ tools loop"]
+
+  readerA --> prediction["Same predicted_answer contract"]
+  readerB --> prediction
+  codex --> prediction
+```
+
+### 1. Stuffed reader
+
+`raw_chunks`, dataset `session_summaries`, and `full_context` form
+`Memory.text` in Python. The reader gets `{memory}` and `{question}` through
+the configured answer prompt, then produces one Chat Completions response at
+the reader's configured temperature. No read-path tools run.
+
+### 2. Writer then frozen reader
+
+With `writer.model`, `session_summaries` makes one writer call per session.
+`graph` makes entity/relation JSON per session, then software writes the
+locked local graph representation. The answer reader is unchanged. This
+isolates a writer-model change from a reader-model change.
+
+`mem0`, `mem0g`, `rag`, and `openai_memory` instead use a separately built
+index. QA reads that index, it does not re-extract facts. Their write prompts
+and storage are local clones, not the Mem0 Platform.
+
+### 3. Agent harness
+
+`workspace_files` writes `INDEX.md` and `sessions/session_N.md` without an
+LLM. Turns retain `dia_id`, gold answers and evidence IDs are absent.
+`Memory.text` is only a workspace manifest, not the transcript.
+
+For each question, Python starts one `codex exec` and waits. Codex then owns
+the inner loop:
+
+```mermaid
+sequenceDiagram
+  participant H as Harness
+  participant C as CodexCLI
+  participant M as Model
+  participant W as Workspace
+  H->>C: question plus task prompt
+  loop Until final answer or timeout
+    C->>M: instructions, prior events, tool results
+    M->>C: tool request or final answer
+    opt File tool request
+      C->>W: read or write allowed workspace file
+      W-->>C: tool result
+    end
+  end
+  C-->>H: answer and JSONL events
+  H->>H: join evidence IDs after return
+```
+
+The adapter disables hosted web search, ignores user config/rules, and uses a
+read-only sandbox unless persistence is enabled. Persist-on notes survive only
+within the same conversation workspace. `notes_only` performs an ingest pass,
+hides `sessions/`, and leaves notes as the only permitted source.
+
+Native Codex cannot enforce common per-tool-call or retrieved-token budgets.
+It is therefore audit-only unless the recorded `agent_comparison.v1` status is
+`comparable`. A `tools: controlled` label alone is not an enforcement claim.
+
+## LoCoMo scoring: the benchmark score
+
+The QA process scores the returned string with
+`src/metrics/locomo_qa.py`, a close port of LoCoMo's released
+`task_eval/evaluation.py`. This happens without another model call.
+
+| JSON category | Type | LoCoMo rule |
+|---:|---|---|
+| 4 | single-hop | Porter-stemmed token F1 |
+| 1 | multi-hop | Split prediction and gold on commas, average each gold item's best prediction F1 |
+| 2 | temporal | Porter-stemmed token F1 |
+| 3 | open-domain | Score only the gold text before the first `;` |
+| 5 | adversarial | 1 only for “not mentioned” or “no information available” |
+
+Repository-only exact match and token F1 are also computed, but they are not
+LoCoMo paper metrics. LoCoMo F1 in a QA pack includes category 5. Campaign
+overalls may intentionally drop it when aligned to the Mem0 judged subset,
+category tables retain it.
+
+`predictions.jsonl` is the unscored QA audit stream: question, gold,
+prediction, memory metadata, and agent fields. Per-row string scores are in
+`predictions.csv`, `metrics.json`, and later aggregate Parquet. Run
+`python -m src.locomo_eval.offline_evaluate` to deterministically rescore a
+stored prediction file.
+
+## Mem0 evaluation: a second protocol on the same answer
+
+The Mem0 judge does not change the answer pipeline. It runs later, over the
+already stored `predicted_answer`.
+
+```mermaid
+flowchart LR
+  qa["finished predictions"] --> cat{"category 5?"}
+  cat -->|"yes"| skipped["SKIPPED: no judge request"]
+  cat -->|"no"| prompt["question + gold + prediction"]
+  prompt --> judge["gpt-4o-mini, temperature 0"]
+  judge --> verdict["CORRECT or WRONG JSON"]
+  verdict --> mean["J: mean over judged rows"]
+```
+
+`prompts/autoraters/autorater_mem0_v1.txt` is pinned from Mem0's released
+`ACCURACY_PROMPT` at commit `ece7ff6b`. The local judge uses the released
+shape: `gpt-4o-mini`, temperature zero, JSON label output, and category 5
+skip. It sees the question, gold answer, and prediction by design. Its
+`llm_score=0` placeholder for a skipped row is excluded from the J
+denominator.
+
+Mem0 lexical F1 and BLEU-1 are separate autorater-pack metrics. They use the
+local Mem0-style tokenization and should not be confused with LoCoMo F1.
+The paper reported ten independent judge runs with mean ± standard deviation,
+the default local job is one judge pass. Use multiple seed packs and
+`scripts.analysis.aggregate_seeds` when that aggregation is required.
+
+## Audit one result end to end
+
+| Question | Inspect |
 |---|---|
-| `predictions.jsonl` | Question, gold, prediction, memory text, string scores |
-| `reader/traces.jsonl` | The Chat Completions request and response |
-| `memory/writer/` | Writer calls and the session text the writer saw |
-| `memory/lineage.jsonl` | Question → memory item → writer |
-| `agent/events.jsonl` | The Codex loop, unprocessed |
-| `agent/trajectory.jsonl` | Retrieve and write events, joined to evidence ids after the fact |
-| `run_meta.json` | Models, prompt, data hash, git hash, layout version |
-| `TRACE.md` | Include chain → prompt files → outputs |
-| `cost.json` | Token totals |
-| `autorater/` | Judge verdicts and judge traces, if that job has run |
+| What actually ran? | `config.resolved.yaml`, `run_meta.json`, `prompts/`, `TRACE.md` |
+| What did a stuffed reader receive? | `memory/`, `predictions.jsonl`, `reader/traces.jsonl` |
+| What did a writer see and produce? | `memory/writer/sessions/`, `memory/writer/calls.jsonl`, `memory/lineage.jsonl`, `memory/graph/` |
+| What did Codex read/write? | `agent/workspaces/`, `agent/events.jsonl`, `agent/trajectory.jsonl`, `agent/COMPARISON.md` |
+| How was LoCoMo F1 made? | `predictions.csv`, `metrics.json`, `src/metrics/locomo_qa.py` |
+| How was J made? | `autorater/autorater_verdicts.jsonl`, `autorater/traces.jsonl`, `autorater/autorater_metrics.json` |
+| How did a table get its number? | `examples.parquet` → run pack → trace |
 
-`memory_recall` on an agent row is the fraction of gold `dia_id`s that showed up in text the agent actually retrieved. The join happens after the loop. It is not a hint the agent received.
+Evidence IDs are joined to agent trajectory text after Codex returns:
+`memory_recall` is the fraction of gold `dia_id`s found in retrieved text,
+and `hop_to_evidence` is the first retrieve step that hits one. They are
+diagnostics, never model inputs.
 
-### 9. Aggregation and notebooks do not answer new questions
+## Contamination controls and their scope
 
-`aggregate` collects finished cells into parquet: one row per cell, one row per question. `collect-full` also copies the packs, including `memory/` and `agent/`. `report` reads an analysis YAML and writes tables and plots. Missing packs are skipped and listed. They are not filled with zeros.
+For a live result, verify all of the following:
 
-Notebooks are thin. They load that report. They are local by default. A plotted number should trace back to `examples.parquet`, then to `predictions.jsonl`, then to the trace from step 5 or 7.
+1. The reader template has `{memory}` and `{question}`, never a gold slot.
+2. Writer prompts receive session text, not questions, gold answers, or
+   evidence IDs.
+3. Workspaces contain conversation turns and agent-written notes only.
+4. Observations are not copied into the current memory/workspace paths.
+5. LoCoMo string scoring and the Mem0 judge are the only intended stages that
+   receive `Question.answer`.
+6. Shared indexes are built from conversations, not question gold.
+7. Category 5 remains present in LoCoMo F1 and absent from J.
 
-**Researcher.** Start from the table cell, open the question row, recompute F1 with the category rule, and read the trace. The gold string in the judge trace is expected. The gold string anywhere the model could read is not.
+`verify_pack` is useful but narrow: it detects sufficiently long gold strings
+in dumped `memory_text`, it does not prove that every reader trace or agent
+workspace is gold-free. Audit those files directly, and rely on the
+reader/workspace regression tests for their construction contracts. A mock
+reader or mock judge is plumbing, never a scientific result.
 
-**Model.** None of these stages call one.
+## What does not create new answers
 
-## What we reproduce, and the differences that matter
-
-**LoCoMo's data and F1 rules.** We load the released `locomo10` file at the pin above. We do not rerun the paper's larger GPT-3.5 retrieval grid, and we do not rewrite the dialogues. Category handling matches upstream `task_eval`: stemming, the comma split for multi-hop, the first clause before `;` for open-domain, and the adversarial phrase check. Two differences are ours, and both are labeled. We also store SPEC exact match and token F1, which the paper does not use. Campaign overalls drop category 5, which is Mem0's judged subset, not LoCoMo's overall.
-
-**LoCoMo's session summaries.** When no writer model is set, `session_summaries` is the dataset field. That is not a model we ran, and it is not the paper's Summary RAG row. That paper row is a literature pin: a different retriever and a different reader.
-
-**Mem0's answer prompt and judge.** `prompts/readers/qa_mem0_v1.txt` and `prompts/autoraters/autorater_mem0_v1.txt` are pinned text (judge pin `ece7ff6b`). The judge skips category 5, as Mem0 does. The model that judges is whatever the autorater config names, often `gpt-4o-mini`. Same prompt, different judge model, different J. Do not present it as Table 2.
-
-**Mem0's memory methods.** `mem0` and `mem0g` follow the pinned extract, update, and graph prompts (`ece7ff6b`, graph `69a832dc`). `rag` is the paper's chunk-and-embed clone. `full_context` stuffs the transcript the way that baseline does. These are architecture clones. They are not Mem0 Platform numbers.
-
-**Our graph is not `mem0g`.** `graph` is one writer model emitting relations, then software writing the locked graph schema. There is no Mem0 extract/update loop and no second model voting. Say `graph` when that is the cell. Say `mem0g` only for the index clone.
-
-**Codex is the harness, not a memory paper.** We invoke the Codex CLI. The loop inside the CLI is Codex's. Our contribution is the workspace, the tool limits, the trajectory audit, and the frozen scorer on the string Codex returns.
-
-## Why a result is not contaminated
-
-All of the following hold for a live cell. A mock smoke is allowed to break the scientific reading; it is not allowed to be published as one.
-
-1. `dataset.py` does not write back to `locomo10.json`.
-2. The reader prompt template has `{memory}` and `{question}`. It has no gold slot.
-3. Writer prompts have the session text. They have no question gold and no evidence list.
-4. Workspace files are turns and, when persist is on, notes the agent itself wrote. Evidence ids are joined to the trajectory after `codex exec` returns.
-5. Observations are not copied into memory text or into the workspace.
-6. The string scorer and the judge are the components that receive `Question.answer`. The judge runs in a later process.
-7. `verify_pack` checks that gold strings of sufficient length do not appear in `memory_text`. A failed check means the cell is invalid.
-8. Category 5 is scored by LoCoMo's phrase rule in `metrics.json`, and omitted from J. Those are different denominators on purpose.
-9. Shared `mem0` / `rag` indexes are built once from the dialogues, not from the questions' gold answers. QA only reads them.
-
-If you are adding a memory method, the test to keep is the one this list already states: build the prompt the model will see, and show that the gold answer is not in it. Then score with the existing functions. Do not add a new F1.
+After QA, `execute-autorater` is the only normal stage that makes more model
+calls. `aggregate`, `collect-full`, `report`, comparison scripts, and thin
+notebooks read finished artifacts. A reported number should be walkable from
+a table row to `examples.parquet`, then to the run pack and its reader or
+agent trace.

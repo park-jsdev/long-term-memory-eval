@@ -144,6 +144,37 @@ class TestWriterMatricesStayOneModel(unittest.TestCase):
         self.assertTrue(all(spec.writer is not None for spec in specs))
         self.assertEqual({spec.writer.api_model_id for spec in specs}, {"gpt-4o-mini"})
 
+    def test_openai_mini_codex_prompt_parity_has_two_models_and_four_agents(self):
+        specs = expand_run_matrix(
+            load_experiment_yaml(
+                ROOT / "configs" / "experiments" / "openai_mini_codex_prompt_parity.yaml"
+            )
+        )
+
+        self.assertEqual(len(specs), 6)
+        model_specs = [spec for spec in specs if spec.agent is None]
+        codex_specs = [spec for spec in specs if spec.agent == "codex"]
+        self.assertEqual(
+            [spec.memory_method for spec in model_specs],
+            ["full_context", "session_summaries"],
+        )
+        self.assertEqual(len(codex_specs), 4)
+        self.assertEqual(
+            {(spec.memory_method, spec.agent_persist) for spec in codex_specs},
+            {
+                ("full_context", False),
+                ("full_context", True),
+                ("session_summaries", False),
+                ("session_summaries", True),
+            },
+        )
+        self.assertTrue(
+            all(spec.agent_prompt_mode == "reader_prompt" for spec in codex_specs)
+        )
+        self.assertTrue(
+            all(spec.prompt_path == "prompts/readers/qa_mem0_v1.txt" for spec in specs)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

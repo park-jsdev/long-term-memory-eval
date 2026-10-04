@@ -45,9 +45,9 @@ from src.locomo_eval.readers import (
     build_reader_messages,
 )
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
-from src.locomo_eval.experiments.audit_loader import SandwichAudit, resolve_predictions_jsonl
-from src.locomo_eval.experiments.audit_layout import AuditPaths
-from src.locomo_eval.experiments.claim_audit import lineage_rows
+from src.locomo_eval.experiment_pack.audit_loader import SandwichAudit, resolve_predictions_jsonl
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
+from src.locomo_eval.experiment_pack.claim_audit import lineage_rows
 from src.locomo_eval.run import _reset_run_output, build_parser, run_locomo_pipeline_with_memory_config
 from src.locomo_eval.schemas import Memory
 

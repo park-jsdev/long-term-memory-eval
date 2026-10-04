@@ -1,10 +1,23 @@
-# Documentation
+# Architecture
 
-This file is the architecture of Long-Term Memory Eval. The landing page shows the evaluation harness. The experiment runner is described here because it only schedules cells; it does not score them.
+This file is how the evaluation harness and experiment runner fit together.
+The landing page introduces the harness; [loop.md](loop.md) is the
+source-to-output protocol and contamination walkthrough. The runner is
+described here because it schedules run specs; it does not answer questions
+or score them.
 
-`src/locomo_eval` is the harness. It fixes the LoCoMo data and the scorer, and varies the memory method in the middle. A **model** answers through Chat Completions, or writes memory and then a frozen reader answers. An **agent** (Codex) answers from conversation files in a workspace. LoCoMo token F1 is the benchmark score. The Mem0 judge is a second protocol on the same predictions. This repository did not author either protocol.
+`src/locomo_eval` is the harness. A **model** answers through Chat
+Completions, or writes memory before a frozen reader answers. An **agent**
+(Codex) answers from conversation files in a workspace. LoCoMo F1 is the
+benchmark string score. Exact match, token F1, Mem0 lexical metrics, and the
+Mem0 judge are separately named measurements of the same prediction. This
+repository did not author either protocol.
 
-The **experiment runner** (`src/experiment_runner`) expands a YAML matrix into hashed run ids and launches one eval cell per task. A cell still answers questions one at a time. What can run in parallel is independent cells, one Cloud Run task each, not a faster model. Install and run steps are in [runbook.md](runbook.md).
+The **experiment runner** (`src/experiment_runner`) expands a YAML matrix into
+hashed run IDs and launches one run spec per task. Questions in a run remain
+sequential. Independent run specs can be parallel Cloud Run tasks; this does
+not make an individual reader or agent faster. Install and run steps are in
+[runbook.md](runbook.md).
 
 ## Framework
 
@@ -14,11 +27,11 @@ The repo is deliberately split so that **what you want to measure** is data, and
 | Layer | Contract | Lives in |
 |---|---|---|
 | **Recipe** | Declarative YAML. Names models, memory methods, groupings, metrics, plot kinds. Carries no logic. | `configs/` |
-| **Engine** | The eval harness. Same input produces the same score. Never forked per campaign. | `src/locomo_eval/`, `src/metrics/`, `scripts/analysis/` |
+| **Engine** | The shared harness and offline analysis. Live model calls are variable; string scoring and reporting are reproducible from stored artifacts. | `src/locomo_eval/`, `src/metrics/`, `scripts/analysis/` |
 | **Experiment** | Fixed data and scorer, one varying memory method. | `configs/experiments/*.yaml` |
 | **Campaign** | An ordered set of experiments sharing a freeze note and cross-experiment analyses. | `configs/analysis/*.yaml` |
-| **Job** | The experiment runner. One matrix cell, or one collector pass. Idempotent and hash-identified. | `src/experiment_runner/` |
-| **Audit log** | Per-run observability snapshot: inputs, prompts, memory, traces, lineage, cost, git hash. | `experiments/<run_id>/` |
+| **Job** | The experiment runner. One matrix entry/run spec, or one collector pass. Idempotent and hash-identified. | `src/experiment_runner/` |
+| **Experiment pack** | Per-run observability snapshot: inputs, prompts, memory, traces, lineage, cost, and git hash. | `experiments/<run_id>/`, `src/locomo_eval/experiment_pack/` |
 | **Test** | Deterministic verifier. Locks the contracts above so a refactor cannot silently change a claim. | `tests/` |
 
 The load-bearing rule: **a new experiment or campaign is a new YAML file, never new plotting code.**
@@ -33,7 +46,7 @@ flowchart TB
     XC["configs/experiments/*.yaml<br/>matrix, freeze, storage"]
     AC["configs/analysis/*.yaml<br/>campaign + analyses"]
     CC["configs/{readers,writers,agents,layouts,stacks,models}/"]
-    PR["prompts/{readers,writers,autoraters}/"]
+    PR["prompts/{readers,writers,agents,autoraters}/"]
   end
 
   subgraph CONTROL["CONTROL PLANE — src/experiment_runner"]
@@ -45,7 +58,7 @@ flowchart TB
   subgraph ENGINE["ENGINE — deterministic"]
     LE["src/locomo_eval<br/>memory, readers, writer model, autorater"]
     MET["src/metrics/locomo_qa.py<br/>official LoCoMo F1"]
-    AN["scripts/analysis<br/>campaign_tables + campaign_plots"]
+    AN["scripts/analysis<br/>campaign tables + plots"]
   end
 
   subgraph DATA["I/O PLANE"]
@@ -102,7 +115,7 @@ flowchart LR
   S["stacks/qa_mem0_parity.yaml<br/>FROZEN BOTTOM"]
   W["writers/[method].yaml<br/>VARIABLE MIDDLE"]
   P["presets/<br/>one-axis overlay"]
-  X["experiments/<br/>multi-cell matrix"]
+  X["experiments/<br/>multi-run matrix"]
   A["analysis/<br/>campaign recipes"]
 
   D --> S
@@ -127,7 +140,7 @@ flowchart LR
 | `configs/run/` | Where packs are written | `run.output_dir` (default `experiments`). Kept so a later run can change the output root. |
 | `configs/presets/` | One runnable overlay for `locomo_eval.run` | CLI default: `configs/presets/mem0_baseline.yaml`. |
 | `configs/models/` | Catalog ids, list prices, context windows | `generation_catalog.yaml` fills `api_model_id` and `model_snapshot`. |
-| `configs/experiments/` | Matrices the harness expands into cells | `python -m src.experiment_runner write-manifest configs/experiments/<name>.yaml` |
+| `configs/experiments/` | Matrices the harness expands into run specs | `python -m src.experiment_runner write-manifest configs/experiments/<name>.yaml` |
 | `configs/analysis/` | Tables and plots over finished packs | `python -m src.experiment_runner report configs/analysis/<name>.yaml` |
 
 Compose with `includes:` (deep-merge; later keys win; lists replace). A writer file is runnable because it includes a stack. Swap one piece by including another file after it:
@@ -141,18 +154,21 @@ includes:
 `session_summaries` with no `writer` block uses the dataset summaries. The same memory id with `writer.model` set means that one model writes the summaries. `graph` always uses the one writer and the locked graph schema.
 
 **Model pinning.** `configs/models/generation_catalog.yaml` holds `api_model_id` (what is sent) and
-`model_snapshot` (the dated identity that makes a live cell reproducible). A model carrying
-`status: to_confirm` marks its cells `to_confirm`, and `execute-qa` refuses them unless you pass
+`model_snapshot` (the dated identity that makes a live run reproducible). A model carrying
+`status: to_confirm` marks its run specs `to_confirm`, and `execute-qa` refuses them unless you pass
 `--allow-unconfirmed`.
 
-### 2. Engine layer — deterministic scripts
+### 2. Engine layer — live calls plus deterministic artifact processing
 
-Engines are pure functions over finished artifacts. They are the only place charts and tables exist.
+The harness makes live reader, writer, embedder, and judge calls when a
+configured path requires one. Once a prediction pack exists, string rescoring,
+aggregation, comparisons, and reports are offline and deterministic over its
+stored artifacts.
 
 ```mermaid
 flowchart LR
   subgraph Read["read path engine — src/locomo_eval"]
-    MEM["memory.py<br/>11 memory method ids"]
+    MEM["memory.py<br/>10 memory method ids"]
     RD["readers.py + models.py<br/>API kwargs pinning"]
     SC["metrics.py + src/metrics/locomo_qa.py"]
   end
@@ -224,7 +240,8 @@ flowchart TB
 | `sweep` | Cartesian matrix; readers may vary |
 | `sandwich` | YAML type name for a frozen reader. Requires `experiment.freeze.reader` and rejects a multi-entry reader axis. |
 | `ablation` | Remove or degrade one write-path component |
-| `calibration` | Plumbing and cost calibration cells |
+| `calibration` | Plumbing and cost-calibration run specs |
+| `agent` | Workspace-file harness matrix; reader-like model calls happen inside the configured adapter |
 
 Matrix axes expand in fixed order `reader → memory_method → writer → seed`. A writer is attached
 only when the memory method is `session_summaries`, `graph`, or `agent_codex_mem0_facts`.
@@ -293,7 +310,7 @@ stateDiagram-v2
   [*] --> Declared: write experiment YAML
   Declared --> Expanded: write-manifest
   note right of Expanded
-    N cells, each with a
+    N run specs, each with a
     hashed run_id
   end note
   Expanded --> Gated: validate model status
@@ -303,8 +320,8 @@ stateDiagram-v2
     shared rag/mem0 index
     fetched or required
   end note
-  Indexed --> Answered: execute-qa per cell
-  Answered --> Judged: execute-autorater per cell
+  Indexed --> Answered: execute-qa per run spec
+  Answered --> Judged: execute-autorater per run spec
   Judged --> Collected: aggregate or collect-full
   Collected --> Reported: report from analysis YAML
   Reported --> Published: notebook review
@@ -319,7 +336,7 @@ Two properties make this safe to interrupt:
    (benchmark, experiment name, memory method, reader provider and model, writer model, prompt path,
    subset caps, sample id, seed, shared index ids). Change a knob that matters and you get a new
    directory; change the judge model and you do not.
-2. **Idempotent stages.** Each stage writes `_SUCCESS` last. A retry skips completed cells unless
+2. **Idempotent stages.** Each stage writes `_SUCCESS` last. A retry skips completed run specs unless
    `--force`. Within a stage a run is *replace-not-append*: it clears its own generated output and
    regenerates from question one. `predictions.jsonl` is an audit artifact, not a checkpoint.
 
@@ -327,17 +344,17 @@ Two properties make this safe to interrupt:
 
 ## Staged job pipeline
 
-Stages run as **sequential waves**; cells **within** a wave are parallel.
+Stages run as **sequential waves**; run specs **within** a wave are parallel.
 
 ```mermaid
 flowchart TB
   Y["experiment YAML"] --> WM["wave 0 — write-manifest<br/>OFFLINE"]
   WM --> M["manifest/runs.jsonl"]
 
-  M --> QA["wave 1 — execute-qa<br/>N parallel cells<br/>ONLINE: reader, writer, embedder"]
+  M --> QA["wave 1 — execute-qa<br/>N parallel run specs<br/>ONLINE: reader, writer, embedder"]
   QA --> RP["experiments/[run_id]/<br/>predictions, memory, reader, cost, _SUCCESS"]
 
-  RP --> AU["wave 2 — execute-autorater<br/>N parallel cells<br/>ONLINE: judge"]
+  RP --> AU["wave 2 — execute-autorater<br/>N parallel run specs<br/>ONLINE: judge"]
   AU --> AP["autorater/ verdicts, traces, tables, plots, _SUCCESS"]
 
   AP --> AG["wave 3 — aggregate or collect-full<br/>1 collector<br/>OFFLINE"]
@@ -350,14 +367,14 @@ flowchart TB
 | Wave | Command | API? | Writes | Parallelism |
 |---|---|---|---|---|
 | 0 | `write-manifest <exp.yaml>` | No | `manifest/runs.jsonl` | single |
-| 1 | `execute-qa <exp.yaml> --run-index i` | **Yes** — reader, plus the writer and embedder when the method needs them | run pack + `_SUCCESS` | one task per cell |
-| 2 | `execute-autorater <exp.yaml> --run-index i` | **Yes** — judge only | `autorater/` + `autorater/_SUCCESS` | one task per cell |
+| 1 | `execute-qa <exp.yaml> --run-index i` | **Yes** — reader, plus the writer and embedder when the method needs them | run pack + `_SUCCESS` | one task per run spec |
+| 2 | `execute-autorater <exp.yaml> --run-index i` | **Yes** — judge only | `autorater/` + `autorater/_SUCCESS` | one task per run spec |
 | 3 | `aggregate` / `collect-full <exp.yaml>` | No | `aggregate/` or `collected/` | single collector |
 | — | `report <analysis.yaml>` | No | `analysis/` | single |
 | — | `status <exp.yaml>` | No | stdout counts | single |
 
-On Cloud Run the cell index comes from `CLOUD_RUN_TASK_INDEX`; locally it comes from `--run-index`.
-Wave 2 **fail-fasts** if a cell has no QA `_SUCCESS`, so a judge can never score a partial answer set.
+On Cloud Run the run-spec index comes from `CLOUD_RUN_TASK_INDEX`; locally it comes from `--run-index`.
+Wave 2 **fail-fasts** if a run spec has no QA `_SUCCESS`, so a judge can never score a partial answer set.
 `aggregate` writes the thin catalog used by analysis; `collect-full` additionally copies `memory/`
 dumps for deep audit.
 
@@ -375,7 +392,12 @@ sequenceDiagram
 
   H->>WS: fetch dataset + shared index
   H->>MB: resolve memory_method
-  alt writer method
+  alt agent workspace method
+    MB->>WS: write INDEX and session files
+    H->>WS: start one adapter process per question
+    WS->>WS: Codex model and file-tool loop
+    WS-->>SC: returned answer plus trajectory
+  else writer method
     MB->>TW: session blocks
     TW->>TW: one model summarizes or extracts a graph
     TW-->>MB: session summaries or locked graph
@@ -392,6 +414,12 @@ sequenceDiagram
   AW->>AW: write pack, lineage, cost, _SUCCESS
 ```
 
+For the agent branch, the harness does not choose a next retrieval step. The
+adapter drives its own model/tool loop. Evidence IDs are joined to normalized
+trajectory events only after the answer returns. Native Codex is recorded as
+`incomparable` unless its `agent_comparison.v1` contract can enforce every
+requested shared control; see [loop.md](loop.md).
+
 ---
 
 ## LLM call inventory
@@ -404,6 +432,7 @@ answers; the **judge** scores. Only the read path and judge are frozen for a mem
 | Answer / reader | read | `readers.py` | `prompts/readers/qa_mem0_v1.txt` | openai, deepseek, anthropic, mock |
 | Writer session summary | write | `writer_model.py` | `prompts/writers/session_summary_v1.txt` | openai, anthropic, deepseek, mock |
 | Writer graph extraction | write | `writer_model.py` | `prompts/writers/graph_v1.txt` | openai, anthropic, deepseek, mock |
+| Harness answer | agent read | `agents/adapters/codex.py` | `prompts/agents/qa_workspace_*.txt` | Codex CLI, mock |
 | Mem0 fact extract | write index | `mem0/extract.py` | `prompts/writers/mem0_extract_v1.txt` | openai, mock |
 | Mem0 update ADD/UPDATE/DELETE/NONE | write index | `mem0/update.py` | `prompts/writers/mem0_update_v1.txt` | openai, mock |
 | Mem0g entities | write index | `mem0/graph_memory.py` | `prompts/writers/mem0g_entities_v1.txt` | openai, mock |
@@ -424,16 +453,18 @@ deterministic builders, every metric, and every analysis script.
 
 Every memory method, and whether it spends tokens at QA time:
 
-| Memory method | Write-path LLM | Read-path LLM | Notes |
+| Memory method | Write-path LLM | Retrieval work before answer | Answer path |
 |---|---|---|---|
-| `raw_chunks` | none | none | chronological dialog |
-| `session_summaries` | none, unless `writer.model` is set | none | dataset summaries, or one model per session |
-| `graph` | **per session** | node embedding | one writer into the locked graph |
-| `full_context` | none | none | entire timestamped transcript |
-| `rag` | index built earlier | query embedding | Mem0-paper clone: 256-token chunks, k=2 |
-| `openai_memory` | index built earlier | none | privileged extract-all protocol clone |
-| `mem0` | index built earlier | query embedding | vector store |
-| `mem0g` | index built earlier | query embedding | vector + graph |
+| `raw_chunks` | none | none | stuffed reader; chronological dialog |
+| `session_summaries` | none, unless `writer.model` is set | none | stuffed reader; dataset or writer summaries |
+| `graph` | writer per session | format locked graph text | stuffed reader; not Mem0g |
+| `full_context` | none | none | stuffed reader; entire timestamped transcript |
+| `rag` | index built earlier | query embedding + top-k chunks | stuffed reader; local RAG clone |
+| `openai_memory` | index built earlier | retrieve all extracted facts | stuffed reader; privileged extract-all clone |
+| `mem0` | index built earlier | query embedding + facts | stuffed reader; local vector-store clone |
+| `mem0g` | index built earlier | query embedding + graph facts | stuffed reader; local graph-store clone |
+| `workspace_files` | none | agent-chosen file reads | Codex or mock harness; no stuffed transcript |
+| `agent_codex_mem0_facts` | Codex writer | read local facts | frozen Chat Completions reader, not the agent harness |
 
 ---
 
@@ -555,7 +586,7 @@ flowchart TB
   end
 
   subgraph OP["OBSERVABILITY PLANE — explains what happened"]
-    O1["run_meta.json: models, prompt, data hash, git hash, audit_pack.v3"]
+    O1["run_meta.json: models, prompt, data hash, git hash, comparison contract"]
     O2["config.source.yaml + config.resolved.yaml"]
     O3["prompts/ + TRACE.md"]
     O4["reader/traces.jsonl"]
@@ -563,7 +594,8 @@ flowchart TB
     O6["memory/writer/ calls and quality"]
     O7["cost.json + attribution.jsonl + SUMMARY.md"]
     O8["autorater/traces.jsonl"]
-    O9["cells.jsonl + status.json"]
+    O9["agent/: workspace, events, trajectory, comparison status"]
+    O10["cells.jsonl + status.json"]
   end
 
   CP --> IO --> OP
@@ -575,7 +607,7 @@ Any number in a published table can be walked back to the bytes that produced it
 
 ```mermaid
 flowchart LR
-  A["published cell<br/>analysis/tables/*.csv"] --> B["examples.parquet<br/>one row per question"]
+  A["published result<br/>analysis/tables/*.csv"] --> B["examples.parquet<br/>one row per question"]
   B --> C["aggregate/by_run/[run_id]/"]
   C --> D["run pack<br/>experiments/[run_id]/"]
   D --> E["reader/traces.jsonl<br/>exact request and response"]
@@ -587,13 +619,16 @@ flowchart LR
   A --> K["autorater/traces.jsonl<br/>judge reasoning"]
 ```
 
-Each run pack (`audit_pack.v3`) always contains predictions in JSONL and CSV, `metrics.json` and
-`metrics_by_category.csv`, `run_meta.json`, both frozen config files, `cost.json`, `SUMMARY.md`,
-`ATTRIBUTION.md` with `attribution.jsonl`, `TRACE.md`, `plots/`, `reader/`, `prompts/`, and `memory/`.
-Writer conditions add `memory/writer/` (calls, the session text the writer saw, `quality.json`); graph
-conditions add `memory/graph/` including `ingest.jsonl`. Retrieval conditions
-record losers as well as winners in `retrieve_ranks.jsonl`, so a retrieval claim is auditable rather
-than asserted.
+Each run pack (`audit_pack.v3`) contains predictions in JSONL and CSV,
+`metrics.json` and `metrics_by_category.csv`, `run_meta.json`, both frozen
+config files, `cost.json`, `SUMMARY.md`, `ATTRIBUTION.md` with
+`attribution.jsonl`, `TRACE.md`, `plots/`, `reader/`, `prompts/`, and
+`memory/`. Writer conditions add `memory/writer/` (calls, the session text the
+writer saw, `quality.json`); graph conditions add `memory/graph/` including
+`ingest.jsonl`. Agent conditions add `agent/` with workspaces, raw events,
+normalized trajectory, and comparison status. Retrieval conditions record
+losers as well as winners in `retrieve_ranks.jsonl`, so a retrieval claim is
+auditable rather than asserted.
 
 ## Repository layout
 
@@ -601,8 +636,8 @@ than asserted.
 configs/            recipes: data, layouts, readers, writers, agents,
                     autoraters, stacks, run, presets, models, experiments, analysis
 prompts/            readers/, writers/, agents/, autoraters/
-src/locomo_eval/    read + write path engine, audit pack writer
-src/experiment_runner/  experiment runner: matrix, hashed ids, one cell per task
+src/locomo_eval/    read + write path engine, experiment-pack writer/loader
+src/experiment_runner/  experiment runner: matrix, hashed IDs, one run spec per task
 src/metrics/        official LoCoMo category F1
 scripts/            fetch, prepare, deploy, compare
 scripts/analysis/   campaign_tables, campaign_plots, run_benchmark, comparisons

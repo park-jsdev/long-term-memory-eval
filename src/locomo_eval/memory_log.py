@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.audit_writer import write_writer_module
+from src.locomo_eval.experiment_pack.audit_writer import write_writer_module
 from .prompts import render_qa_prompt
 from .report import write_json
 from .schemas import Memory
@@ -186,7 +186,7 @@ def write_memory_run_log(
     example_question: str | None,
     doc_path: str = "docs/schemas/memory_runtime.md",
     memories_by_question: dict[str, Memory] | None = None,
-    question_sample_ids: dict[str, str] | None = None,
+    question_conversation_ids: dict[str, str] | None = None,
 ) -> Path:
     """Write experiments/<run_id>/memory/ audit package.
 
@@ -298,14 +298,14 @@ def write_memory_run_log(
         if memories_by_question:
             q_dir = mem_dir / "by_question"
             q_dir.mkdir(parents=True, exist_ok=True)
-            q_sample = question_sample_ids or {}
+            q_conversation = question_conversation_ids or {}
             for question_id, memory in sorted(memories_by_question.items()):
                 text = memory.text or ""
                 rel = f"memory/by_question/{question_id}.txt"
                 (q_dir / f"{question_id}.txt").write_text(text, encoding="utf-8")
                 row = {
                     "schema_version": SCHEMA_VERSION,
-                    "sample_id": q_sample.get(question_id),
+                    "sample_id": q_conversation.get(question_id),
                     "question_id": question_id,
                     "memory_type": memory.memory_type,
                     "n_source_ids": len(memory.source_ids),

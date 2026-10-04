@@ -126,6 +126,21 @@ def write_conversation_workspace(
     )
 
 
+def write_prompt_parity_workspace(dest: Path, *, persist_memory: bool) -> Path:
+    """Create an output-only workspace so prompt-parity has no file evidence.
+
+    The reader payload is passed directly to Codex.  Notes are the only optional
+    state, which keeps persistence auditable without exposing raw turns.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    if persist_memory:
+        (dest / PERSIST_DIR).mkdir(parents=True, exist_ok=True)
+        notes = dest / PERSIST_NOTES
+        if not notes.is_file():
+            notes.write_text(NOTES_HEADER, encoding="utf-8")
+    return dest
+
+
 def render_agent_prompt(template: str, question: str) -> str:
     """Fill ``prompts/agents/qa_workspace_*.txt``. Gold must not appear."""
     if "{question}" in template:

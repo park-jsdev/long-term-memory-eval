@@ -1,14 +1,14 @@
 # Installing, building, and running
 
-Local steps for the evaluation harness. Campaign reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The GPT-4o-mini writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
+Local steps for the evaluation harness. Campaign reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The matched-prompt reader comparison is in [runbook_mini_vs_codex_readers.md](runbook_mini_vs_codex_readers.md). The writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
 
 Never commit `.env` or an API key.
 
 ## Install
 
 ```bash
-conda create -n distillation python=3.11 -y
-conda activate distillation
+conda create -n <your-env-name> python=3.11 -y
+conda activate <your-env-name>
 pip install -r requirements.txt
 python scripts/fetch_locomo.py
 ```
@@ -31,7 +31,7 @@ A laptop does not need the image. Use the conda environment above.
 
 ## Run
 
-One cell, no API key. The reader is a mock. Five questions, round-robin across conversations:
+One cell, no API key. The reader is a mock. Five file-order questions:
 
 ```bash
 python -m src.locomo_eval.run \

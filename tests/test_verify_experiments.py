@@ -12,9 +12,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.audit_layout import audit_layout_meta
-from src.locomo_eval.experiments.verify_graph_years import diagnose_graph_year_stagnation
-from src.locomo_eval.experiments.verify_pack import (
+from src.locomo_eval.experiment_pack.audit_layout import audit_layout_meta
+from src.locomo_eval.experiment_pack.verify_graph_years import diagnose_graph_year_stagnation
+from src.locomo_eval.experiment_pack.verify_pack import (
     QA_MEM0_V1,
     discover_run_dirs,
     verify_pack,

@@ -39,25 +39,25 @@ audit_loader  →  compare / autorater / paper-vs-local
 
 | Python module | Role | Who imports it |
 |---------------|------|----------------|
-| `experiments/audit_layout.py` | Folder/file names only. No I/O. | dump and analysis |
-| `experiments/claim_audit.py` | Lineage, ranks, writer quality, cost, attribution (call → role → claims), SUMMARY text | `audit_writer` |
-| `experiments/prompt_bundle.py` | Snapshot `prompts/` + `TRACE.md` (config → prompt → jsonl) | `run.py`, autorater CLI |
-| `experiments/audit_writer.py` | Create reader / writer / graph / claim files | `run.py`, `memory_log.py`, autorater CLI |
-| `experiments/audit_loader.py` | Read a finished sandwich audit. No LLM. | `scripts/compare_full_runs.py`, `scripts/analysis/` |
+| `experiment_pack/audit_layout.py` | Folder/file names only. No I/O. | dump and analysis |
+| `experiment_pack/claim_audit.py` | Lineage, ranks, writer quality, cost, attribution (call → role → claims), SUMMARY text | `audit_writer` |
+| `experiment_pack/prompt_bundle.py` | Snapshot `prompts/` + `TRACE.md` (config → prompt → jsonl) | `run.py`, autorater CLI |
+| `experiment_pack/audit_writer.py` | Create reader / writer / graph / claim files | `run.py`, `memory_log.py`, autorater CLI |
+| `experiment_pack/audit_loader.py` | Read a finished sandwich audit. No LLM. | `scripts/compare_full_runs.py`, `scripts/analysis/` |
 
 Eval / analysis code should import only:
 
 ```python
-from src.locomo_eval.experiments.audit_loader import load_sandwich_audit, load_qa_pack
-from src.locomo_eval.experiments.audit_layout import AuditPaths
-from src.locomo_eval.experiments.verify_pack import verify_pack
-from src.locomo_eval.experiments.verify_graph_years import diagnose_graph_year_stagnation
+from src.locomo_eval.experiment_pack.audit_loader import load_sandwich_audit, load_qa_pack
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
+from src.locomo_eval.experiment_pack.verify_pack import verify_pack
+from src.locomo_eval.experiment_pack.verify_graph_years import diagnose_graph_year_stagnation
 ```
 
 CLI: `python -m scripts.analysis.verify_experiments experiments/<run_id>`
 (`--graph-years` for graph 2025 vs 2026). Not a Cloud Run job.
 
-Do not import `src.locomo_eval.run`, the writer model, or `experiments.audit_writer`
+Do not import `src.locomo_eval.run`, the writer model, or `experiment_pack.audit_writer`
 from an eval branch. That keeps git conflicts on the write path vs analysis
 path small.
 
@@ -157,13 +157,13 @@ dump layers load as `[]` / `{}`.
 Index keys: `sample_id`, `session_id`, `writer_id`, `question_id`, `item_id`.
 
 `cost.json` USD uses pinned list prices for known OpenAI ids only
-(`experiments/claim_audit.py`, `pricing_as_of`). Unknown models contribute
+(`experiment_pack/claim_audit.py`, `pricing_as_of`). Unknown models contribute
 tokens with `usd=null`. This is a rollup, not an invoice.
 
 ## Branch split (to avoid merge collisions)
 
 | Branch work | Touch |
 |-------------|--------|
-| Pipeline / writer / dumps | `run.py`, `writer_model.py`, `experiments/audit_writer.py`, `experiments/claim_audit.py` |
+| Pipeline / writer / dumps | `run.py`, `writer_model.py`, `experiment_pack/audit_writer.py`, `experiment_pack/claim_audit.py` |
 | Evaluation / claims on dumps | `scripts/analysis/`, new eval modules; `audit_loader.py` only if the **on-disk contract** changes |
-| Path names / version | `experiments/audit_layout.py` + this doc (rare; bump `audit_pack.v3`) |
+| Path names / version | `experiment_pack/audit_layout.py` + this doc (rare; bump `audit_pack.v3`) |

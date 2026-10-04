@@ -50,7 +50,9 @@ MEMORY_LANE_AXIS = (
 )
 _MEMORY_LANE_ALIAS = {
     "session_summaries": "session_summaries",
+    "teacher_session_summaries": "session_summaries",
     "graph": "graph",
+    "teacher_graph": "graph",
 }
 SYSTEM_HARNESS_AXIS = ("chat_completions", "codex")
 MINI_SIDE_AXIS = ("4o-mini", "4o-mini + Codex")
@@ -1160,7 +1162,8 @@ def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
     Persist-off ``workspace_files`` is the Codex analog of stuffed
     ``full_context``. Persist-on workspace and Codex facts are not lanes
     (no Chat Completions twin). ``graph`` stays ``graph``
-    (not paper Mem0g). Older packs named ``graph`` map here.
+    (not paper Mem0g). Older packs used ``teacher_session_summaries`` and
+    ``teacher_graph``; those ids display as ``session_summaries`` and ``graph``.
     """
     out = df.copy()
     if out.empty:
@@ -1251,6 +1254,30 @@ def annotate_mini_side(df: pd.DataFrame) -> pd.DataFrame:
         else:
             labels.append(None)
     out["mini_side"] = labels
+    return out
+
+
+def annotate_prompt_parity_condition(df: pd.DataFrame) -> pd.DataFrame:
+    """Label model and Codex persistence without dropping null model fields."""
+    out = df.copy()
+    if out.empty:
+        out["prompt_parity_condition"] = []
+        return out
+    agents = out["agent"] if "agent" in out.columns else None
+    persist = out["agent_persist"] if "agent_persist" in out.columns else None
+    labels: list[str] = []
+    for i in range(len(out)):
+        agent = "none" if agents is None else _agent_token(agents.iloc[i])
+        if agent != "codex":
+            labels.append("4o-mini")
+            continue
+        flag = None if persist is None else persist.iloc[i]
+        labels.append(
+            "4o-mini + Codex (persist on)"
+            if _truthy_flag(flag)
+            else "4o-mini + Codex (persist off)"
+        )
+    out["prompt_parity_condition"] = labels
     return out
 
 
@@ -1378,6 +1405,8 @@ def _agent_identity_lookup(pack: Path) -> dict[str, dict[str, Any]]:
                 rec["agent_sessions"] = meta.get("agent_sessions")
             if meta.get("agent_tools") is not None:
                 rec["agent_tools"] = meta.get("agent_tools")
+            if meta.get("agent_prompt_mode") is not None:
+                rec["agent_prompt_mode"] = meta.get("agent_prompt_mode")
             contract = meta.get("comparison_contract") if isinstance(meta.get("comparison_contract"), dict) else {}
             if contract.get("status"):
                 rec["comparison_status"] = contract.get("status")
@@ -1393,6 +1422,7 @@ def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.
         work = annotate_system_harness(work)
         work = annotate_paper_compare(work)
         work = annotate_mini_side(work)
+        work = annotate_prompt_parity_condition(work)
         work = annotate_gap_stack(work)
         if (
             "paper_method" in group_by

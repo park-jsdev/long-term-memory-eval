@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.config import list_config_chain, load_config
-from src.locomo_eval.experiments.prompt_bundle import write_prompt_bundle
+from src.locomo_eval.experiment_pack.prompt_bundle import write_prompt_bundle
 from src.locomo_eval.prompts import QA_MEM0_V1, locate_prompt_file
 
 

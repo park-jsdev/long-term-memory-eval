@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.verify_pack import (
+from src.locomo_eval.experiment_pack.verify_pack import (
     SCHEMA_VERSION,
     PackReport,
     discover_run_dirs,

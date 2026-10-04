@@ -11,15 +11,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
-from src.locomo_eval.experiments.audit_loader import load_sandwich_audit
-from src.locomo_eval.experiments.audit_writer import (
+from src.locomo_eval.experiment_pack.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
+from src.locomo_eval.experiment_pack.audit_loader import load_sandwich_audit
+from src.locomo_eval.experiment_pack.audit_writer import (
     write_claim_audit,
     write_frozen_config,
     write_graph_ingest,
     write_writer_module,
 )
-from src.locomo_eval.experiments.claim_audit import (
+from src.locomo_eval.experiment_pack.claim_audit import (
     attribution_call_rows,
     cost_rollup,
     graph_edge_provenance,

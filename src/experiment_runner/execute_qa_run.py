@@ -188,6 +188,8 @@ def _qa_argv(
             argv.extend(["--agent-sessions", str(spec.agent_sessions)])
         if spec.agent_tools:
             argv.extend(["--agent-tools", str(spec.agent_tools)])
+        if spec.agent_prompt_mode:
+            argv.extend(["--agent-prompt-mode", str(spec.agent_prompt_mode)])
     return argv
 
 

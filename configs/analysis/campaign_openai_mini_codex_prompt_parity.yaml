@@ -1,0 +1,103 @@
+# One rendered qa_mem0_v1 payload is sent to Chat Completions and Codex.
+# Codex persist-on has an additional, audited notes workspace after the first
+# question; do not call that pair exact end-to-end request parity.
+campaign:
+  id: openai_mini_codex_prompt_parity
+  title: GPT-4o-mini vs Codex with matched LoCoMo reader payloads
+  notebook: notebooks/17_openai_mini_codex_prompt_parity_analysis.ipynb
+  freeze_note: >
+    All six cells render qa_mem0_v1 with the same memory text and question.
+    Two model-only cells are one-shot GPT-4o-mini. Four Codex cells receive
+    that reader payload directly: full_context or LoCoMo session_summaries,
+    each with persistence off or on. Persist-on can add notes after the first
+    question, so it is a best-agent trajectory, not byte-identical end-to-end
+    input parity. Web search and user MCP are disabled or ignored; audit any
+    observable violation. Native Codex remains audit-only unless comparable.
+
+defaults:
+  source: examples
+  metrics: [locomo_f1, judge_score]
+  output_subdir: analysis
+
+campaign_analyses:
+  - id: prompt_parity_conditions
+    title: Matched reader payload conditions
+    experiments: [parity]
+    group_by: [memory_method, prompt_parity_condition]
+    metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: judge_score}
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: locomo_f1}
+  - id: prompt_parity_by_category
+    title: Matched payload by LoCoMo category
+    experiments: [parity]
+    group_by: [question_category, memory_method, prompt_parity_condition]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: prompt_parity_condition, y: judge_score}
+      - {kind: grouped_bar, x: question_category, hue: prompt_parity_condition, y: locomo_f1}
+  - id: codex_prompt_parity_audit
+    title: Codex prompt-parity tool and persistence audit
+    source: runs
+    experiments: [parity]
+    where:
+      agent: [codex]
+    group_by: [memory_method, agent_persist, agent_prompt_mode]
+    metrics:
+      - n_web_search
+      - n_mcp
+      - used_non_workspace_tools
+      - n_write_events
+      - notes_retrieved
+      - notes_bytes
+      - harness_failed_rate
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_web_search}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_mcp}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: harness_failed_rate}
+
+takeaways:
+  - id: full_context_model_vs_codex_without_persistence
+    title: Full context — matched payload, model vs Codex
+    claim: full_context_harness_delta
+    from: prompt_parity_conditions
+    left: {memory_method: full_context, prompt_parity_condition: 4o-mini}
+    right: {memory_method: full_context, prompt_parity_condition: 4o-mini + Codex (persist off)}
+    left_label: model_full_context
+    right_label: codex_full_context_persist_off
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      The rendered reader payload is shared. The remaining system difference
+      is Chat Completions versus Codex CLI orchestration and its system layer.
+  - id: summaries_model_vs_codex_without_persistence
+    title: Session summaries — matched payload, model vs Codex
+    claim: summaries_harness_delta
+    from: prompt_parity_conditions
+    left: {memory_method: session_summaries, prompt_parity_condition: 4o-mini}
+    right: {memory_method: session_summaries, prompt_parity_condition: 4o-mini + Codex (persist off)}
+    left_label: model_session_summaries
+    right_label: codex_session_summaries_persist_off
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      LoCoMo-provided session summaries and the question are rendered into the
+      same reader prompt before either system answers.
+  - id: codex_persistence_is_trajectory_state
+    title: Codex persistence is a separate trajectory condition
+    claim: persist_on_is_not_exact_request_parity
+    finding: >
+      Persist-on starts from the same reader payload but may reuse notes written
+      after earlier questions in a conversation. Interpret it as best-agent
+      performance with auditable state, not as one-shot prompt parity.
+
+experiments:
+  parity:
+    name: locomo-openai-mini-codex-prompt-parity
+    pack: experiments/locomo-openai-mini-codex-prompt-parity
+    role: model_and_agent_reader
+    family_from: reader
+    pretest:
+      n_cells: 6
+      scientific_claim: false
+      hypotheses:
+        - Two one-shot GPT-4o-mini cells receive full_context or dataset summaries.
+        - Two persist-off Codex cells receive the corresponding rendered reader payload.
+        - Two persist-on Codex cells begin with that payload and may reuse notes.

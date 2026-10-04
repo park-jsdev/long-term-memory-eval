@@ -35,7 +35,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.locomo_eval.dataset import iter_questions, load_conversations, select_question_pairs
+from src.locomo_eval.dataset import iter_questions, load_conversations
 from src.locomo_eval.env import load_env
 from src.locomo_eval.memory import (
     AgentFactMemoryBuilder,
@@ -51,6 +51,7 @@ from src.locomo_eval.agents import (
     ingest_structured_notes,
     render_agent_prompt,
     snapshot_notes,
+    write_prompt_parity_workspace,
 )
 from src.locomo_eval.agents.comparison import (
     comparison_status,
@@ -63,14 +64,14 @@ from src.locomo_eval.agents.dump import write_agent_module
 from src.locomo_eval.agents.metrics import score_agent_row, summarize_agent_rows
 from src.locomo_eval.agents.protocol import AgentRequest
 from src.locomo_eval.metrics import score_row, summarize_predictions
-from src.locomo_eval.experiments.audit_writer import (
+from src.locomo_eval.experiment_pack.audit_writer import (
     write_claim_audit,
     write_frozen_config,
     write_graph_module,
     write_reader_module,
     write_writer_module,
 )
-from src.locomo_eval.experiments.prompt_bundle import repo_rel, write_prompt_bundle
+from src.locomo_eval.experiment_pack.prompt_bundle import repo_rel, write_prompt_bundle
 from src.locomo_eval.memory_log import (
     collect_ingest_log,
     collect_retrieve_log,
@@ -78,7 +79,7 @@ from src.locomo_eval.memory_log import (
     collect_writer_call_log,
     write_memory_run_log,
 )
-from src.locomo_eval.experiments.audit_layout import audit_layout_meta
+from src.locomo_eval.experiment_pack.audit_layout import audit_layout_meta
 from src.locomo_eval.models import resolve_model
 from src.locomo_eval.prompts import (
     INGEST_NOTES_V1,
@@ -87,6 +88,7 @@ from src.locomo_eval.prompts import (
     QA_WORKSPACE_V1,
     load_prompt_template,
     locate_prompt_file,
+    render_qa_prompt,
 )
 from src.locomo_eval.readers import get_reader
 from src.locomo_eval.report import write_jsonl, write_run_report
@@ -313,6 +315,17 @@ def _resolve_agent_run(
     else:
         persist = _as_bool(acfg.get("persist_memory"), False)
     tools = getattr(overrides, "agent_tools", None) or acfg.get("tools") or "native"
+    prompt_mode = (
+        getattr(overrides, "agent_prompt_mode", None)
+        or acfg.get("prompt_mode")
+        or "workspace"
+    )
+    prompt_mode = str(prompt_mode).strip().lower()
+    if prompt_mode not in ("workspace", "reader_prompt"):
+        raise SystemExit(
+            "agent prompt mode must be workspace or reader_prompt, "
+            f"got {prompt_mode!r}"
+        )
     sessions_flag = getattr(overrides, "agent_sessions", None) or acfg.get("sessions") or "full"
     sessions = str(sessions_flag).strip().lower()
     if sessions in ("on", "true"):
@@ -337,6 +350,7 @@ def _resolve_agent_run(
             "persist_memory": persist,
             "tools": str(tools),
             "sessions": "full",
+            "prompt_mode": prompt_mode,
         }
     adapter = str(adapter or acfg.get("adapter") or "mock").strip().lower()
     model = (
@@ -355,6 +369,7 @@ def _resolve_agent_run(
         "persist_memory": persist,
         "tools": str(tools),
         "sessions": sessions,
+        "prompt_mode": prompt_mode,
         "timeout_s": float(acfg.get("timeout_s") or 600),
         "codex_bin": acfg.get("codex_bin"),
     }
@@ -469,7 +484,7 @@ def _filter_conversations_to_index(
     *,
     subset_requested: bool,
 ) -> list:
-    """Keep QA inside the dump. A partial smoke index must not round-robin into missing samples."""
+    """Keep QA inside the dump when an index covers only a dataset subset."""
     dumped = _listed_index_sample_ids(index_dir)
     if not dumped:
         return conversations
@@ -501,7 +516,7 @@ def _dump_memory_and_claim_audit(
     *,
     used_memories: dict,
     used_memories_by_question: dict,
-    question_sample_ids: dict,
+    question_conversation_ids: dict,
     max_chars: int | None,
     prompt_template: str,
     example_question: str | None,
@@ -517,7 +532,7 @@ def _dump_memory_and_claim_audit(
         prompt_template=prompt_template,
         example_question=example_question,
         memories_by_question=used_memories_by_question or None,
-        question_sample_ids=question_sample_ids or None,
+        question_conversation_ids=question_conversation_ids or None,
     )
     write_writer_module(
         run_dir,
@@ -588,13 +603,18 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     reader_name = overrides.reader or cfg["reader"]["provider"]
     model = overrides.model or cfg["reader"]["model"]
     agent_run = _resolve_agent_run(cfg, overrides, memory_name, reader_name)
-    if agent_run["enabled"] and resolve_memory_name(memory_name) != "workspace_files":
+    if (
+        agent_run["enabled"]
+        and agent_run.get("prompt_mode") == "workspace"
+        and resolve_memory_name(memory_name) != "workspace_files"
+    ):
         raise SystemExit(
             "Agent harness requires pipeline.memory=workspace_files "
-            "(conversation files). Use full_context for model-only one-shot."
+            "unless agent_prompt_mode=reader_prompt passes the rendered "
+            "one-shot payload directly."
         )
     prompt_path = locate_prompt_file(overrides.prompt or cfg["pipeline"]["prompt_path"])
-    if agent_run.get("enabled"):
+    if agent_run.get("enabled") and agent_run.get("prompt_mode") == "workspace":
         prompt_path = _select_workspace_prompt(agent_run, prompt_path)
     max_questions = overrides.max_questions
     if max_questions is None:
@@ -770,15 +790,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             memory_by_sample[conv.sample_id] = builder.build(conv, q)
 
     pairs = list(iter_questions(conversations))
-    question_sample = (
-        getattr(overrides, "question_sample", None)
-        or (cfg.get("pipeline") or {}).get("question_sample")
-        or "round_robin"
-    )
     if max_questions is not None:
-        pairs = select_question_pairs(
-            pairs, int(max_questions), mode=str(question_sample)
-        )
+        # A capped run is only a deterministic smoke/subset, never a benchmark score.
+        pairs = pairs[: max(0, int(max_questions))]
 
     writer_model = getattr(builder, "writer_model", None)
     writer_provider = getattr(builder, "writer_provider", None)
@@ -792,7 +806,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             if agent_runner is not None
             else ""
         )
-        + f" | question_sample={question_sample}"
     )
 
     prediction_rows: list[dict] = []
@@ -807,7 +820,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     n_api = 0
     used_memories: dict[str, Memory] = {}
     used_memories_by_question: dict[str, Memory] = {}
-    question_sample_ids: dict[str, str] = {}
+    question_conversation_ids: dict[str, str] = {}
     example_question: str | None = None
     question_independent = is_question_independent(
         memory_name, retrieve_top_k=retrieve_top_k
@@ -821,18 +834,26 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             used_memories[conv.sample_id] = memory
             if not question_independent:
                 used_memories_by_question[q.question_id] = memory
-                question_sample_ids[q.question_id] = conv.sample_id
+                question_conversation_ids[q.question_id] = conv.sample_id
             if example_question is None:
                 example_question = q.question
 
+            reader_payload_sha256 = None
             if agent_runner is not None:
-                workspaces = getattr(builder, "workspaces", {}) or {}
-                workspace_dir = workspaces.get(conv.sample_id)
-                if workspace_dir is None:
-                    raise RuntimeError(
-                        f"workspace_files missing for sample {conv.sample_id}"
+                prompt_parity = agent_run.get("prompt_mode") == "reader_prompt"
+                if prompt_parity:
+                    workspace_dir = write_prompt_parity_workspace(
+                        agent_workspace_root / conv.sample_id,
+                        persist_memory=bool(agent_run.get("persist_memory")),
                     )
-                workspace_dir = Path(workspace_dir)
+                else:
+                    workspaces = getattr(builder, "workspaces", {}) or {}
+                    workspace_dir = workspaces.get(conv.sample_id)
+                    if workspace_dir is None:
+                        raise RuntimeError(
+                            f"workspace_files missing for sample {conv.sample_id}"
+                        )
+                    workspace_dir = Path(workspace_dir)
                 notes_only = str(agent_run.get("sessions") or "full") == "notes_only"
                 if notes_only and conv.sample_id not in ingested_samples:
                     if agent_run.get("adapter") == "mock":
@@ -860,7 +881,13 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                     notes_sha_by_sample[conv.sample_id] = str(rec.get("notes_sha256") or "")
                     hide_session_files(workspace_dir)
                     ingested_samples.add(conv.sample_id)
-                filled = render_agent_prompt(prompt_template, q.question)
+                if prompt_parity:
+                    filled = render_qa_prompt(prompt_template, memory.text, q.question)
+                    reader_payload_sha256 = hashlib.sha256(
+                        filled.encode("utf-8")
+                    ).hexdigest()
+                else:
+                    filled = render_agent_prompt(prompt_template, q.question)
                 result = agent_runner.run(
                     AgentRequest(
                         workspace_dir=workspace_dir,
@@ -870,6 +897,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         prompt=filled,
                         evidence_ids=list(q.evidence),
                         tool_budget=(comparison_contract or {}).get("tool_budget") or {},
+                        require_workspace_read=not prompt_parity,
                     )
                 )
                 if comparison_contract is not None:
@@ -882,6 +910,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                     "latency_s": result.latency_s,
                     "usage": result.usage,
                     "reasoning": (result.call_meta or {}).get("reasoning") or "",
+                    "reader_payload_sha256": reader_payload_sha256,
                 }
                 trajectories_by_qid[q.question_id] = result.trajectory
                 agent_trajectories.append(
@@ -925,6 +954,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 else:
                     last_notes_rec = None
             else:
+                reader_payload_sha256 = hashlib.sha256(
+                    render_qa_prompt(prompt_template, memory.text, q.question).encode("utf-8")
+                ).hexdigest()
                 answer, meta = reader.answer(memory.text, q.question, prompt_template)
             n_api += 1
 
@@ -948,6 +980,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             row["latency_s"] = meta.get("latency_s")
             row["usage"] = meta.get("usage")
             row["memory_schema_version"] = memory.schema_version
+            row["reader_payload_sha256"] = reader_payload_sha256
             if memory.search_latency_s is not None:
                 row["search_latency_s"] = memory.search_latency_s
             if agent_runner is not None:
@@ -955,6 +988,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 row["agent_persist"] = agent_run.get("persist_memory")
                 row["agent_tools"] = agent_run.get("tools")
                 row["agent_sessions"] = agent_run.get("sessions")
+                row["agent_prompt_mode"] = agent_run.get("prompt_mode")
                 if last_notes_rec is not None:
                     row["notes_bytes"] = last_notes_rec.get("notes_bytes")
                     row["notes_words"] = last_notes_rec.get("notes_words")
@@ -995,7 +1029,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 builder,
                 used_memories=used_memories,
                 used_memories_by_question=used_memories_by_question,
-                question_sample_ids=question_sample_ids,
+                question_conversation_ids=question_conversation_ids,
                 max_chars=max_chars,
                 prompt_template=prompt_template,
                 example_question=example_question,
@@ -1034,7 +1068,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             prompt_template=prompt_template,
             example_question=example_question,
             memories_by_question=used_memories_by_question or None,
-            question_sample_ids=question_sample_ids or None,
+            question_conversation_ids=question_conversation_ids or None,
         )
         print(f"Memory audit: {mem_log_dir}")
         writer_dir = write_writer_module(
@@ -1134,7 +1168,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "prompt_version": prompt_version,
         "max_questions": max_questions,
         "max_samples": max_samples,
-        "question_sample": question_sample,
         "n_predictions": len(prediction_rows),
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
@@ -1146,6 +1179,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "agent": agent_run.get("adapter") if agent_runner is not None else None,
         "agent_persist": agent_run.get("persist_memory") if agent_runner is not None else None,
         "agent_tools": agent_run.get("tools") if agent_runner is not None else None,
+        "agent_prompt_mode": agent_run.get("prompt_mode") if agent_runner is not None else None,
         "agent_sessions": agent_run.get("sessions") if agent_runner is not None else None,
         "agent_model": answer_model_name if agent_runner is not None else None,
         "agent_adapter": answer_provider if agent_runner is not None else None,
@@ -1248,6 +1282,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("native", "controlled"),
         help="Native harness tools vs a later controlled allowlist",
     )
+    p.add_argument(
+        "--agent-prompt-mode",
+        default=None,
+        choices=("workspace", "reader_prompt"),
+        help="workspace retrieval or the exact rendered one-shot reader payload",
+    )
     p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
     p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
     p.add_argument(
@@ -1288,19 +1328,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)
     p.add_argument("--max-questions", type=int, default=None)
-    p.add_argument(
-        "--question-sample",
-        default=None,
-        choices=("round_robin", "prefix"),
-        help="How --max-questions picks items: round_robin (default, one per conversation first) or prefix (file order)",
-    )
     p.add_argument("--sample-id", default=None, help="Restrict to one conversation")
     p.add_argument(
         "--max-samples",
         type=int,
         default=None,
-        help="Cap conversations (file order) before --max-questions. "
-        "Keeps round-robin inside an indexed subset.",
+        help="Cap conversations in file order before --max-questions.",
     )
     p.add_argument(
         "--mem0-index-run-id",

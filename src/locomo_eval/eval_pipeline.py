@@ -159,7 +159,6 @@ def _qa_overrides(args: argparse.Namespace, index_run_id: str | None) -> argpars
         output_dir=args.output_dir,
         run_id=args.run_id,
         max_questions=args.max_questions,
-        question_sample=args.question_sample,
         sample_id=args.sample_id,
         max_samples=args.max_samples,
         mem0_index_run_id=index_run_id if args.method in ("mem0", "mem0g") else None,
@@ -311,7 +310,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)
     p.add_argument("--max-questions", type=int, default=None)
-    p.add_argument("--question-sample", default=None, choices=("round_robin", "prefix"))
     p.add_argument("--sample-id", default=None)
     p.add_argument(
         "--max-samples",

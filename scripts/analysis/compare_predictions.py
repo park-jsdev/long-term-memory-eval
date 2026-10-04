@@ -33,7 +33,7 @@ from scripts.analysis.plots import (
     write_locomo_f1_histograms,
     write_locomo_f1_overall_bars,
 )
-from src.locomo_eval.experiments.audit_loader import resolve_predictions_jsonl
+from src.locomo_eval.experiment_pack.audit_loader import resolve_predictions_jsonl
 from src.locomo_eval.metrics import score_row
 
 

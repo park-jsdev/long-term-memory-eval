@@ -19,6 +19,7 @@ from .workspace import (
     ingest_structured_notes,
     render_agent_prompt,
     snapshot_notes,
+    write_prompt_parity_workspace,
 )
 
 
@@ -66,4 +67,5 @@ __all__ = [
     "render_agent_prompt",
     "resolve_codex_bin",
     "snapshot_notes",
+    "write_prompt_parity_workspace",
 ]

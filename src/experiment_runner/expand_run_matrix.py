@@ -103,8 +103,16 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
         agent_persist = cell.get("agent_persist")
         agent_sessions = cell.get("agent_sessions")
         agent_tools = cell.get("agent_tools")
+        agent_prompt_mode = _normalize_agent_prompt_mode(
+            cell.get("agent_prompt_mode")
+        )
         if "agent" in axes and not _agent_combo_allowed(
-            agent_id, memory_method, agent_persist, agent_tools, agent_sessions
+            agent_id,
+            memory_method,
+            agent_persist,
+            agent_tools,
+            agent_sessions,
+            agent_prompt_mode,
         ):
             continue
         if agent_id:
@@ -119,6 +127,7 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
             prompt_path,
             persist=agent_persist,
             sessions=agent_sessions,
+            prompt_mode=agent_prompt_mode,
         ) if "agent" in axes else prompt_path
         indexes = index_run_ids_for_memory(memory_method, shared)
         status = _cell_status(reader, writer)
@@ -153,6 +162,7 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
                 _normalize_sessions(agent_sessions) if agent_id else None
             ),
             agent_tools=(str(agent_tools or "native") if agent_id else None),
+            agent_prompt_mode=agent_prompt_mode if agent_id else None,
             agent_comparison=agent_comparison if agent_id else {},
         )
         run_id = hashed_run_id(name, spec.qa_identity())
@@ -214,10 +224,12 @@ def _agent_combo_allowed(
     persist: Any,
     tools: Any,
     sessions: Any = None,
+    prompt_mode: str = "workspace",
 ) -> bool:
-    """Model-only uses stuffed full_context; harness cells use workspace_files."""
+    """Keep workspace retrieval distinct from exact reader-prompt parity."""
     persist_on = persist is True or persist == "on"
     sessions_key = _normalize_sessions(sessions)
+    mode = _normalize_agent_prompt_mode(prompt_mode)
     if agent_id is None:
         if memory_method == "workspace_files":
             return False
@@ -229,7 +241,12 @@ def _agent_combo_allowed(
         if tools_key not in (None, "native"):
             return False
         return True
-    if memory_method != "workspace_files":
+    if mode == "workspace" and memory_method != "workspace_files":
+        return False
+    if mode == "reader_prompt" and memory_method not in (
+        "full_context",
+        "session_summaries",
+    ):
         return False
     if sessions_key == "notes_only" and not persist_on:
         return False
@@ -247,15 +264,30 @@ def _normalize_sessions(value: Any) -> str:
     return "full"
 
 
+def _normalize_agent_prompt_mode(value: Any) -> str:
+    """Name whether Codex retrieves files or receives the reader's payload."""
+    key = str(value or "workspace").strip().lower()
+    if key in ("workspace", "workspace_files"):
+        return "workspace"
+    if key in ("reader_prompt", "reader-prompt", "prompt_parity"):
+        return "reader_prompt"
+    raise ValueError(
+        f"agent_prompt_mode must be workspace or reader_prompt, got {value!r}"
+    )
+
+
 def _prompt_for_agent_cell(
     agent_id: str | None,
     memory_method: str,
     freeze_prompt: str,
     persist: Any = None,
     sessions: Any = None,
+    prompt_mode: str = "workspace",
 ) -> str:
     if agent_id is None:
         return QA_MEM0_V1
+    if _normalize_agent_prompt_mode(prompt_mode) == "reader_prompt":
+        return freeze_prompt
     if memory_method != "workspace_files":
         return freeze_prompt
     persist_on = persist is True or persist == "on"
@@ -307,6 +339,11 @@ def _axis_values(
         ]
     if matrix.get("agent_tools") is not None:
         axes["agent_tools"] = [str(v).strip().lower() for v in _as_list(matrix.get("agent_tools"))]
+    if matrix.get("agent_prompt_mode") is not None:
+        axes["agent_prompt_mode"] = [
+            _normalize_agent_prompt_mode(v)
+            for v in _as_list(matrix.get("agent_prompt_mode"))
+        ]
     return axes
 
 

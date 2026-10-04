@@ -14,8 +14,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
-from src.locomo_eval.experiments.audit_loader import load_json, load_jsonl, predictions_jsonl
+from src.locomo_eval.experiment_pack.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
+from src.locomo_eval.experiment_pack.audit_loader import load_json, load_jsonl, predictions_jsonl
 from src.locomo_eval.prompts import locate_prompt_file
 
 SCHEMA_VERSION = "experiment_verify.v1"

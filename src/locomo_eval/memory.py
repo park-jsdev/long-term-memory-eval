@@ -82,7 +82,7 @@ class RawConversationMemoryBuilder(MemoryBuilder):
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         if self.preprocess_index_dir is not None:
-            from .experiments.claim_audit import retrieve_rank_row
+            from .experiment_pack.claim_audit import retrieve_rank_row
             from .preprocess.retrieve import build_raw_chunks_from_index, rank_raw_chunks_from_index
 
             text, source_ids = build_raw_chunks_from_index(
@@ -172,7 +172,7 @@ class SessionSummaryMemoryBuilder(MemoryBuilder):
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         if self.preprocess_index_dir is not None:
-            from .experiments.claim_audit import retrieve_rank_row
+            from .experiment_pack.claim_audit import retrieve_rank_row
             from .preprocess.retrieve import (
                 build_session_summaries_from_index,
                 rank_session_summaries_from_index,

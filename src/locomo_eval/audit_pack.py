@@ -1,7 +1,7 @@
-"""Compat shim. Prefer ``src.locomo_eval.experiments.audit_writer`` / ``.audit_layout``."""
+"""Compat shim. Prefer ``src.locomo_eval.experiment_pack.audit_writer`` / ``.audit_layout``."""
 
-from .experiments.audit_layout import AUDIT_LAYOUT_VERSION, audit_layout_meta, writer_dir_name
-from .experiments.audit_writer import (
+from .experiment_pack.audit_layout import AUDIT_LAYOUT_VERSION, audit_layout_meta, writer_dir_name
+from .experiment_pack.audit_writer import (
     audit_graph_dict,
     write_autorater_traces,
     write_claim_audit,

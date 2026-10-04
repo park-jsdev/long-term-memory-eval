@@ -1,4 +1,10 @@
-"""On-disk sandwich audit: path contract, dump during a run, load for analysis.
+"""On-disk sandwich pack: write during a run, load for analysis, verify offline.
+
+The output folder stays ``experiments/<run_id>/``. This package is the
+code that writes and reads that folder. Only ``verify_pack`` and
+``verify_graph_years`` check a finished pack; the rest dump and load it.
+The old name ``experiments`` collided with that folder and with
+``configs/experiments/``.
 
 A LoCoMo *run* is one YAML / ``--method`` producing ``experiments/<run_id>/``.
 That directory is the sandwich audit (schema ``audit_pack.v3``): reader,

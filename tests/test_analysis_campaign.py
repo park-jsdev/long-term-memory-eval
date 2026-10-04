@@ -499,7 +499,9 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                 {"memory_method": "workspace_files", "agent_persist": False},
                 {"memory_method": "workspace_files", "agent_persist": True},
                 {"memory_method": "session_summaries", "agent_persist": None},
+                {"memory_method": "teacher_session_summaries", "agent_persist": None},
                 {"memory_method": "graph", "agent_persist": None},
+                {"memory_method": "teacher_graph", "agent_persist": None},
                 {"memory_method": "agent_codex_mem0_facts", "agent_persist": None},
             ]
         )
@@ -511,6 +513,8 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                 "full_context",
                 None,
                 "session_summaries",
+                "session_summaries",
+                "graph",
                 "graph",
                 None,
             ],
@@ -1131,6 +1135,10 @@ class TestAnalysisNotebookContract(unittest.TestCase):
             (
                 "campaign_openai_model_harness_gaps.yaml",
                 "17_openai_model_harness_gaps_analysis.ipynb",
+            ),
+            (
+                "campaign_openai_mini_codex_prompt_parity.yaml",
+                "17_openai_mini_codex_prompt_parity_analysis.ipynb",
             ),
         )
         for yaml_name, notebook_name in pairs:
@@ -2205,6 +2213,29 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
             any(p.x == "memory_lane" and p.hue == "system_harness" for p in ceiling.plots)
         )
         self.assertIn("methods_vs_full_context_ceiling", takeaway_ids)
+
+    def test_mini_codex_prompt_parity_campaign_has_six_cell_contract(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_prompt_parity.yaml"
+        )
+
+        self.assertEqual(cfg.id, "openai_mini_codex_prompt_parity")
+        self.assertEqual(set(cfg.experiments), {"parity"})
+        conditions = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "prompt_parity_conditions"
+        )
+        self.assertEqual(conditions.group_by[0], "memory_method")
+        self.assertIn("prompt_parity_condition", conditions.group_by)
+        audit = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "codex_prompt_parity_audit"
+        )
+        self.assertEqual(audit.source, "runs")
+        self.assertIn("n_web_search", audit.metrics)
+        self.assertIn("n_mcp", audit.metrics)
+        self.assertIn(
+            "full_context_model_vs_codex_without_persistence",
+            [item.id for item in cfg.takeaways],
+        )
 
     def test_model_harness_gaps_campaign_has_category_j_charts(self):
         cfg = load_campaign_yaml(

@@ -1,32 +1,33 @@
 # Long-Term Memory Eval
 
-Evaluation harness for long-term conversational memory. It runs the [LoCoMo](https://arxiv.org/abs/2402.17753) benchmark. A **model** answers through Chat Completions, or writes memory and then a frozen reader answers. An **agent** (Codex) answers from the conversation files in a workspace. LoCoMo scores the prediction. This repository did not author LoCoMo or the Mem0 judge.
+Evaluation harness for long-term conversational memory. It runs the [LoCoMo](https://arxiv.org/abs/2402.17753) benchmark. A **model** answers through Chat Completions, or writes memory and then a frozen reader answers. An **agent** (Codex) answers from the conversation files in a workspace. LoCoMo F1 and Mem0 LLM judges score the prediction. More details can be found in the referenced papers.
 
 The data and the scorer stay fixed. The memory method in the middle is what changes. Gold answers stay with the scorer. They never enter a model or agent prompt.
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph HARNESS["evaluation harness"]
     LOC["LoCoMo benchmark<br/>conversations and questions"]
     subgraph SYS["what changes"]
-      direction LR
+      direction TB
       MODEL["Model<br/>Chat Completions"]
       AGENT["Agent<br/>Codex"]
     end
-    SCORE["LoCoMo score<br/>token F1 and category rules"]
-    LOC --> SYS --> SCORE
+    SCORE["LoCoMo score<br/>token F1 by question type"]
+    LOC --> MODEL
+    LOC --> AGENT
+    MODEL --> SCORE
+    AGENT --> SCORE
   end
 ```
-
-The Mem0 judge is a second protocol on the same predicted string. Do not report Mem0 paper Table 1–2 `J` from these clones. A mock judge is a plumbing check and is not a literature score.
 
 ## Quickstart
 
 Local mock run. No API key.
 
 ```bash
-conda create -n distillation python=3.11 -y
-conda activate distillation
+conda create -n <your-env-name> python=3.11 -y
+conda activate <your-env-name>
 pip install -r requirements.txt
 python scripts/fetch_locomo.py
 python -m src.locomo_eval.run \
@@ -41,7 +42,7 @@ The pack is written to `experiments/smoke_mock/`.
 ## Docs
 
 - [**Unrolling the experiment pipeline**](docs/loop.md) — one question, from config to notebook
-- [**Documentation**](docs/documentation.md) — architecture, including the experiment runner
+- [**Architecture**](docs/architecture.md) — harness and experiment runner
 - [**Installing, building, and running**](docs/runbook.md)
 - [**Cloud Run**](docs/gcp.md)
 - [**Reproduce**](docs/REPRODUCE.md) — staged local and Cloud Run reproduction

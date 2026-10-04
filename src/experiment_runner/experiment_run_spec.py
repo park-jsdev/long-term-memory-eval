@@ -69,6 +69,7 @@ class ExperimentRunSpec:
     agent_persist: bool | None = None
     agent_sessions: str | None = None
     agent_tools: str | None = None
+    agent_prompt_mode: str | None = None
     agent_comparison: dict[str, Any] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -89,6 +90,7 @@ class ExperimentRunSpec:
         row["agent_persist"] = self.agent_persist
         row["agent_sessions"] = self.agent_sessions
         row["agent_tools"] = self.agent_tools
+        row["agent_prompt_mode"] = self.agent_prompt_mode
         row["comparison_contract"] = self.agent_comparison
         return row
 
@@ -116,6 +118,7 @@ class ExperimentRunSpec:
             if self.agent_sessions and self.agent_sessions != "full":
                 identity["agent_sessions"] = self.agent_sessions
             identity["agent_tools"] = self.agent_tools
+            identity["agent_prompt_mode"] = self.agent_prompt_mode
             identity["agent_comparison"] = self.agent_comparison
         if self.reader.thinking is not None:
             identity["reader_thinking"] = self.reader.thinking

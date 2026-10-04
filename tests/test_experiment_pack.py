@@ -10,8 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.audit_layout import AuditPaths, audit_layout_meta
-from src.locomo_eval.experiments.audit_loader import (
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths, audit_layout_meta
+from src.locomo_eval.experiment_pack.audit_loader import (
     SandwichAudit,
     load_json,
     load_jsonl,
@@ -20,7 +20,7 @@ from src.locomo_eval.experiments.audit_loader import (
     predictions_jsonl,
     resolve_predictions_jsonl,
 )
-from src.locomo_eval.experiments.audit_writer import (
+from src.locomo_eval.experiment_pack.audit_writer import (
     write_frozen_config,
     write_graph_ingest,
     write_reader_module,

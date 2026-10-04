@@ -58,8 +58,8 @@ from src.locomo_eval.mem0_baselines import (
     TABLE2_OVERALL,
     table2_by_method,
 )
-from src.locomo_eval.experiments.audit_writer import write_autorater_traces
-from src.locomo_eval.experiments.prompt_bundle import (
+from src.locomo_eval.experiment_pack.audit_writer import write_autorater_traces
+from src.locomo_eval.experiment_pack.prompt_bundle import (
     find_run_dir_for_autorater,
     write_prompt_bundle,
 )

@@ -25,6 +25,7 @@ MATRIX_AXIS_ORDER = (
     "agent_persist",
     "agent_sessions",
     "agent_tools",
+    "agent_prompt_mode",
     "seed",
 )
 

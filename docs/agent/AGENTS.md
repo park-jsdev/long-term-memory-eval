@@ -39,7 +39,10 @@ visible; `openai_codex_persist_memory.yaml` is the 3-cell memory-method test
 `openai_mini_writers_structured.yaml` is the 2-cell GPT-4o-mini Chat Completions
 writer twin of PoC Codex summaries/graph. Operator instructions:
 `docs/agent/RUNBOOK_OPENAI_AGENTS.md`, `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md`,
-and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
+and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`. The focused reader
+comparison uses `openai_mini_codex_prompt_parity.yaml`: six cells with the
+same rendered reader payload across model-only, Codex persist-off, and Codex
+persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 
 ---
 
@@ -68,13 +71,10 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `prompts/writers/mem0_extract_v1.txt` / `prompts/writers/mem0_update_v1.txt` | Mem0 fact extract + ADD/UPDATE/DELETE/NONE (pin: mem0 @ ece7ff6b) |
 | `prompts/writers/mem0g_*.txt` | Entity / relation / conflict (pin: mem0 graph @ 69a832dc) |
 | `docs/LAYOUT.md` | Where models, memory, and trajectories live |
-| `docs/reports/multi_teacher_methodologies.md` | Retired. Historical fusion notes only |
-| `docs/reports/locomo_processing_walkthrough.md` | LoCoMo JSON → stuffed reader vs sandwich writer vs Codex loop, scores, trace audit |
-| `docs/reports/engineering_notebook.md` | System map / extension points |
-| `docs/reports/claim_audit_status.md` | Completeness of `audit_pack.v2` claim layer (calls vs claims) — **local only** |
+| `docs/reports/` | Local writeups — **gitignored** |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
-| `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v2` claim audit) |
+| `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v3` claim audit) |
 | `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `docs/schemas/rag_index.md` | RAG chunk dump (`rag_index.v1`) |
 | `docs/schemas/openai_memory_index.md` | Privileged extract-all dump |
@@ -104,6 +104,7 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `docs/agent/RUNBOOK_OPENAI_AGENTS.md` | OpenAI Chat Completions vs Codex campaign operator steps |
 | `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md` | 3-cell persist-as-memory GCS copy-paste |
 | `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md` | 2-cell mini Chat Completions vs Codex summary/graph writers |
+| `docs/runbook_mini_vs_codex_readers.md` | Six-cell prompt parity: model, Codex persist-off, and Codex persist-on for full context and dataset summaries |
 | `configs/analysis/campaign_2025_live.yaml` | Three-family analysis plane (tables/plots, no LLM) |
 | `configs/analysis/campaign_2025_openai_deepseek.yaml` | OpenAI vs DeepSeek packs + thinking on/off recipes |
 | `configs/analysis/openai_deepseek_thinking_axis.yaml` | Within-family thinking on/off; separate token / generate / search / total plots |
@@ -112,12 +113,13 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `configs/analysis/campaign_openai_agents.yaml` | Chat Completions 2024–2026 vs Codex 2026 harness (notebook 17) |
 | `configs/analysis/campaign_openai_codex_persist_memory.yaml` | Persist-off / persist-on / notes_only vs summaries (notebook 17) |
 | `configs/analysis/campaign_openai_mini_vs_codex_writers.yaml` | Mini Chat Completions vs Codex summaries/graph writers plus full_context ceiling overlay (notebook 17) |
+| `configs/analysis/campaign_openai_mini_codex_prompt_parity.yaml` | Matched rendered reader payloads through GPT-4o-mini and Codex, with persist-off/on as separate conditions |
 | `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same recipes, 2026 Terra vs V4 packs |
-| `notebooks/` | `NN_<frozen>_<variable>[_protocol|_analysis].ipynb` — gitignored; see `notebooks/README.md` |
+| `notebooks/` | Local notebooks — **gitignored**, except `17_openai_mini_codex_prompt_parity_analysis.ipynb` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
 | `README.md` | Landing page: harness diagram, local quickstart, license, citation |
 | `docs/loop.md` | Teaching note: one question from config to notebook |
-| `docs/documentation.md` | Architecture, including the experiment runner |
+| `docs/architecture.md` | Architecture: harness and experiment runner |
 | `docs/runbook.md` | Install, build, and run |
 | `docs/REPRODUCE.md` | Staged reproduction runbook (offline stages 0–3, paid stages 4–7) |
 | `LICENSE` / `NOTICE.md` | MIT code license + LoCoMo (CC BY-NC) and Mem0 (Apache-2.0) terms |
@@ -152,7 +154,7 @@ and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`.
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiments/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) + `verify_pack` / `verify_graph_years` (offline log verifier) |
+| `experiment_pack/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) + `verify_pack` / `verify_graph_years` (offline log verifier). Output stays `experiments/<run_id>/` |
 | `audit_pack.py` | Compat shim re-exporting `audit_writer` / `audit_layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
@@ -177,7 +179,7 @@ Purpose-named files (no generic `run.py` / `config.py`). Wraps locomo_eval; does
 ## Commands agents should use
 
 ```bash
-conda activate distillation
+conda activate <your-env-name>
 pip install -r requirements.txt
 python scripts/fetch_locomo.py
 
@@ -230,7 +232,7 @@ python -m scripts.analysis.run_benchmark --run experiments/<run_id>
 python -m scripts.analysis.run_benchmark --run experiments/<run_id> --autorater mock
 
 # Evaluation pipeline (one method). Mock smoke, then live + judge seeds.
-# --max-samples caps index AND QA so round-robin --max-questions stays in those conversations.
+# --max-samples caps index and QA; --max-questions then takes file-order pairs.
 # Subset smokes write experiments/<run_id>_index (they do not overwrite rag_locomo10).
 python -m src.locomo_eval.eval_pipeline --method full_context --reader mock --max-questions 5 --autorater mock --n-judge-runs 2 --run-id smoke_eval_full_context
 python -m src.locomo_eval.eval_pipeline --method rag --reader mock --embedder mock --max-samples 1 --max-questions 5 --autorater mock --run-id smoke_eval_rag
@@ -315,7 +317,7 @@ Each run under `experiments/<run_id>/` must include:
 - `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → sandwich role → claims made
 - `plots/` — overall + category bars
 - `reader/` — answer-LLM traces (`traces.jsonl`) + LoCoMo predictions
-- `memory/` — `{memory}` payload; `lineage.jsonl` (question → item → teacher); `retrieve_ranks.jsonl` (losers included); `memory/teachers/` when a teacher wrote (calls, session text, fusion votes, quality.json); `memory/graph/` when graph memory was built (`ingest.jsonl` after fusion)
+- `memory/` — `{memory}` payload; `lineage.jsonl` (question → item → writer); `retrieve_ranks.jsonl` (losers included); `memory/writer/` when a writer ran (calls, session text, quality.json); `memory/graph/` when graph memory was built (`ingest.jsonl`)
 
 Each QA run also writes `ATTRIBUTION.md` (human) and `attribution.jsonl` (machine): every LLM call, the role it played (reader / teacher / graph), and the claims that call produced (triples, summaries, predicted answers), joined to fusion `kept` and lineage injection when those files exist.
 
@@ -353,8 +355,8 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 5. **Runs are self-contained.** A bare `locomo_eval.run` invocation still clears and regenerates. **`experiment_runner execute-qa` skips** when `_SUCCESS` exists (Cloud Run retries). `--force` regenerates. Do not add response stores or per-question resume. Shared Mem0/RAG indexes (`mem0_locomo10`, `rag_locomo10`) are built once and reused across reader cells.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B. Components live under `configs/{writers,readers,layouts,autoraters,teachers}/` and compose with `includes:` (later keys win). `pipeline.memory` is still a builder id, not a path to another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files. Traces stay local (gitignored); keep writing them anyway.
-8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiments.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiments.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
-9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them except for a notebook backing a reported result. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
+8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiment_pack.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiment_pack.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
+9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them. The published notebook is `notebooks/17_openai_mini_codex_prompt_parity_analysis.ipynb`. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
 
 ---
 

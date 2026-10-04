@@ -51,22 +51,24 @@ papers/
 # --- Local development history (not needed to reproduce the setup) ---
 # Per-change snapshots of AGENTS/HUMANS; useful locally, noise in a shared repo
 docs/agent/traces/
-# Working specs and the planning matrix; README + docs/REPRODUCE.md are the
-# published contracts, and these drift from them between releases
-docs/agent/SPEC_*.md
-docs/agent/EXPERIMENT_MATRIX_v1.md
-docs/agent/HUMANS.md
+# Operator notes stay local. The published agent note is AGENTS.md.
+# Cloud steps live in docs/gcp.md and infra/gcp/README.md.
+docs/agent/*.md
+!docs/agent/AGENTS.md
 docs/reflections/
-# Point-in-time status of an in-flight campaign, not a reproduction input
-docs/reports/claim_audit_status.md
+# Local writeups. The published path is README, REPRODUCE, architecture, and runbooks.
+docs/reports/
 
 # --- Notebooks ---
-# Notebooks carry local paths, cloud ids, and executed output. Keep them local
-# by default; force-add the specific ones backing a reported result:
-#   git add -f notebooks/06_2025_live_campaign_analysis.ipynb
+# Executed notebooks carry local paths, cloud ids, and outputs.
+# The prompt-parity wrapper is the published analysis notebook.
 notebooks/*
-!notebooks/README.md
+*.ipynb
 .ipynb_checkpoints/
+!notebooks/17_openai_mini_codex_prompt_parity_analysis.ipynb
+
+# Matrix YAML notes. The expander in src/experiment_runner is the contract.
+docs/schemas/experiment_matrix.md
 
 # --- IDE / OS ---
 .idea/

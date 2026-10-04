@@ -318,7 +318,7 @@ def naive_rank_session_candidates(
     top_k: int | None = None,
 ) -> list[dict]:
     """All sessions with overlap score, rank, and selected flag."""
-    from src.locomo_eval.experiments.claim_audit import preview
+    from src.locomo_eval.experiment_pack.claim_audit import preview
 
     q = _tokens(query)
     scored: list[tuple[int, int, SessionDocument]] = []

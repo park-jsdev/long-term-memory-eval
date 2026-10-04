@@ -102,6 +102,7 @@ class AgentRequest:
     prompt: str
     evidence_ids: list[str] = field(default_factory=list)
     tool_budget: dict[str, Any] = field(default_factory=dict)
+    require_workspace_read: bool = True
 
 
 @dataclass
