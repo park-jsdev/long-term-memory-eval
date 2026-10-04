@@ -1,25 +1,37 @@
 # Long-Term Memory Eval
 
-Evaluation harness for long-term conversational memory. It runs the [LoCoMo](https://arxiv.org/abs/2402.17753) benchmark. A **model** answers through Chat Completions, or writes memory and then a frozen reader answers. An **agent** (Codex) answers from the conversation files in a workspace. LoCoMo F1 and Mem0 LLM judges score the prediction. More details can be found in the referenced papers.
+Long-Term Memory Eval is a reproducible harness for studying long-term
+conversational memory on [LoCoMo](https://arxiv.org/abs/2402.17753). The current
+experiment holds LoCoMo conversations, questions, gold answers, and scoring
+rules fixed. It compares what changes in the middle: the reader's memory
+representation and the answering path.
 
-The data and the scorer stay fixed. The memory method in the middle is what changes. Gold answers stay with the scorer. They never enter a model or agent prompt.
+The model-only path sends the same rendered reader prompt to Chat Completions.
+The agent path submits that task to Codex, with web and MCP tools disabled.
+Both produce one answer per LoCoMo question. LoCoMo F1 and a separately run
+Mem0-style LLM judge score those stored answers. Gold answers and evidence stay
+with the scorer. They never enter a model or agent prompt.
 
 ```mermaid
 flowchart LR
-  subgraph HARNESS["evaluation harness"]
-    LOC["LoCoMo benchmark<br/>conversations and questions"]
-    subgraph SYS["what changes"]
+  subgraph HARNESS["Evaluation harness"]
+    LOC["Fixed LoCoMo<br/>conversations and questions"]
+    subgraph VARIABLE["What changes"]
       direction TB
-      MODEL["Model<br/>Chat Completions"]
-      AGENT["Agent<br/>Codex"]
+      MODEL["Model-only<br/>Chat Completions"]
+      AGENT["Agent path<br/>Codex"]
     end
-    SCORE["LoCoMo score<br/>token F1 by question type"]
+    SCORE["Fixed scoring<br/>LoCoMo F1 · Mem0-style LLM judge"]
     LOC --> MODEL
     LOC --> AGENT
     MODEL --> SCORE
     AGENT --> SCORE
   end
 ```
+
+*Figure: each condition selects its reader representation before the model or
+agent answers. LoCoMo gold answers and evidence are available only to the
+scorers; they are never included in a model or Codex task.*
 
 ## Quickstart
 
