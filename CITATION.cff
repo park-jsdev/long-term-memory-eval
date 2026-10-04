@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: If you use this evaluation harness, please cite it using the metadata below.
+type: software
+title: "Long-Term Memory Eval"
+abstract: >-
+  Evaluation harness for long-term conversational memory. locomo_eval scores
+  one memory method on LoCoMo. experiment_runner expands a YAML matrix into
+  hashed run ids and runs one cell per task. LoCoMo and the Mem0 judge
+  protocol are the benchmarks; this repository did not author them.
+authors:
+  - family-names: Park
+    given-names: Junsoo
+  - family-names: Triana
+    given-names: Bryan
+repository-code: https://github.com/park-jsdev/long-term-memory-eval
+url: https://github.com/park-jsdev/long-term-memory-eval
+license: MIT
+date-released: 2026-09-29
+keywords:
+  - locomo
+  - evaluation
+  - conversational-memory
+preferred-citation:
+  type: software
+  title: "Long-Term Memory Eval"
+  authors:
+    - family-names: Park
+      given-names: Junsoo
+    - family-names: Triana
+      given-names: Bryan
+  year: 2026
+  url: https://github.com/park-jsdev/long-term-memory-eval
+  license: MIT

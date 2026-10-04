@@ -1,0 +1,44 @@
+# GPT-4o-mini and Codex reader analysis: two model cells plus matched-payload
+# Codex cells with persistence off/on.
+experiment:
+  name: locomo-openai-mini-codex-readers-analysis-v2
+  type: agent
+  freeze:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    reader:
+      catalog: gpt-4o-mini
+
+benchmark:
+  name: locomo
+  dataset_path: data/raw/locomo10.json
+
+model_catalog: configs/models/generation_catalog.yaml
+
+matrix:
+  agent: [none, codex]
+  agent_persist: [off, on]
+  agent_sessions: [full]
+  agent_tools: [native]
+  agent_prompt_mode: [reader_prompt]
+  memory_method: [full_context, session_summaries]
+  seed: [1]
+
+agent_comparison:
+  strict: false
+  tool_budget:
+    allowed_tools: []
+    max_tool_calls: null
+    max_retrieved_tokens: null
+    wall_clock_s: 600
+
+judge:
+  provider: openai
+  api_model_id: gpt-4o-mini
+
+execution:
+  max_concurrency: 1
+  request_timeout_seconds: 600
+
+storage:
+  backend: local
+  path: experiments

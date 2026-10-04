@@ -1,5 +1,0 @@
-includes:
-  - configs/writers/fused_teacher_graph.yaml
-
-orchestrator:
-  fusion: resolve_confidence

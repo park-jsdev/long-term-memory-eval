@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.analysis.compare_predictions import write_compare_prediction_plots
-from src.locomo_eval.experiments.audit_loader import load_qa_pack
+from src.locomo_eval.experiment_pack.audit_loader import load_qa_pack
 from src.locomo_eval.metrics import score_row
 from src.locomo_eval.prompts import load_prompt_template
 from src.locomo_eval.stats import mean_ci95, wilcoxon_signed_rank
@@ -71,7 +71,6 @@ _FROZEN_COMPARE_FIELDS = (
     "max_questions",
     "max_samples",
     "sample_id",
-    "question_sample",
     "prompt_path",
     "prompt_sha256",
     "reader_provider",

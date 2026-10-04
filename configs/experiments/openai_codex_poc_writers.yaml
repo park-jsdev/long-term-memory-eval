@@ -14,7 +14,7 @@ matrix:
   writer:
     - {display_name: Codex GPT-4o-mini, provider: codex, api_model_id: gpt-4o-mini, model_snapshot: TO_CONFIRM}
   thinking: [false]
-  memory_method: [teacher_session_summaries, agent_codex_mem0_facts, teacher_graph]
+  memory_method: [session_summaries, agent_codex_mem0_facts, graph]
   seed: [1]
 judge:
   provider: openai

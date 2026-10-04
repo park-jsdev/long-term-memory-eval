@@ -14,15 +14,15 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.memorybench.analysis.load_campaign import (
+from src.experiment_runner.analysis.load_campaign import (
     AnalysisSpec,
     ExperimentAnalysisRef,
     PlotSpec,
     load_campaign_yaml,
 )
-from src.memorybench.analysis.plots import _place_legend_outside
-from src.memorybench.analysis.notebook_protocol import notebook_posttest
-from src.memorybench.analysis.report import (
+from src.experiment_runner.analysis.plots import _place_legend_outside
+from src.experiment_runner.analysis.notebook_protocol import notebook_posttest
+from src.experiment_runner.analysis.report import (
     ReportResult,
     _plot_stem,
     _plot_title,
@@ -62,7 +62,6 @@ from src.locomo_eval.mem0_baselines import (
     LOCOMO_2024_SUMMARY_RAG_N,
 )
 
-CAMPAIGN = ROOT / "configs" / "analysis" / "campaign_2025_live.yaml"
 VALID_PLOT_KINDS = {"bar", "grouped_bar", "metrics_grouped_bar", "line"}
 VALID_SOURCES = {"examples", "runs"}
 
@@ -128,166 +127,8 @@ experiments:
     return path
 
 
-class TestLoadCampaignYaml(unittest.TestCase):
-    def test_2025_live_has_campaign_and_three_experiments(self):
-        cfg = load_campaign_yaml(CAMPAIGN)
-        self.assertEqual(cfg.id, "2025_live")
-        self.assertEqual(set(cfg.experiments), {"smoke", "baseline", "writers"})
-        self.assertTrue(cfg.campaign_analyses)
-        self.assertEqual(cfg.experiments["smoke"].family_from, "reader")
-        self.assertEqual(cfg.experiments["writers"].family_from, "writer")
-        reader_family = [a for a in cfg.campaign_analyses if a.id == "reader_family_metrics"]
-        self.assertEqual(reader_family[0].experiments, ("smoke", "baseline"))
-        cat = [a for a in cfg.campaign_analyses if a.id == "reader_family_by_category"][0]
-        self.assertEqual(cat.plots[0].kind, "grouped_bar")
-        self.assertEqual(cat.plots[0].x, "question_category")
-        self.assertEqual(cat.plots[0].hue, "model_family")
-        self.assertEqual(cat.plots[0].y, "locomo_f1")
-        writer_cat = [
-            a for a in cfg.campaign_analyses if a.id == "writer_family_by_category"
-        ][0]
-        self.assertEqual(writer_cat.experiments, ("writers",))
-        self.assertEqual(writer_cat.plots[0].x, "question_category")
-        self.assertEqual(writer_cat.plots[0].hue, "model_family")
-        self.assertEqual(writer_cat.plots[0].y, "locomo_f1")
-
-    def test_2025_openai_deepseek_reuses_recipes_with_separate_packs(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_2025_openai_deepseek.yaml"
-        )
-        self.assertEqual(cfg.id, "2025_openai_deepseek")
-        self.assertEqual(set(cfg.experiments), {"smoke", "baseline", "writers"})
-        self.assertEqual(
-            cfg.experiments["smoke"].name,
-            "locomo-2025-readers-openai-deepseek-smoke",
-        )
-        self.assertEqual(
-            cfg.experiments["baseline"].name,
-            "locomo-2025-readers-openai-deepseek",
-        )
-        self.assertEqual(
-            cfg.experiments["writers"].name,
-            "locomo-mem0-reader-2025-writers-openai-deepseek",
-        )
-        live = load_campaign_yaml(CAMPAIGN)
-        self.assertIn("reader_thinking_tokens", [a.id for a in cfg.campaign_analyses])
-        self.assertIn("writer_thinking_tokens", [a.id for a in cfg.campaign_analyses])
-        writer_cat = [
-            a for a in cfg.campaign_analyses if a.id == "writer_family_by_category"
-        ][0]
-        self.assertEqual(writer_cat.experiments, ("writers",))
-        self.assertIn("question_category", writer_cat.group_by)
-        self.assertIn("thinking", writer_cat.group_by)
-        self.assertEqual(writer_cat.plots[0].x, "question_category")
-        self.assertEqual(writer_cat.plots[0].hue, "thinking")
-        self.assertEqual(writer_cat.plots[0].y, "locomo_f1")
-        latency = [a for a in cfg.campaign_analyses if a.id == "reader_latency_mem0"][0]
-        self.assertIn("memory_method", latency.group_by)
-        self.assertEqual(
-            [p.y for p in latency.plots],
-            [
-                "total_latency_seconds_p50",
-                "total_latency_seconds_p95",
-                "search_latency_seconds_p50",
-                "search_latency_seconds_p95",
-            ],
-        )
-        self.assertNotEqual(
-            [a.id for a in cfg.campaign_analyses],
-            [a.id for a in live.campaign_analyses],
-        )
-        self.assertNotEqual(cfg.experiments["smoke"].name, live.experiments["smoke"].name)
-        baseline_cat = [
-            a for a in cfg.experiments["baseline"].analyses if a.id == "by_category"
-        ][0]
-        self.assertIn("reader_display_name", baseline_cat.group_by)
-        self.assertIn("memory_method", baseline_cat.group_by)
-        self.assertIn("thinking", baseline_cat.group_by)
-        tokens = [
-            a for a in cfg.experiments["baseline"].analyses if a.id == "thinking_tokens"
-        ][0]
-        self.assertIn("agent_reasoning_tokens", tokens.metrics)
-        writer_tokens = [
-            a for a in cfg.experiments["writers"].analyses if a.id == "thinking_tokens"
-        ][0]
-        self.assertEqual(writer_tokens.source, "runs")
-        self.assertIn("teacher_reasoning_tokens", writer_tokens.metrics)
-        within = [
-            a for a in cfg.experiments["baseline"].analyses if a.id == "thinking_within_reader"
-        ][0]
-        self.assertEqual(within.group_by, ("reader_display_name", "thinking"))
-        self.assertEqual(within.plots[0].x, "reader_display_name")
-        self.assertEqual(within.plots[0].hue, "thinking")
-        writer_within = [
-            a for a in cfg.experiments["writers"].analyses if a.id == "thinking_within_writer"
-        ][0]
-        self.assertEqual(writer_within.plots[0].x, "writer_model")
-        self.assertEqual(writer_within.plots[0].hue, "thinking")
-        self.assertEqual(baseline_cat.plots[0].hue, "thinking")
-
-    def test_2026_openai_deepseek_reuses_recipes_with_separate_packs(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_2026_openai_deepseek.yaml"
-        )
-        self.assertEqual(cfg.id, "2026_openai_deepseek")
-        self.assertEqual(set(cfg.experiments), {"smoke", "baseline", "writers"})
-        self.assertEqual(
-            cfg.experiments["smoke"].name,
-            "locomo-2026-readers-openai-deepseek-smoke",
-        )
-        self.assertEqual(
-            cfg.experiments["baseline"].name,
-            "locomo-2026-readers-openai-deepseek",
-        )
-        self.assertEqual(
-            cfg.experiments["writers"].name,
-            "locomo-mem0-reader-2026-writers-openai-deepseek",
-        )
-        live = load_campaign_yaml(CAMPAIGN)
-        self.assertIn("reader_thinking_tokens", [a.id for a in cfg.campaign_analyses])
-        self.assertIn("writer_thinking_tokens", [a.id for a in cfg.campaign_analyses])
-        writer_cat = [
-            a for a in cfg.campaign_analyses if a.id == "writer_family_by_category"
-        ][0]
-        self.assertEqual(writer_cat.experiments, ("writers",))
-        self.assertIn("question_category", writer_cat.group_by)
-        self.assertIn("thinking", writer_cat.group_by)
-        self.assertEqual(writer_cat.plots[0].x, "question_category")
-        self.assertEqual(writer_cat.plots[0].hue, "thinking")
-        self.assertEqual(writer_cat.plots[0].y, "locomo_f1")
-        latency = [a for a in cfg.campaign_analyses if a.id == "reader_latency_mem0"][0]
-        self.assertIn("memory_method", latency.group_by)
-        self.assertEqual(
-            [p.y for p in latency.plots],
-            [
-                "total_latency_seconds_p50",
-                "total_latency_seconds_p95",
-                "search_latency_seconds_p50",
-                "search_latency_seconds_p95",
-            ],
-        )
-        self.assertNotEqual(
-            [a.id for a in cfg.campaign_analyses],
-            [a.id for a in live.campaign_analyses],
-        )
-        self.assertNotEqual(cfg.experiments["smoke"].name, live.experiments["smoke"].name)
-        baseline_cat = [
-            a for a in cfg.experiments["baseline"].analyses if a.id == "by_category"
-        ][0]
-        self.assertIn("reader_display_name", baseline_cat.group_by)
-        self.assertIn("memory_method", baseline_cat.group_by)
-        self.assertIn("thinking", baseline_cat.group_by)
-
 
 class TestGroupedBarKeepsReaderAndMemory(unittest.TestCase):
-    def test_baseline_by_category_groups_reader_memory_and_category(self):
-        cfg = load_campaign_yaml(CAMPAIGN)
-        spec = [a for a in cfg.experiments["baseline"].analyses if a.id == "by_category"][0]
-        self.assertEqual(
-            spec.group_by,
-            ("reader_display_name", "memory_method", "question_category"),
-        )
-        self.assertIsNone(spec.plots[0].hue)
 
     def test_category_plot_table_does_not_average_readers_across_memory(self):
         spec = AnalysisSpec(
@@ -388,7 +229,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
         df = pd.DataFrame(
             [
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "writer_model": "gpt-4o-mini",
                     "locomo_f1": 0.211,
                 }
@@ -416,7 +257,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
         df = pd.DataFrame(
             [
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "writer_model": "gpt-4o-mini",
                     "locomo_f1": 0.211,
                     "judge_score": 0.2429,
@@ -433,7 +274,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
 
     def test_runs_receive_cat5_excluded_mean_j_from_examples(self):
         runs = pd.DataFrame(
-            [{"run_id": "cell-a", "memory_method": "teacher_graph", "locomo_f1": 0.211}]
+            [{"run_id": "cell-a", "memory_method": "graph", "locomo_f1": 0.211}]
         )
         examples = pd.DataFrame(
             [
@@ -492,7 +333,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                 [
                     {
                         "run_id": "cell-a",
-                        "memory_method": "teacher_graph",
+                        "memory_method": "graph",
                         "writer_model": "gpt-4o-mini",
                         "locomo_f1": 0.211,
                     }
@@ -657,7 +498,9 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                 {"memory_method": "full_context", "agent_persist": None},
                 {"memory_method": "workspace_files", "agent_persist": False},
                 {"memory_method": "workspace_files", "agent_persist": True},
+                {"memory_method": "session_summaries", "agent_persist": None},
                 {"memory_method": "teacher_session_summaries", "agent_persist": None},
+                {"memory_method": "graph", "agent_persist": None},
                 {"memory_method": "teacher_graph", "agent_persist": None},
                 {"memory_method": "agent_codex_mem0_facts", "agent_persist": None},
             ]
@@ -669,8 +512,10 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                 "full_context",
                 "full_context",
                 None,
-                "teacher_session_summaries",
-                "teacher_graph",
+                "session_summaries",
+                "session_summaries",
+                "graph",
+                "graph",
                 None,
             ],
         )
@@ -692,13 +537,13 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                     "writer_provider": None,
                 },
                 {
-                    "memory_method": "teacher_session_summaries",
+                    "memory_method": "session_summaries",
                     "agent": None,
                     "writer_model": "gpt-4o-mini",
                     "writer_provider": "openai",
                 },
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "agent": None,
                     "writer_model": "gpt-4o-mini",
                     "writer_provider": "codex",
@@ -745,7 +590,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                     "locomo_f1": 0.20,
                 },
                 {
-                    "memory_method": "teacher_session_summaries",
+                    "memory_method": "session_summaries",
                     "agent": None,
                     "writer_model": "gpt-4o-mini",
                     "writer_provider": "openai",
@@ -755,7 +600,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                     "locomo_f1": 0.47,
                 },
                 {
-                    "memory_method": "teacher_session_summaries",
+                    "memory_method": "session_summaries",
                     "agent": None,
                     "writer_model": "gpt-4o-mini",
                     "writer_provider": "codex",
@@ -765,7 +610,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                     "locomo_f1": 0.41,
                 },
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "agent": None,
                     "writer_model": "gpt-4o-mini",
                     "writer_provider": "openai",
@@ -775,7 +620,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                     "locomo_f1": 0.26,
                 },
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "agent": None,
                     "writer_model": "gpt-4o-mini",
                     "writer_provider": "codex",
@@ -798,7 +643,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
         )
         work = annotate_memory_lane(annotate_system_harness(df))
         work = work[work["memory_lane"].isin(
-            ["full_context", "teacher_session_summaries", "teacher_graph"]
+            ["full_context", "session_summaries", "graph"]
         )]
         table = mean_table(
             work, ["memory_lane", "system_harness"], ["judge_score", "locomo_f1"]
@@ -810,10 +655,10 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
             {
                 ("full_context", "chat_completions"),
                 ("full_context", "codex"),
-                ("teacher_session_summaries", "chat_completions"),
-                ("teacher_session_summaries", "codex"),
-                ("teacher_graph", "chat_completions"),
-                ("teacher_graph", "codex"),
+                ("session_summaries", "chat_completions"),
+                ("session_summaries", "codex"),
+                ("graph", "chat_completions"),
+                ("graph", "codex"),
             },
         )
 
@@ -1268,30 +1113,6 @@ class TestNotebookMarkdownTables(unittest.TestCase):
 
 
 class TestAnalysisNotebookContract(unittest.TestCase):
-    def test_configured_experiment_notebooks_are_thin_yaml_wrappers(self):
-        cfg = load_campaign_yaml(CAMPAIGN)
-        for ref in cfg.experiments.values():
-            with self.subTest(experiment=ref.id):
-                self.assertIsNotNone(ref.notebook)
-                notebook = ROOT / str(ref.notebook)
-                self.assertTrue(notebook.is_file())
-                code = _notebook_code(notebook)
-                self.assertIn("campaign_2025_live.yaml", code)
-                self.assertIn(f'render_experiment(camp, "{ref.id}"', code)
-                self.assertIn("notebook_pretest(camp,", code)
-                self.assertIn("notebook_posttest(camp,", code)
-                self.assertNotIn("matplotlib", code)
-                self.assertNotIn("groupby(", code)
-
-    def test_campaign_notebook_is_a_thin_yaml_wrapper(self):
-        notebook = ROOT / "notebooks" / "06_2025_live_campaign_analysis.ipynb"
-        code = _notebook_code(notebook)
-        self.assertIn("campaign_2025_live.yaml", code)
-        self.assertIn("render_campaign(camp, root=ROOT)", code)
-        self.assertIn("notebook_pretest(camp, root=ROOT)", code)
-        self.assertIn("notebook_posttest(camp,", code)
-        self.assertNotIn("matplotlib", code)
-        self.assertNotIn("groupby(", code)
 
     def test_openai_agent_notebooks_are_thin_yaml_wrappers(self):
         pairs = (
@@ -1311,6 +1132,14 @@ class TestAnalysisNotebookContract(unittest.TestCase):
                 "campaign_openai_mini_vs_codex_writers.yaml",
                 "17_openai_mini_vs_codex_writers_analysis.ipynb",
             ),
+            (
+                "campaign_openai_model_harness_gaps.yaml",
+                "17_openai_model_harness_gaps_analysis.ipynb",
+            ),
+            (
+                "campaign_openai_mini_codex_readers_analysis.yaml",
+                "17_openai_mini_codex_readers_analysis.ipynb",
+            ),
         )
         for yaml_name, notebook_name in pairs:
             with self.subTest(notebook=notebook_name):
@@ -1322,30 +1151,6 @@ class TestAnalysisNotebookContract(unittest.TestCase):
                 self.assertIn("run_report(YAML, root=ROOT)", code)
                 self.assertNotIn("matplotlib", code)
                 self.assertNotIn("groupby(", code)
-
-    def test_openai_deepseek_notebooks_state_thinking_within_family(self):
-        names = (
-            "07_2025_readers_openai_deepseek_smoke_analysis.ipynb",
-            "08_2025_readers_openai_deepseek_analysis.ipynb",
-            "09_mem0_reader_2025_writers_openai_deepseek_analysis.ipynb",
-            "10_2025_openai_deepseek_campaign_analysis.ipynb",
-            "11_2026_readers_openai_deepseek_smoke_analysis.ipynb",
-            "12_2026_readers_openai_deepseek_analysis.ipynb",
-            "13_mem0_reader_2026_writers_openai_deepseek_analysis.ipynb",
-            "14_2026_openai_deepseek_campaign_analysis.ipynb",
-        )
-        for name in names:
-            notebook = ROOT / "notebooks" / name
-            with self.subTest(notebook=name):
-                self.assertTrue(notebook.is_file())
-                payload = json.loads(notebook.read_text(encoding="utf-8"))
-                md = "\n".join(
-                    "".join(cell.get("source") or [])
-                    for cell in payload.get("cells") or []
-                    if cell.get("cell_type") == "markdown"
-                )
-                self.assertIn("within", md.lower())
-                self.assertIn("hue=thinking", md.lower())
 
 
 class TestMeanTableAndFamily(unittest.TestCase):
@@ -1595,14 +1400,6 @@ class TestMeanTableAndFamily(unittest.TestCase):
             self.assertGreater(result.plot_paths[0].stat().st_size, 0)
 
 
-class TestRenderSkipsMissingPack(unittest.TestCase):
-    def test_render_experiment_records_missing_pack_without_raising(self):
-        cfg = load_campaign_yaml(CAMPAIGN)
-        with tempfile.TemporaryDirectory() as tmp:
-            report = render_experiment(cfg, "baseline", root=Path(tmp))
-            self.assertEqual(report.missing_packs, ["locomo-2025-readers-full-context"])
-            self.assertEqual(report.results, [])
-
 
 class TestDeterministicAnalysisReports(unittest.TestCase):
     def setUp(self):
@@ -1691,7 +1488,7 @@ class TestDeterministicAnalysisReports(unittest.TestCase):
 
 class TestLegendDoesNotCoverBars(unittest.TestCase):
     def test_legend_window_is_to_the_right_of_the_axes(self):
-        from src.memorybench.analysis.plots import _pyplot
+        from src.experiment_runner.analysis.plots import _pyplot
 
         plt = _pyplot()
         if plt is None:
@@ -1708,7 +1505,7 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         plt.close(fig)
 
     def test_reasoning_token_and_latency_metrics_are_not_score_scaled(self):
-        from src.memorybench.analysis.plots import unbounded_metric
+        from src.experiment_runner.analysis.plots import unbounded_metric
 
         self.assertTrue(unbounded_metric("agent_reasoning_tokens"))
         self.assertTrue(unbounded_metric("agent_input_tokens_mean"))
@@ -1729,50 +1526,10 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         self.assertFalse(unbounded_metric("harness_failed_rate"))
 
 
-class TestSmokeReportWhenPackPresent(unittest.TestCase):
-    def test_smoke_report_writes_family_table_when_aggregate_exists(self):
-        pack = ROOT / "experiments" / "locomo-2025-readers-full-context-smoke" / "aggregate"
-        if not (pack / "examples.parquet").is_file():
-            self.skipTest("smoke aggregate not checked out")
-        reports = run_report(CAMPAIGN, experiment_id="smoke", root=ROOT)
-        self.assertEqual(len(reports), 1)
-        ids = [item.spec.id for item in reports[0].results if not item.skipped]
-        self.assertIn("by_reader", ids)
-        self.assertIn("reader_family_metrics", ids)
-        family = next(r for r in reports[0].results if r.spec.id == "reader_family_metrics")
-        self.assertGreaterEqual(len(family.table), 3)
-        self.assertTrue((reports[0].out_dir / "tables" / "by_reader.csv").is_file())
 
 
 class TestYearFamilyCampaign(unittest.TestCase):
-    YAML = ROOT / "configs" / "analysis" / "campaign_year_family.yaml"
 
-    def test_year_family_yaml_has_pins_and_2026_axis_note(self):
-        cfg = load_campaign_yaml(self.YAML)
-        self.assertEqual(cfg.id, "year_family")
-        self.assertEqual(set(cfg.experiments), {"readers", "writers", "readers_2026", "writers_2026"})
-        self.assertGreaterEqual(len(cfg.pins), 7)
-        generations = {str(row.get("generation")) for row in cfg.pins}
-        self.assertEqual(generations, {"2024"})
-        sources = {str(row.get("result_source")) for row in cfg.pins}
-        self.assertEqual(sources, {"paper", "local_clone"})
-        ids = [spec.id for spec in cfg.campaign_analyses]
-        self.assertIn("j_full_context_by_year_family", ids)
-        self.assertIn("j_rag_by_year_family", ids)
-        self.assertIn("j_memory_write_by_year_family", ids)
-        self.assertIn("year_family_by_thinking", ids)
-        self.assertIn("thinking_tokens_by_year_family", ids)
-        self.assertIn("writer_thinking_tokens_by_year_family", ids)
-        fc = [a for a in cfg.campaign_analyses if a.id == "j_full_context_by_year_family"][0]
-        self.assertTrue(fc.include_pins)
-        self.assertEqual(fc.exclude_question_categories, (5,))
-        self.assertEqual(fc.where, (("memory_method", ("full_context",)),))
-        live = [a for a in cfg.campaign_analyses if a.id == "reader_live_year_family"][0]
-        line_plots = {(p.x, p.y) for p in live.plots if p.kind == "line"}
-        self.assertIn(("generation", "locomo_f1"), line_plots)
-        self.assertIn(("generation", "judge_score"), line_plots)
-        writer = [a for a in cfg.campaign_analyses if a.id == "writer_live_year_family"][0]
-        self.assertTrue(any(p.kind == "line" and p.x == "generation" for p in writer.plots))
 
     def test_annotate_generation_uses_catalog_year(self):
         df = pd.DataFrame(
@@ -1892,14 +1649,14 @@ class TestYearFamilyCampaign(unittest.TestCase):
                     "writer_harness": "codex",
                 },
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "result_source": "live",
                     "agent_persist": None,
                     "writer_harness": "codex",
                     "experiment_name": "locomo-openai-codex-poc-writers",
                 },
                 {
-                    "memory_method": "teacher_graph",
+                    "memory_method": "graph",
                     "result_source": "live",
                     "agent_persist": None,
                     "writer_harness": "chat_completions",
@@ -1927,7 +1684,7 @@ class TestYearFamilyCampaign(unittest.TestCase):
                 "workspace_files",
                 "mem0",
                 "mem0g",
-                "teacher_graph",
+                "graph",
                 "full_context",
                 "mem0",
             ],
@@ -2456,6 +2213,56 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
             any(p.x == "memory_lane" and p.hue == "system_harness" for p in ceiling.plots)
         )
         self.assertIn("methods_vs_full_context_ceiling", takeaway_ids)
+
+    def test_mini_codex_readers_analysis_campaign_has_six_cell_contract(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_readers_analysis.yaml"
+        )
+
+        self.assertEqual(cfg.id, "openai_mini_codex_readers_analysis")
+        self.assertEqual(set(cfg.experiments), {"readers"})
+        conditions = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "reader_conditions"
+        )
+        self.assertEqual(conditions.group_by[0], "memory_method")
+        self.assertIn("prompt_parity_condition", conditions.group_by)
+        audit = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "codex_audit"
+        )
+        self.assertEqual(audit.source, "runs")
+        self.assertIn("n_web_search", audit.metrics)
+        self.assertIn("n_mcp", audit.metrics)
+        self.assertIn(
+            "full_context_model_vs_codex",
+            [item.id for item in cfg.takeaways],
+        )
+
+    def test_model_harness_gaps_campaign_has_category_j_charts(self):
+        cfg = load_campaign_yaml(
+            ROOT / "configs" / "analysis" / "campaign_openai_model_harness_gaps.yaml"
+        )
+        self.assertEqual(cfg.id, "openai_model_harness_gaps")
+        fc = next(spec for spec in cfg.campaign_analyses if spec.id == "fc_category_j")
+        summaries = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "summaries_category_j"
+        )
+        year = next(spec for spec in cfg.campaign_analyses if spec.id == "year_fc_category_j")
+        self.assertEqual(fc.plots[0].x, "question_category")
+        self.assertEqual(fc.plots[0].hue, "mini_side")
+        self.assertEqual(fc.plots[0].y, "judge_score")
+        self.assertEqual(summaries.plots[0].hue, "mini_side")
+        self.assertEqual(year.plots[0].hue, "gap_stack")
+        self.assertIn("question_category", year.group_by)
+        adversarial = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "year_fc_adversarial"
+        )
+        self.assertEqual(adversarial.group_by, ("gap_stack",))
+        self.assertEqual(adversarial.exclude_question_categories, (1, 2, 3, 4))
+        self.assertEqual(adversarial.metrics, ("locomo_f1", "judge_score"))
+        self.assertEqual(adversarial.plots[0].y, "locomo_f1")
+        self.assertEqual(adversarial.plots[0].x, "gap_stack")
+        kinds = {item.kind for item in cfg.insights}
+        self.assertEqual(kinds, {"series_gaps"})
 
     def test_notebook_posttest_accepts_run_report_list_without_using_it_as_id(self):
         cfg = load_campaign_yaml(

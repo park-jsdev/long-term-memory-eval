@@ -89,7 +89,7 @@ def retrieve_rag_with_ranks(
     k: int,
 ) -> tuple[str, list[str], float, list[dict]]:
     """Same as retrieve_rag_text plus the full ranked candidate list."""
-    from ..experiments.claim_audit import preview
+    from ..experiment_pack.claim_audit import preview
 
     sample_dir = require_sample_dump(index_root, sample_id)
     _transcript, chunks = load_sample_chunks(sample_dir)

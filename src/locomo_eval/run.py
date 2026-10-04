@@ -35,19 +35,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.locomo_eval.dataset import iter_questions, load_conversations, select_question_pairs
+from src.locomo_eval.dataset import iter_questions, load_conversations
 from src.locomo_eval.env import load_env
-from src.locomo_eval.fusion import (
-    FUSION_MAJORITY,
-    FUSION_NONE,
-    FUSION_POLICIES,
-    POOL_EQUAL_WEIGHT,
-    POOL_SINGLE,
-)
 from src.locomo_eval.memory import (
     AgentFactMemoryBuilder,
     ORCHESTRATED_GRAPH_NAMES,
-    TeacherSessionMemoryBuilder,
+    SessionSummaryMemoryBuilder,
     get_memory_builder,
     is_question_independent,
     resolve_memory_name,
@@ -58,6 +51,7 @@ from src.locomo_eval.agents import (
     ingest_structured_notes,
     render_agent_prompt,
     snapshot_notes,
+    write_prompt_parity_workspace,
 )
 from src.locomo_eval.agents.comparison import (
     comparison_status,
@@ -66,27 +60,29 @@ from src.locomo_eval.agents.comparison import (
     validate_strict_contract,
     workspace_manifest_sha256,
 )
-from src.locomo_eval.agents.dump import write_agent_module
+from src.locomo_eval.agents.dump import (
+    append_agent_artifacts,
+    finalize_agent_module,
+)
 from src.locomo_eval.agents.metrics import score_agent_row, summarize_agent_rows
 from src.locomo_eval.agents.protocol import AgentRequest
 from src.locomo_eval.metrics import score_row, summarize_predictions
-from src.locomo_eval.experiments.audit_writer import (
+from src.locomo_eval.experiment_pack.audit_writer import (
     write_claim_audit,
     write_frozen_config,
     write_graph_module,
     write_reader_module,
-    write_teacher_module,
+    write_writer_module,
 )
-from src.locomo_eval.experiments.prompt_bundle import repo_rel, write_prompt_bundle
+from src.locomo_eval.experiment_pack.prompt_bundle import repo_rel, write_prompt_bundle
 from src.locomo_eval.memory_log import (
-    collect_fusion_log,
     collect_ingest_log,
     collect_retrieve_log,
     collect_session_texts,
-    collect_teacher_call_log,
+    collect_writer_call_log,
     write_memory_run_log,
 )
-from src.locomo_eval.experiments.audit_layout import audit_layout_meta
+from src.locomo_eval.experiment_pack.audit_layout import audit_layout_meta
 from src.locomo_eval.models import resolve_model
 from src.locomo_eval.prompts import (
     INGEST_NOTES_V1,
@@ -95,20 +91,17 @@ from src.locomo_eval.prompts import (
     QA_WORKSPACE_V1,
     load_prompt_template,
     locate_prompt_file,
+    render_persisted_agent_prompt,
+    render_qa_prompt,
 )
 from src.locomo_eval.readers import get_reader
-from src.locomo_eval.report import write_jsonl, write_run_report
+from src.locomo_eval.report import append_jsonl, write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
-from src.locomo_eval.teacher_callers import DEFAULT_TEACHER_THINKING
-from src.locomo_eval.teacher_orchestrator import TeacherOrchestrator
-from src.locomo_eval.teachers import get_teacher
+from src.locomo_eval.writer_callers import DEFAULT_WRITER_THINKING
+from src.locomo_eval.model_orchestrator import ModelOrchestrator
+from src.locomo_eval.writer_model import get_writer
 
 
-_ORCH_DEFAULTS = {
-    "teacher_graph": (POOL_SINGLE, FUSION_NONE),
-    "pooled_teacher_graph": (POOL_EQUAL_WEIGHT, FUSION_NONE),
-    "fused_teacher_graph": (POOL_EQUAL_WEIGHT, FUSION_MAJORITY),
-}
 
 
 def _mem0_builder_kwargs(
@@ -263,8 +256,17 @@ def _as_bool(value: object, default: bool) -> bool:
     raise SystemExit(f"Invalid boolean {value!r}; use on/off or true/false")
 
 
-def _teacher_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None) -> dict:
-    tcfg = cfg.get("teacher") or {}
+def _writer_block(cfg: dict) -> dict:
+    """One writer block. ``writer:`` is canonical; ``teacher:`` still loads."""
+    block = cfg.get("writer")
+    if isinstance(block, dict) and block:
+        return block
+    legacy = cfg.get("teacher")
+    return legacy if isinstance(legacy, dict) else {}
+
+
+def _writer_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None) -> dict:
+    wcfg = _writer_block(cfg)
     thinking = None
     if overrides is not None:
         flag = getattr(overrides, "thinking", None)
@@ -273,30 +275,30 @@ def _teacher_call_kwargs(cfg: dict, overrides: argparse.Namespace | None = None)
         elif flag == "off":
             thinking = False
     if thinking is None:
-        thinking = _as_bool(tcfg.get("thinking"), DEFAULT_TEACHER_THINKING)
-    budget = tcfg.get("thinking_budget_tokens", 1024)
-    max_tokens = int(tcfg.get("max_tokens", 512))
+        thinking = _as_bool(wcfg.get("thinking"), DEFAULT_WRITER_THINKING)
+    budget = wcfg.get("thinking_budget_tokens", 1024)
+    max_tokens = int(wcfg.get("max_tokens", 512))
     if overrides is not None:
-        teacher_max = getattr(overrides, "teacher_max_tokens", None)
-        if teacher_max is not None:
-            max_tokens = int(teacher_max)
+        writer_max = getattr(overrides, "writer_max_tokens", None)
+        if writer_max is not None:
+            max_tokens = int(writer_max)
     return {
-        "temperature": float(tcfg.get("temperature", 0.0)),
+        "temperature": float(wcfg.get("temperature", 0.0)),
         "max_tokens": max_tokens,
-        "max_retries": int(tcfg.get("max_retries", 8)),
-        "min_request_interval_s": float(tcfg.get("min_request_interval_s", 0.5)),
-        "max_wait_s": float(tcfg.get("max_wait_s", 3600.0)),
-        "prompt_path": tcfg.get("prompt_path"),
-        "graph_prompt_path": tcfg.get("graph_prompt_path"),
+        "max_retries": int(wcfg.get("max_retries", 8)),
+        "min_request_interval_s": float(wcfg.get("min_request_interval_s", 0.5)),
+        "max_wait_s": float(wcfg.get("max_wait_s", 3600.0)),
+        "prompt_path": wcfg.get("prompt_path"),
+        "graph_prompt_path": wcfg.get("graph_prompt_path"),
         "thinking": thinking,
         "thinking_budget_tokens": int(budget),
     }
 
 
-def _force_mock_teachers(overrides: argparse.Namespace, reader_name: str) -> bool:
+def _force_mock_writer(overrides: argparse.Namespace, reader_name: str) -> bool:
     if str(reader_name).lower() == "mock":
         return True
-    return str(getattr(overrides, "teacher", None) or "").lower() == "mock"
+    return str(getattr(overrides, "writer", None) or "").lower() == "mock"
 
 
 def _resolve_agent_run(
@@ -317,6 +319,17 @@ def _resolve_agent_run(
     else:
         persist = _as_bool(acfg.get("persist_memory"), False)
     tools = getattr(overrides, "agent_tools", None) or acfg.get("tools") or "native"
+    prompt_mode = (
+        getattr(overrides, "agent_prompt_mode", None)
+        or acfg.get("prompt_mode")
+        or "workspace"
+    )
+    prompt_mode = str(prompt_mode).strip().lower()
+    if prompt_mode not in ("workspace", "reader_prompt"):
+        raise SystemExit(
+            "agent prompt mode must be workspace or reader_prompt, "
+            f"got {prompt_mode!r}"
+        )
     sessions_flag = getattr(overrides, "agent_sessions", None) or acfg.get("sessions") or "full"
     sessions = str(sessions_flag).strip().lower()
     if sessions in ("on", "true"):
@@ -341,6 +354,7 @@ def _resolve_agent_run(
             "persist_memory": persist,
             "tools": str(tools),
             "sessions": "full",
+            "prompt_mode": prompt_mode,
         }
     adapter = str(adapter or acfg.get("adapter") or "mock").strip().lower()
     model = (
@@ -359,6 +373,7 @@ def _resolve_agent_run(
         "persist_memory": persist,
         "tools": str(tools),
         "sessions": sessions,
+        "prompt_mode": prompt_mode,
         "timeout_s": float(acfg.get("timeout_s") or 600),
         "codex_bin": acfg.get("codex_bin"),
     }
@@ -373,111 +388,74 @@ def _select_workspace_prompt(agent_run: dict[str, Any], requested: Path) -> Path
     return locate_prompt_file(QA_WORKSPACE_V1)
 
 
-def _build_teacher(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
-    """Construct a Teacher only for teacher_session_summaries. Other builders ignore teacher YAML."""
-    if resolve_memory_name(memory_name) not in (
-        TeacherSessionMemoryBuilder.name,
+def _one_writer(
+    cfg: dict, overrides: argparse.Namespace, reader_name: str
+) -> dict | None:
+    """The single writer model for this run, or None when the method has no writer."""
+    if cfg.get("teachers") or cfg.get("writers"):
+        raise SystemExit("Only one writer model is supported. Use writer.model.")
+    wcfg = _writer_block(cfg)
+    provider = getattr(overrides, "writer", None) or wcfg.get("provider")
+    model = getattr(overrides, "writer_model", None) or wcfg.get("model")
+    if not model:
+        return None
+    if not provider:
+        provider = "mock" if _force_mock_writer(overrides, reader_name) else "openai"
+    return {"id": str(wcfg.get("id") or provider), "provider": provider, "model": model}
+
+
+def _build_writer(cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str):
+    """Construct the writer for session summaries and fact lists. Graph uses the orchestrator."""
+    resolved = resolve_memory_name(memory_name)
+    if resolved not in (
+        SessionSummaryMemoryBuilder.name,
         AgentFactMemoryBuilder.name,
     ):
         return None
-    tcfg = cfg.get("teacher") or {}
-    provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
-    model = getattr(overrides, "teacher_model", None) or tcfg.get("model")
-    if not provider:
-        provider = "mock" if str(reader_name).lower() == "mock" else "openai"
-    if not model:
-        raise SystemExit(
-            "teacher_session_summaries requires teacher.model in YAML or --teacher-model"
-        )
-    kwargs = _teacher_call_kwargs(cfg, overrides)
-    return get_teacher(provider, model=model, **kwargs)
-
-
-def _teacher_roster(
-    cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
-) -> list[dict]:
-    """Resolved teacher slots for this memory method (before get_teacher).
-
-    ``teacher_graph`` + ``--teacher-model`` replaces the one sandwich writer.
-    Pooled/fused keep the YAML roster (cheap_k3); experiment matrices must
-    not schedule those methods.
-    """
-    resolved = resolve_memory_name(memory_name)
-    force_mock = _force_mock_teachers(overrides, reader_name)
-    tcfg = cfg.get("teacher") or {}
-    roster = list(cfg.get("teachers") or [])
-    if not roster:
-        provider = getattr(overrides, "teacher", None) or tcfg.get("provider")
-        model = getattr(overrides, "teacher_model", None) or tcfg.get("model")
-        if not provider:
-            provider = "mock" if force_mock else "openai"
-        if not model:
-            return []
-        return [{"id": provider, "provider": provider, "model": model}]
-    if getattr(overrides, "teacher_model", None) and resolved == "teacher_graph":
-        roster = [{**roster[0], "model": overrides.teacher_model}]
-        if getattr(overrides, "teacher", None):
-            roster[0]["provider"] = overrides.teacher
-            roster[0]["id"] = overrides.teacher
-    return roster
-
-
-def _teacher_cardinality(
-    orch: TeacherOrchestrator | None, teacher
-) -> tuple[int, list[str]]:
-    """How many write-path teachers this run constructed (0 if none)."""
-    if orch is not None:
-        ids = [str(t.teacher_id) for t in orch.teachers]
-        return len(ids), ids
-    if teacher is not None:
-        tid = str(getattr(teacher, "teacher_id", None) or teacher.model_name)
-        return 1, [tid]
-    return 0, []
+    slot = _one_writer(cfg, overrides, reader_name)
+    if slot is None:
+        if resolved == AgentFactMemoryBuilder.name:
+            raise SystemExit("agent_codex_mem0_facts requires writer.model or --writer-model")
+        return None
+    if _force_mock_writer(overrides, reader_name):
+        slot = {**slot, "provider": "mock"}
+    kwargs = _writer_call_kwargs(cfg, overrides)
+    return get_writer(
+        slot["provider"],
+        model=slot["model"],
+        writer_id=slot["id"],
+        **kwargs,
+    )
 
 
 def _build_orchestrator(
     cfg: dict, overrides: argparse.Namespace, memory_name: str, reader_name: str
-) -> TeacherOrchestrator | None:
-    """K teachers + pool/fusion for graph memory conditions. None for other builders."""
+) -> ModelOrchestrator | None:
+    """One writer model for graph memory. None for other builders."""
     resolved = resolve_memory_name(memory_name)
     if resolved not in ORCHESTRATED_GRAPH_NAMES:
         return None
-    force_mock = _force_mock_teachers(overrides, reader_name)
-    roster = _teacher_roster(cfg, overrides, memory_name, reader_name)
-    if not roster:
-        raise SystemExit(
-            f"{resolved} requires teacher.model in YAML, teachers:, or --teacher-model"
-        )
-
-    kwargs = _teacher_call_kwargs(cfg, overrides)
-    teachers = []
-    for i, slot in enumerate(roster):
-        provider = "mock" if force_mock else (slot.get("provider") or "openai")
-        model = slot.get("model")
-        if not model:
-            raise SystemExit(f"{resolved} teacher slot {i} is missing model")
-        tid = str(slot.get("id") or model)
-        teachers.append(get_teacher(provider, model=model, teacher_id=tid, **kwargs))
-
+    slot = _one_writer(cfg, overrides, reader_name)
+    if slot is None:
+        raise SystemExit(f"{resolved} requires writer.model in YAML or --writer-model")
+    if _force_mock_writer(overrides, reader_name):
+        slot = {**slot, "provider": "mock"}
+    kwargs = _writer_call_kwargs(cfg, overrides)
+    writer = get_writer(
+        slot["provider"],
+        model=slot["model"],
+        writer_id=slot["id"],
+        **kwargs,
+    )
     ocfg = cfg.get("orchestrator") or {}
-    default_pool, default_fusion = _ORCH_DEFAULTS[resolved]
-    pool = getattr(overrides, "pool", None) or ocfg.get("pool") or default_pool
-    fusion = getattr(overrides, "fusion", None) or ocfg.get("fusion") or default_fusion
-    majority_k = ocfg.get("majority_k")
-    if majority_k is not None:
-        majority_k = int(majority_k)
     embed_cfg = ocfg.get("embed") or {}
     embed_provider = embed_cfg.get("provider") or "mock"
-    if force_mock:
+    if _force_mock_writer(overrides, reader_name):
         embed_provider = "mock"
     from src.locomo_eval.mem0.embeddings import get_embedder
 
-    return TeacherOrchestrator(
-        teachers,
-        pool=str(pool),
-        fusion=str(fusion),
-        min_votes=majority_k,
-        rng_seed=int(ocfg.get("rng_seed", 0)),
+    return ModelOrchestrator(
+        writer,
         embedder=get_embedder(
             embed_provider,
             model=embed_cfg.get("model") or "text-embedding-3-small",
@@ -510,7 +488,7 @@ def _filter_conversations_to_index(
     *,
     subset_requested: bool,
 ) -> list:
-    """Keep QA inside the dump. A partial smoke index must not round-robin into missing samples."""
+    """Keep QA inside the dump when an index covers only a dataset subset."""
     dumped = _listed_index_sample_ids(index_dir)
     if not dumped:
         return conversations
@@ -542,7 +520,7 @@ def _dump_memory_and_claim_audit(
     *,
     used_memories: dict,
     used_memories_by_question: dict,
-    question_sample_ids: dict,
+    question_conversation_ids: dict,
     max_chars: int | None,
     prompt_template: str,
     example_question: str | None,
@@ -558,12 +536,11 @@ def _dump_memory_and_claim_audit(
         prompt_template=prompt_template,
         example_question=example_question,
         memories_by_question=used_memories_by_question or None,
-        question_sample_ids=question_sample_ids or None,
+        question_conversation_ids=question_conversation_ids or None,
     )
-    write_teacher_module(
+    write_writer_module(
         run_dir,
-        calls=collect_teacher_call_log(builder),
-        fusion_rows=collect_fusion_log(builder),
+        calls=collect_writer_call_log(builder),
         session_texts=collect_session_texts(builder),
     )
     write_graph_module(run_dir, getattr(builder, "graphs_by_sample", {}) or {})
@@ -571,8 +548,7 @@ def _dump_memory_and_claim_audit(
         run_dir,
         prediction_rows=prediction_rows,
         reader_traces=reader_traces,
-        teacher_calls=collect_teacher_call_log(builder),
-        fusion_rows=collect_fusion_log(builder),
+        writer_calls=collect_writer_call_log(builder),
         ingest_rows=collect_ingest_log(builder),
         retrieve_ranks=collect_retrieve_log(builder),
         memories_by_sample=used_memories,
@@ -631,13 +607,18 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     reader_name = overrides.reader or cfg["reader"]["provider"]
     model = overrides.model or cfg["reader"]["model"]
     agent_run = _resolve_agent_run(cfg, overrides, memory_name, reader_name)
-    if agent_run["enabled"] and resolve_memory_name(memory_name) != "workspace_files":
+    if (
+        agent_run["enabled"]
+        and agent_run.get("prompt_mode") == "workspace"
+        and resolve_memory_name(memory_name) != "workspace_files"
+    ):
         raise SystemExit(
             "Agent harness requires pipeline.memory=workspace_files "
-            "(conversation files). Use full_context for model-only one-shot."
+            "unless agent_prompt_mode=reader_prompt passes the rendered "
+            "one-shot payload directly."
         )
     prompt_path = locate_prompt_file(overrides.prompt or cfg["pipeline"]["prompt_path"])
-    if agent_run.get("enabled"):
+    if agent_run.get("enabled") and agent_run.get("prompt_mode") == "workspace":
         prompt_path = _select_workspace_prompt(agent_run, prompt_path)
     max_questions = overrides.max_questions
     if max_questions is None:
@@ -683,7 +664,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     max_chars = cfg["pipeline"].get("memory_max_chars")
     if max_chars is not None:
         max_chars = int(max_chars)
-    teacher = _build_teacher(cfg, overrides, memory_name, reader_name)
+    writer = _build_writer(cfg, overrides, memory_name, reader_name)
     orchestrator = _build_orchestrator(cfg, overrides, memory_name, reader_name)
     mem0_kwargs = _mem0_builder_kwargs(cfg, overrides, memory_name, reader_name)
     preprocess_kwargs = _preprocess_builder_kwargs(cfg, overrides, memory_name)
@@ -695,7 +676,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     builder = get_memory_builder(
         memory_name,
         max_chars=max_chars,
-        teacher=teacher,
+        writer=writer,
         orchestrator=orchestrator,
         **mem0_kwargs,
         **preprocess_kwargs,
@@ -768,6 +749,19 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             prompt_path=prompt_path,
             memory_type=memory_name,
         )
+        comparison_contract["context"]["evidence_delivery"] = (
+            "prompt_injected"
+            if agent_run.get("prompt_mode") == "reader_prompt"
+            else "workspace_retrieval"
+        )
+        comparison_contract["memory_write"] = {
+            "persist_notes": bool(agent_run.get("persist_memory")),
+            "reader_payload_shared": agent_run.get("prompt_mode") == "reader_prompt",
+            "harness_persistence_footer": bool(
+                agent_run.get("prompt_mode") == "reader_prompt"
+                and agent_run.get("persist_memory")
+            ),
+        }
     else:
         reader = get_reader(
             reader_name,
@@ -813,50 +807,34 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             memory_by_sample[conv.sample_id] = builder.build(conv, q)
 
     pairs = list(iter_questions(conversations))
-    question_sample = (
-        getattr(overrides, "question_sample", None)
-        or (cfg.get("pipeline") or {}).get("question_sample")
-        or "round_robin"
-    )
     if max_questions is not None:
-        pairs = select_question_pairs(
-            pairs, int(max_questions), mode=str(question_sample)
-        )
+        # A capped run is only a deterministic smoke/subset, never a benchmark score.
+        pairs = pairs[: max(0, int(max_questions))]
 
-    teacher_model = getattr(builder, "teacher_model", None)
-    teacher_provider = getattr(builder, "teacher_provider", None)
+    writer_model = getattr(builder, "writer_model", None)
+    writer_provider = getattr(builder, "writer_provider", None)
     orch = getattr(builder, "orchestrator", None)
-    n_teachers, teacher_ids = _teacher_cardinality(orchestrator, teacher)
     print(
         f"Run {run_id}: {len(pairs)} questions | memory={builder.name} | "
         f"{'agent' if agent_runner else 'reader'}={answer_provider}/{answer_model_name}"
-        + (f" | teacher={teacher_provider}/{teacher_model}" if teacher_model else "")
-        + (
-            f" | pool={orch.pool} fusion={orch.fusion}"
-            if orch is not None
-            else ""
-        )
+        + (f" | writer={writer_provider}/{writer_model}" if writer_model else "")
         + (
             f" | persist={agent_run.get('persist_memory')} tools={agent_run.get('tools')}"
             if agent_runner is not None
             else ""
         )
-        + f" | question_sample={question_sample}"
     )
 
     prediction_rows: list[dict] = []
     reader_traces: list[dict] = []
-    agent_traces: list[dict] = []
-    agent_trajectories: list[dict] = []
-    agent_events: list[dict] = []
     trajectories_by_qid: dict[str, Any] = {}
-    notes_ledger: list[dict[str, Any]] = []
+    evidence_delivery_by_qid: dict[str, str] = {}
     ingested_samples: set[str] = set()
     notes_sha_by_sample: dict[str, str] = {}
     n_api = 0
     used_memories: dict[str, Memory] = {}
     used_memories_by_question: dict[str, Memory] = {}
-    question_sample_ids: dict[str, str] = {}
+    question_conversation_ids: dict[str, str] = {}
     example_question: str | None = None
     question_independent = is_question_independent(
         memory_name, retrieve_top_k=retrieve_top_k
@@ -870,18 +848,27 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             used_memories[conv.sample_id] = memory
             if not question_independent:
                 used_memories_by_question[q.question_id] = memory
-                question_sample_ids[q.question_id] = conv.sample_id
+                question_conversation_ids[q.question_id] = conv.sample_id
             if example_question is None:
                 example_question = q.question
 
+            reader_payload_sha256 = None
+            agent_task_sha256 = None
             if agent_runner is not None:
-                workspaces = getattr(builder, "workspaces", {}) or {}
-                workspace_dir = workspaces.get(conv.sample_id)
-                if workspace_dir is None:
-                    raise RuntimeError(
-                        f"workspace_files missing for sample {conv.sample_id}"
+                prompt_parity = agent_run.get("prompt_mode") == "reader_prompt"
+                if prompt_parity:
+                    workspace_dir = write_prompt_parity_workspace(
+                        agent_workspace_root / conv.sample_id,
+                        persist_memory=bool(agent_run.get("persist_memory")),
                     )
-                workspace_dir = Path(workspace_dir)
+                else:
+                    workspaces = getattr(builder, "workspaces", {}) or {}
+                    workspace_dir = workspaces.get(conv.sample_id)
+                    if workspace_dir is None:
+                        raise RuntimeError(
+                            f"workspace_files missing for sample {conv.sample_id}"
+                        )
+                    workspace_dir = Path(workspace_dir)
                 notes_only = str(agent_run.get("sessions") or "full") == "notes_only"
                 if notes_only and conv.sample_id not in ingested_samples:
                     if agent_run.get("adapter") == "mock":
@@ -905,11 +892,25 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         workspace_dir, snap_dir, question_id="_ingest"
                     )
                     rec["sample_id"] = conv.sample_id
-                    notes_ledger.append(rec)
+                    append_jsonl(
+                        run_dir / "agent" / "notes_ledger.jsonl",
+                        [rec],
+                    )
                     notes_sha_by_sample[conv.sample_id] = str(rec.get("notes_sha256") or "")
                     hide_session_files(workspace_dir)
                     ingested_samples.add(conv.sample_id)
-                filled = render_agent_prompt(prompt_template, q.question)
+                if prompt_parity:
+                    filled = render_qa_prompt(prompt_template, memory.text, q.question)
+                    reader_payload_sha256 = hashlib.sha256(
+                        filled.encode("utf-8")
+                    ).hexdigest()
+                    if agent_run.get("persist_memory"):
+                        filled = render_persisted_agent_prompt(filled)
+                    agent_task_sha256 = hashlib.sha256(
+                        filled.encode("utf-8")
+                    ).hexdigest()
+                else:
+                    filled = render_agent_prompt(prompt_template, q.question)
                 result = agent_runner.run(
                     AgentRequest(
                         workspace_dir=workspace_dir,
@@ -919,6 +920,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         prompt=filled,
                         evidence_ids=list(q.evidence),
                         tool_budget=(comparison_contract or {}).get("tool_budget") or {},
+                        require_workspace_read=not prompt_parity,
                     )
                 )
                 if comparison_contract is not None:
@@ -931,31 +933,35 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                     "latency_s": result.latency_s,
                     "usage": result.usage,
                     "reasoning": (result.call_meta or {}).get("reasoning") or "",
+                    "reader_payload_sha256": reader_payload_sha256,
+                    "agent_task_sha256": agent_task_sha256,
                 }
                 trajectories_by_qid[q.question_id] = result.trajectory
-                agent_trajectories.append(
-                    {
-                        "sample_id": conv.sample_id,
-                        "question_id": q.question_id,
-                        **result.trajectory.to_dict(),
-                    }
+                evidence_delivery_by_qid[q.question_id] = (
+                    "prompt_injected" if prompt_parity else "workspace_retrieval"
                 )
-                for raw in result.events_raw:
-                    agent_events.append(
-                        {
-                            "sample_id": conv.sample_id,
-                            "question_id": q.question_id,
-                            "event": raw,
-                        }
-                    )
-                agent_traces.append(
-                    result.to_trace_row(
+                append_agent_artifacts(
+                    run_dir,
+                    trace=result.to_trace_row(
                         sample_id=conv.sample_id,
                         question_id=q.question_id,
                         adapter=answer_provider,
                         model=answer_model_name,
                         prompt_version=prompt_version,
-                    )
+                    ),
+                    trajectory={
+                        "sample_id": conv.sample_id,
+                        "question_id": q.question_id,
+                        **result.trajectory.to_dict(),
+                    },
+                    events=[
+                        {
+                            "sample_id": conv.sample_id,
+                            "question_id": q.question_id,
+                            "event": raw,
+                        }
+                        for raw in result.events_raw
+                    ],
                 )
                 if agent_run.get("persist_memory"):
                     snap_dir = run_dir / "agent" / "notes_snapshots" / conv.sample_id
@@ -966,7 +972,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         previous_sha256=notes_sha_by_sample.get(conv.sample_id),
                     )
                     rec["sample_id"] = conv.sample_id
-                    notes_ledger.append(rec)
+                    append_jsonl(
+                        run_dir / "agent" / "notes_ledger.jsonl",
+                        [rec],
+                    )
                     notes_sha_by_sample[conv.sample_id] = str(
                         rec.get("notes_sha256") or ""
                     )
@@ -974,6 +983,9 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 else:
                     last_notes_rec = None
             else:
+                reader_payload_sha256 = hashlib.sha256(
+                    render_qa_prompt(prompt_template, memory.text, q.question).encode("utf-8")
+                ).hexdigest()
                 answer, meta = reader.answer(memory.text, q.question, prompt_template)
             n_api += 1
 
@@ -990,13 +1002,14 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 prompt_version=prompt_version,
                 evidence=list(q.evidence),
                 run_id=run_id,
-                teacher_model=memory.teacher_model,
-                teacher_provider=memory.teacher_provider,
+                writer_model=memory.writer_model,
+                writer_provider=memory.writer_provider,
             )
             row = pred.to_dict()
             row["latency_s"] = meta.get("latency_s")
             row["usage"] = meta.get("usage")
             row["memory_schema_version"] = memory.schema_version
+            row["reader_payload_sha256"] = reader_payload_sha256
             if memory.search_latency_s is not None:
                 row["search_latency_s"] = memory.search_latency_s
             if agent_runner is not None:
@@ -1004,11 +1017,15 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 row["agent_persist"] = agent_run.get("persist_memory")
                 row["agent_tools"] = agent_run.get("tools")
                 row["agent_sessions"] = agent_run.get("sessions")
+                row["agent_prompt_mode"] = agent_run.get("prompt_mode")
+                row["agent_task_sha256"] = meta.get("agent_task_sha256")
                 if last_notes_rec is not None:
                     row["notes_bytes"] = last_notes_rec.get("notes_bytes")
                     row["notes_words"] = last_notes_rec.get("notes_words")
                     row["notes_grew"] = last_notes_rec.get("notes_grew")
             prediction_rows.append(row)
+            # Keep a crash-auditable journal without rewriting every prior row.
+            append_jsonl(pred_path, [row])
             reader_traces.append(
                 {
                     "sample_id": q.sample_id,
@@ -1028,10 +1045,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 }
             )
 
-            # Flush for audit after a crash. The next invocation clears this
-            # partial file and regenerates.
-            write_jsonl(pred_path, prediction_rows)
-
             if i % 10 == 0 or i == len(pairs):
                 print(
                     f"  [{i}/{len(pairs)}] {q.question_id} api_calls_this_run={n_api}"
@@ -1044,7 +1057,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 builder,
                 used_memories=used_memories,
                 used_memories_by_question=used_memories_by_question,
-                question_sample_ids=question_sample_ids,
+                question_conversation_ids=question_conversation_ids,
                 max_chars=max_chars,
                 prompt_template=prompt_template,
                 example_question=example_question,
@@ -1057,12 +1070,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 traces=reader_traces,
             )
             if agent_runner is not None:
-                write_agent_module(
+                finalize_agent_module(
                     run_dir,
-                    traces=agent_traces,
-                    trajectories=agent_trajectories,
-                    events=agent_events,
                     metrics={},
+                    summary_rows=[],
                     comparison_contract=comparison_contract,
                 )
         print(
@@ -1083,17 +1094,16 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             prompt_template=prompt_template,
             example_question=example_question,
             memories_by_question=used_memories_by_question or None,
-            question_sample_ids=question_sample_ids or None,
+            question_conversation_ids=question_conversation_ids or None,
         )
         print(f"Memory audit: {mem_log_dir}")
-        teachers_dir = write_teacher_module(
+        writer_dir = write_writer_module(
             run_dir,
-            calls=collect_teacher_call_log(builder),
-            fusion_rows=collect_fusion_log(builder),
+            calls=collect_writer_call_log(builder),
             session_texts=collect_session_texts(builder),
         )
-        if teachers_dir is not None:
-            print(f"Teacher traces: {teachers_dir}")
+        if writer_dir is not None:
+            print(f"Writer traces: {writer_dir}")
         graph_dir = write_graph_module(
             run_dir, getattr(builder, "graphs_by_sample", {}) or {}
         )
@@ -1105,25 +1115,17 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
     summary["reader_model"] = answer_model_name
     summary["reader_family"] = resolve_model(answer_model_name).family
     summary["prompt_version"] = prompt_version
-    if teacher_model:
-        summary["teacher_model"] = teacher_model
-        summary["teacher_provider"] = teacher_provider
-        if "+" in str(teacher_model):
-            summary["teacher_family"] = "multi"
-        else:
-            summary["teacher_family"] = resolve_model(teacher_model).family
-    teacher_thinking = None
+    if writer_model:
+        summary["writer_model"] = writer_model
+        summary["writer_provider"] = writer_provider
+        summary["writer_family"] = resolve_model(writer_model).family
+    writer_thinking = None
     if orch is not None:
-        teacher_thinking = getattr(orch, "thinking", None)
-    elif teacher is not None:
-        teacher_thinking = getattr(teacher, "thinking", None)
-    if orch is not None:
-        summary["teacher_pool"] = orch.pool
-        summary["teacher_fusion"] = orch.fusion
-    summary["n_teachers"] = n_teachers
-    summary["teacher_ids"] = teacher_ids
-    if teacher_thinking is not None:
-        summary["teacher_thinking"] = teacher_thinking
+        writer_thinking = getattr(orch, "thinking", None)
+    elif writer is not None:
+        writer_thinking = getattr(writer, "thinking", None)
+    if writer_thinking is not None:
+        summary["writer_thinking"] = writer_thinking
 
     agent_metric_rows: list[dict] = []
     if trajectories_by_qid:
@@ -1140,6 +1142,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 locomo_f1=float(scores["locomo_f1"]),
                 exact_match=float(scores["exact_match"]),
                 trajectory=traj,
+                evidence_delivery=evidence_delivery_by_qid.get(
+                    str(row.get("question_id") or ""),
+                    "workspace_retrieval",
+                ),
             )
             row.update(extra)
             agent_metric_rows.append(extra)
@@ -1177,18 +1183,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "reader_provider": answer_provider,
         "reader_model": answer_model_name,
         "reader_family": resolve_model(answer_model_name).family,
-        "teacher_provider": teacher_provider,
-        "teacher_model": teacher_model,
-        "teacher_family": (
-            "multi"
-            if teacher_model and "+" in str(teacher_model)
-            else (resolve_model(teacher_model).family if teacher_model else None)
-        ),
-        "teacher_pool": orch.pool if orch is not None else None,
-        "teacher_fusion": orch.fusion if orch is not None else None,
-        "n_teachers": n_teachers,
-        "teacher_ids": teacher_ids,
-        "teacher_thinking": teacher_thinking,
+        "writer_provider": writer_provider,
+        "writer_model": writer_model,
+        "writer_family": resolve_model(writer_model).family if writer_model else None,
+        "writer_thinking": writer_thinking,
         "temperature": reader_temperature,
         "reader_thinking": reader_thinking,
         "max_tokens": reader_max_tokens,
@@ -1200,7 +1198,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "prompt_version": prompt_version,
         "max_questions": max_questions,
         "max_samples": max_samples,
-        "question_sample": question_sample,
         "n_predictions": len(prediction_rows),
         "n_new_api_calls": n_api,
         "code_git_hash": _git_hash(),
@@ -1212,6 +1209,12 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "agent": agent_run.get("adapter") if agent_runner is not None else None,
         "agent_persist": agent_run.get("persist_memory") if agent_runner is not None else None,
         "agent_tools": agent_run.get("tools") if agent_runner is not None else None,
+        "agent_prompt_mode": agent_run.get("prompt_mode") if agent_runner is not None else None,
+        "agent_persistence_footer": bool(
+            agent_runner is not None
+            and agent_run.get("prompt_mode") == "reader_prompt"
+            and agent_run.get("persist_memory")
+        ),
         "agent_sessions": agent_run.get("sessions") if agent_runner is not None else None,
         "agent_model": answer_model_name if agent_runner is not None else None,
         "agent_adapter": answer_provider if agent_runner is not None else None,
@@ -1229,11 +1232,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         summary=summary,
     )
     if agent_runner is not None:
-        agent_paths = write_agent_module(
+        agent_paths = finalize_agent_module(
             run_dir,
-            traces=agent_traces,
-            trajectories=agent_trajectories,
-            events=agent_events,
             metrics=summary.get("agent") or {},
             summary_rows=agent_metric_rows,
             comparison_contract=comparison_contract,
@@ -1241,16 +1241,14 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         print("Agent audit:")
         for k, v in agent_paths.items():
             print(f"  {k}: {v}")
-        if notes_ledger:
-            ledger_path = run_dir / "agent" / "notes_ledger.jsonl"
-            write_jsonl(ledger_path, notes_ledger)
+        ledger_path = run_dir / "agent" / "notes_ledger.jsonl"
+        if ledger_path.is_file():
             print(f"  notes_ledger: {ledger_path}")
     claim_paths = write_claim_audit(
         run_dir,
         prediction_rows=prediction_rows,
         reader_traces=reader_traces,
-        teacher_calls=collect_teacher_call_log(builder),
-        fusion_rows=collect_fusion_log(builder),
+        writer_calls=collect_writer_call_log(builder),
         ingest_rows=collect_ingest_log(builder),
         retrieve_ranks=collect_retrieve_log(builder),
         memories_by_sample=used_memories,
@@ -1288,7 +1286,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--memory",
         default=None,
-        help="Override pipeline.memory builder id (raw_chunks, session_summaries, teacher_session_summaries, teacher_graph, pooled_teacher_graph, fused_teacher_graph, full_context, rag, openai_memory, mem0, mem0g, workspace_files)",
+        help="Override pipeline.memory builder id (raw_chunks, session_summaries, graph, full_context, rag, openai_memory, mem0, mem0g, workspace_files)",
     )
     p.add_argument("--reader", default=None, help="openai | deepseek | anthropic | mock")
     p.add_argument("--model", default=None, help="Answer-model id, e.g. gpt-4.1-mini or gpt-5.6-luna")
@@ -1315,6 +1313,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("native", "controlled"),
         help="Native harness tools vs a later controlled allowlist",
     )
+    p.add_argument(
+        "--agent-prompt-mode",
+        default=None,
+        choices=("workspace", "reader_prompt"),
+        help="workspace retrieval or the exact rendered one-shot reader payload",
+    )
     p.add_argument("--temperature", type=float, default=None, help="Override reader temperature")
     p.add_argument("--max-tokens", type=int, default=None, help="Override reader completion-token limit")
     p.add_argument(
@@ -1330,56 +1334,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override Chat Completions message layout",
     )
     p.add_argument(
-        "--teacher",
+        "--writer",
         default=None,
-        help="Teacher provider: openai | anthropic | deepseek | mock",
+        help="Writer provider: openai | anthropic | deepseek | mock",
     )
     p.add_argument(
-        "--teacher-model",
+        "--writer-model",
         default=None,
-        help="Teacher model id (single-teacher conditions), e.g. gpt-4o-mini or claude-haiku-4-5",
-    )
-    p.add_argument(
-        "--pool",
-        default=None,
-        choices=("single", "equal_weight", "random", "round_robin"),
-        help="Override orchestrator.pool for teacher graph conditions",
-    )
-    p.add_argument(
-        "--fusion",
-        default=None,
-        choices=FUSION_POLICIES,
-        help="Override orchestrator.fusion for teacher graph conditions",
+        help="Writer model id, e.g. gpt-4o-mini or claude-haiku-4-5",
     )
     p.add_argument(
         "--thinking",
         default=None,
         choices=("on", "off"),
-        help="Teacher thinking/reasoning (default: on). Frozen reader is unchanged.",
+        help="Writer thinking/reasoning (default: on). Frozen reader is unchanged.",
     )
     p.add_argument(
-        "--teacher-max-tokens",
+        "--writer-max-tokens",
         type=int,
         default=None,
-        help="Override teacher completion-token limit (not the frozen reader).",
+        help="Override writer completion-token limit (not the frozen reader).",
     )
     p.add_argument("--prompt", default=None)
     p.add_argument("--output-dir", default=None)
     p.add_argument("--run-id", default=None)
     p.add_argument("--max-questions", type=int, default=None)
-    p.add_argument(
-        "--question-sample",
-        default=None,
-        choices=("round_robin", "prefix"),
-        help="How --max-questions picks items: round_robin (default, one per conversation first) or prefix (file order)",
-    )
     p.add_argument("--sample-id", default=None, help="Restrict to one conversation")
     p.add_argument(
         "--max-samples",
         type=int,
         default=None,
-        help="Cap conversations (file order) before --max-questions. "
-        "Keeps round-robin inside an indexed subset.",
+        help="Cap conversations in file order before --max-questions.",
     )
     p.add_argument(
         "--mem0-index-run-id",

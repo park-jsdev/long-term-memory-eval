@@ -10,6 +10,11 @@ SA="${SA:-memorybench-runner}"
 TAG="${TAG:-$(git rev-parse --short HEAD)}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/memorybench:${TAG}"
 JOB_MEMORY="${JOB_MEMORY:-4Gi}"
+JOB_CPU="${JOB_CPU:-1}"
+# Aggregate does not need the QA worker's allocation; keep its 1-vCPU default
+# within Cloud Run's 4-GiB limit unless an explicit paired override is needed.
+AGGREGATE_MEMORY="${AGGREGATE_MEMORY:-4Gi}"
+AGGREGATE_CPU="${AGGREGATE_CPU:-1}"
 # collect-full is 1 task. 8×32Gi exceeds us-central1 default 20 vCPU / 40Gi quota.
 COLLECT_FULL_MEMORY="${COLLECT_FULL_MEMORY:-32Gi}"
 COLLECT_FULL_CPU="${COLLECT_FULL_CPU:-8}"
@@ -43,9 +48,9 @@ upsert_job() {
   fi
 }
 
-upsert_job memorybench-qa "execute-qa,${EXP_YAML}" 1 "${JOB_MEMORY}" "${JOB_PARALLELISM}"
-upsert_job memorybench-autorater "execute-autorater,${EXP_YAML}" 1 "${JOB_MEMORY}" "${JOB_PARALLELISM}"
-upsert_job memorybench-aggregate "aggregate,${EXP_YAML}" 1 "${JOB_MEMORY}" 1
+upsert_job memorybench-qa "execute-qa,${EXP_YAML}" "${JOB_CPU}" "${JOB_MEMORY}" "${JOB_PARALLELISM}"
+upsert_job memorybench-autorater "execute-autorater,${EXP_YAML}" "${JOB_CPU}" "${JOB_MEMORY}" "${JOB_PARALLELISM}"
+upsert_job memorybench-aggregate "aggregate,${EXP_YAML}" "${AGGREGATE_CPU}" "${AGGREGATE_MEMORY}" 1
 upsert_job memorybench-collect-full "collect-full,${EXP_YAML}" "${COLLECT_FULL_CPU}" "${COLLECT_FULL_MEMORY}" 1
 
 echo "Image ${IMAGE}"

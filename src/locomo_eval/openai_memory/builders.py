@@ -50,7 +50,7 @@ class OpenAIMemoryBuilder(MemoryBuilder):
         self.retrieve_log: list[dict] = []
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
-        from ..experiments.claim_audit import preview, retrieve_rank_row
+        from ..experiment_pack.claim_audit import preview, retrieve_rank_row
 
         sample_dir = require_sample_dump(self.index_dir, conversation.sample_id)
         memories = load_sample_memories(sample_dir)

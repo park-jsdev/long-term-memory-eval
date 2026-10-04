@@ -6,7 +6,7 @@ question + gold + predicted answer and returns a binary CORRECT/WRONG label.
 
 Protocol follows Mem0 (Chhikara et al., arXiv:2504.19413, Appendix A):
 generous topic/date match, JSON ``{"label": "CORRECT"|"WRONG"}``, skip LoCoMo
-category 5. Default live model is GPT-4o. Mem0's extract/update memory
+category 5. Default live model is GPT-4o-mini. Mem0's extract/update memory
 algorithm is **not** implemented here.
 
 Prompt source (pinned Mem0 code):

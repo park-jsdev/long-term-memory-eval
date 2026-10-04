@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from src.locomo_eval.dataset import parse_sample
 from src.locomo_eval.memory import (
     SessionSummaryMemoryBuilder,
-    TeacherSessionMemoryBuilder,
+    WriterSessionMemoryBuilder,
     get_memory_builder,
 )
 from src.locomo_eval.memory_log import write_memory_run_log
@@ -45,7 +45,7 @@ from src.locomo_eval.models import (
 from src.locomo_eval.prompts import load_prompt_template
 from src.locomo_eval.readers import MockReader, Reader, get_reader
 from src.locomo_eval.schemas import Prediction
-from src.locomo_eval.teachers import MockTeacher, get_teacher
+from src.locomo_eval.writer_model import MockWriter, get_writer
 from src.metrics.locomo_qa import score_prediction
 from scripts.compare_cross_model import cross_model_analysis
 from scripts.compare_full_runs import load_pack
@@ -147,12 +147,12 @@ def _prediction_row(*, model: str, answer: str, memory: str, teacher_model: str 
         reference_answer=q.answer,
         predicted_answer=answer,
         category=q.category,
-        memory_type="session_summaries" if not teacher_model else "teacher_session_summaries",
+        memory_type="session_summaries",
         memory_text=memory,
         reader_model=resolve_model(model).model_id,
         prompt_version="qa_v1",
         run_id="test",
-        teacher_model=teacher_model,
+        writer_model=teacher_model,
     )
     return pred.to_dict()
 
@@ -374,16 +374,16 @@ class TestTeacherModelSwap(unittest.TestCase):
     """Feature 2: swapping teacher model within a family changes memory and logs."""
 
     def test_get_teacher_mock_resolves_luna_alias_on_model_name(self):
-        teacher = get_teacher("mock", model="luna")
-        self.assertIsInstance(teacher, MockTeacher)
+        teacher = get_writer("mock", model="luna")
+        self.assertIsInstance(teacher, MockWriter)
         self.assertEqual(teacher.model_name, GPT56_LUNA)
 
     def test_same_family_teacher_models_produce_different_memory_text(self):
         conv = parse_sample(MINI)
-        mem_luna = TeacherSessionMemoryBuilder(MockTeacher(GPT56_LUNA)).build(
+        mem_luna = WriterSessionMemoryBuilder(MockWriter(GPT56_LUNA)).build(
             conv, conv.questions[0]
         )
-        mem_terra = TeacherSessionMemoryBuilder(MockTeacher(GPT56_TERRA)).build(
+        mem_terra = WriterSessionMemoryBuilder(MockWriter(GPT56_TERRA)).build(
             conv, conv.questions[0]
         )
         self.assertTrue(same_family(GPT56_LUNA, GPT56_TERRA))
@@ -393,34 +393,34 @@ class TestTeacherModelSwap(unittest.TestCase):
 
     def test_teacher_model_swap_is_logged_on_memory_object(self):
         conv = parse_sample(MINI)
-        mem = TeacherSessionMemoryBuilder(MockTeacher(GPT56_LUNA)).build(
+        mem = WriterSessionMemoryBuilder(MockWriter(GPT56_LUNA)).build(
             conv, conv.questions[0]
         )
-        self.assertEqual(mem.memory_type, "teacher_session_summaries")
-        self.assertEqual(mem.teacher_model, GPT56_LUNA)
-        self.assertEqual(mem.teacher_provider, "mock")
+        self.assertEqual(mem.memory_type, "session_summaries")
+        self.assertEqual(mem.writer_model, GPT56_LUNA)
+        self.assertEqual(mem.writer_provider, "mock")
 
-    def test_get_memory_builder_teacher_session_summaries_records_teacher_model(self):
-        builder = get_memory_builder("teacher_session_summaries", teacher=MockTeacher("terra"))
+    def test_get_memory_builder_session_summaries_records_teacher_model(self):
+        builder = get_memory_builder("session_summaries", writer=MockWriter("terra"))
         conv = parse_sample(MINI)
         mem = builder.build(conv, conv.questions[0])
-        self.assertEqual(builder.name, "teacher_session_summaries")
-        self.assertEqual(mem.teacher_model, GPT56_TERRA)
+        self.assertEqual(builder.name, "session_summaries")
+        self.assertEqual(mem.writer_model, GPT56_TERRA)
 
     def test_teacher_model_swap_changes_downstream_reader_output(self):
         conv = parse_sample(MINI)
         q = conv.questions[0]
         tmpl = _qa_template()
         reader = EchoMemoryReader(BASELINE_READER_MODEL)
-        mem_a = TeacherSessionMemoryBuilder(MockTeacher(GPT56_LUNA)).build(conv, q)
-        mem_b = TeacherSessionMemoryBuilder(MockTeacher(GPT56_TERRA)).build(conv, q)
+        mem_a = WriterSessionMemoryBuilder(MockWriter(GPT56_LUNA)).build(conv, q)
+        mem_b = WriterSessionMemoryBuilder(MockWriter(GPT56_TERRA)).build(conv, q)
         ans_a, _ = reader.answer(mem_a.text, q.question, tmpl)
         ans_b, _ = reader.answer(mem_b.text, q.question, tmpl)
         self.assertNotEqual(ans_a, ans_b)
 
     def test_teacher_model_swap_is_written_to_memory_audit_logs(self):
         conv = parse_sample(MINI)
-        mem = TeacherSessionMemoryBuilder(MockTeacher(GPT56_LUNA)).build(
+        mem = WriterSessionMemoryBuilder(MockWriter(GPT56_LUNA)).build(
             conv, conv.questions[0]
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -435,18 +435,20 @@ class TestTeacherModelSwap(unittest.TestCase):
             schema = json.loads((run_dir / "memory" / "schema.json").read_text(encoding="utf-8"))
             index_line = (run_dir / "memory" / "index.jsonl").read_text(encoding="utf-8").splitlines()[0]
             index_row = json.loads(index_line)
-            self.assertEqual(schema["teacher_model"], GPT56_LUNA)
-            self.assertEqual(index_row["teacher_model"], GPT56_LUNA)
-            self.assertEqual(schema["memory_type"], "teacher_session_summaries")
+            self.assertEqual(schema["writer_model"], GPT56_LUNA)
+            self.assertEqual(index_row["writer_model"], GPT56_LUNA)
+            self.assertEqual(schema["memory_type"], "session_summaries")
 
     def test_teacher_and_dataset_session_summaries_are_different_texts(self):
         conv = parse_sample(MINI)
         q = conv.questions[0]
         dataset_mem = SessionSummaryMemoryBuilder().build(conv, q)
-        teacher_mem = TeacherSessionMemoryBuilder(MockTeacher(GPT56_LUNA)).build(conv, q)
+        teacher_mem = WriterSessionMemoryBuilder(MockWriter(GPT56_LUNA)).build(conv, q)
         self.assertNotEqual(dataset_mem.text, teacher_mem.text)
         self.assertEqual(dataset_mem.memory_type, "session_summaries")
-        self.assertEqual(teacher_mem.memory_type, "teacher_session_summaries")
+        self.assertEqual(teacher_mem.memory_type, "session_summaries")
+        self.assertIsNone(dataset_mem.writer_model)
+        self.assertEqual(teacher_mem.writer_model, GPT56_LUNA)
 
 
 class TestCrossModelCompareScript(unittest.TestCase):
@@ -519,8 +521,8 @@ class TestCrossModelCompareScript(unittest.TestCase):
     def test_compare_teacher_axis_reports_memory_text_difference(self):
         conv = parse_sample(MINI)
         q = conv.questions[0]
-        mem_luna = TeacherSessionMemoryBuilder(MockTeacher(GPT56_LUNA)).build(conv, q)
-        mem_terra = TeacherSessionMemoryBuilder(MockTeacher(GPT56_TERRA)).build(conv, q)
+        mem_luna = WriterSessionMemoryBuilder(MockWriter(GPT56_LUNA)).build(conv, q)
+        mem_terra = WriterSessionMemoryBuilder(MockWriter(GPT56_TERRA)).build(conv, q)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dir_a = self._write_pack(

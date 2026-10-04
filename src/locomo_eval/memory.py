@@ -4,11 +4,8 @@ Experimental middle of the sandwich. Readers/metrics stay agnostic.
 
 Current conditions (ids are what reviewers see in logs):
   raw_chunks                  — raw dialogue turns (optional char budget)
-  session_summaries           — LoCoMo-provided session summaries
-  teacher_session_summaries   — live single-teacher session summaries (model-swappable)
-  teacher_graph               — one teacher writes locked Mem0GraphMemory
-  pooled_teacher_graph        — K teachers; equal_weight / random / round_robin pool
-  fused_teacher_graph         — K teachers; majority-vote / resolve_* fusion
+  session_summaries           — dataset summaries, or one writer model when writer is set
+  graph                       — one writer model writes locked Mem0GraphMemory
   full_context                — entire timestamped dialog (Mem0 paper full-context)
   rag                         — token-chunk cosine retrieve from a RAG write-index
   openai_memory               — extract-all dump, retrieve-all (paper OpenAI protocol clone)
@@ -27,8 +24,8 @@ from typing import TYPE_CHECKING
 from .schemas import Conversation, Memory, Question, Session
 
 if TYPE_CHECKING:
-    from .teachers import Teacher
-    from .teacher_orchestrator import TeacherOrchestrator
+    from .writer_model import Writer
+    from .model_orchestrator import ModelOrchestrator
     from .mem0.embeddings import Embedder
 
 
@@ -85,7 +82,7 @@ class RawConversationMemoryBuilder(MemoryBuilder):
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         if self.preprocess_index_dir is not None:
-            from .experiments.claim_audit import retrieve_rank_row
+            from .experiment_pack.claim_audit import retrieve_rank_row
             from .preprocess.retrieve import build_raw_chunks_from_index, rank_raw_chunks_from_index
 
             text, source_ids = build_raw_chunks_from_index(
@@ -156,8 +153,8 @@ class RawConversationMemoryBuilder(MemoryBuilder):
 class SessionSummaryMemoryBuilder(MemoryBuilder):
     """Concatenate LoCoMo session summaries chronologically.
 
-    Dataset-provided summaries (no teacher API). Contrast with
-    teacher_session_summaries.
+    Dataset text when no writer is passed. A writer model uses
+    WriterSessionMemoryBuilder and the same memory id.
     """
 
     name = "session_summaries"
@@ -175,7 +172,7 @@ class SessionSummaryMemoryBuilder(MemoryBuilder):
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         if self.preprocess_index_dir is not None:
-            from .experiments.claim_audit import retrieve_rank_row
+            from .experiment_pack.claim_audit import retrieve_rank_row
             from .preprocess.retrieve import (
                 build_session_summaries_from_index,
                 rank_session_summaries_from_index,
@@ -227,27 +224,27 @@ class SessionSummaryMemoryBuilder(MemoryBuilder):
         )
 
 
-class TeacherSessionMemoryBuilder(MemoryBuilder):
-    """Per-session LLM summaries, concatenated like session_summaries.
+class WriterSessionMemoryBuilder(MemoryBuilder):
+    """Per-session summaries written by one model.
 
-    Same inject path as SessionSummaryMemoryBuilder. The variable is the
-    teacher model, not the answer prompt. Gold answers never enter the teacher.
+    Same inject shape as dataset session summaries. The variable is the
+    writer model. Gold answers never enter the writer prompt.
     """
 
-    name = "teacher_session_summaries"
+    name = "session_summaries"
 
-    def __init__(self, teacher: Teacher):
-        self.teacher = teacher
+    def __init__(self, writer: Writer):
+        self.writer = writer
         self.teacher_call_log: list[dict] = []
         self.session_texts: list[dict] = []
 
     @property
-    def teacher_model(self) -> str:
-        return self.teacher.model_name
+    def writer_model(self) -> str:
+        return self.writer.model_name
 
     @property
-    def teacher_provider(self) -> str:
-        return self.teacher.provider
+    def writer_provider(self) -> str:
+        return self.writer.provider
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         chunks: list[str] = []
@@ -264,17 +261,17 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
                     "text": session_text,
                 }
             )
-            summary, meta = self.teacher.summarize_session(
+            summary, meta = self.writer.summarize_session(
                 session_text=session_text,
                 date_time=session.date_time,
                 speaker_a=conversation.speaker_a,
                 speaker_b=conversation.speaker_b,
             )
-            from .teachers import teacher_call_record
+            from .writer_model import writer_call_record
 
             self.teacher_call_log.append(
-                teacher_call_record(
-                    teacher=self.teacher,
+                writer_call_record(
+                    writer=self.writer,
                     meta=meta,
                     sample_id=conversation.sample_id,
                     session_id=session.session_id,
@@ -286,10 +283,10 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
             if not summary:
                 continue
             chunks.append(f"[Session {session.session_id}]\n{summary}")
-            source_ids.append(f"session_{session.session_id}_teacher")
+            source_ids.append(f"session_{session.session_id}_summary")
 
         if not chunks:
-            text = "(No teacher session memories available for this conversation.)"
+            text = "(No session summaries available for this conversation.)"
         else:
             text = "\n\n".join(chunks)
 
@@ -297,41 +294,40 @@ class TeacherSessionMemoryBuilder(MemoryBuilder):
             memory_type=self.name,
             text=text,
             source_ids=source_ids,
-            teacher_model=self.teacher.model_name,
-            teacher_provider=self.teacher.provider,
+            writer_model=self.writer.model_name,
+            writer_provider=self.writer.provider,
         )
 
 
-class AgentFactMemoryBuilder(TeacherSessionMemoryBuilder):
+class AgentFactMemoryBuilder(WriterSessionMemoryBuilder):
     """Codex-produced session fact lists, injected as a fixed reader memory."""
 
     name = "agent_codex_mem0_facts"
 
 
 class OrchestratedGraphMemoryBuilder(MemoryBuilder):
-    """Session blocks → TeacherOrchestrator → locked Mem0GraphMemory → Memory.text.
+    """Session blocks → ModelOrchestrator → locked Mem0GraphMemory → Memory.text.
 
-    ``name`` is the condition id (teacher_graph / pooled_teacher_graph /
-    fused_teacher_graph). Graph schema is Mem0g (nodes + labeled edges with
-    valid=false invalidation), not a new store.
+    ``name`` is ``graph``. One writer model. Graph schema is Mem0g
+    (nodes + labeled edges with valid=false invalidation).
     """
 
-    def __init__(self, orchestrator: TeacherOrchestrator, name: str):
+    def __init__(self, orchestrator: ModelOrchestrator, name: str):
         self.orchestrator = orchestrator
         self.name = name
         self.graphs_by_sample: dict = {}
 
     @property
-    def teacher_model(self) -> str | None:
-        return self.orchestrator.teacher_model
+    def writer_model(self) -> str | None:
+        return self.orchestrator.writer_model
 
     @property
-    def teacher_provider(self) -> str | None:
-        return self.orchestrator.teacher_provider
+    def writer_provider(self) -> str | None:
+        return self.orchestrator.writer_provider
 
     def build(self, conversation: Conversation, question: Question) -> Memory:
         from .preprocess.preprocessing_pipeline import PreprocessingPipeline
-        from .teacher_orchestrator import format_graph_memory_text
+        from .model_orchestrator import format_graph_memory_text
 
         processed = PreprocessingPipeline().process(conversation)
         graph = self.orchestrator.build_graph(processed)
@@ -346,21 +342,18 @@ class OrchestratedGraphMemoryBuilder(MemoryBuilder):
             memory_type=self.name,
             text=text,
             source_ids=source_ids,
-            teacher_model=self.orchestrator.teacher_model,
-            teacher_provider=self.orchestrator.teacher_provider,
+            writer_model=self.orchestrator.writer_model,
+            writer_provider=self.orchestrator.writer_provider,
         )
 
 
-TEACHER_GRAPH = "teacher_graph"
-POOLED_TEACHER_GRAPH = "pooled_teacher_graph"
-FUSED_TEACHER_GRAPH = "fused_teacher_graph"
-ORCHESTRATED_GRAPH_NAMES = (TEACHER_GRAPH, POOLED_TEACHER_GRAPH, FUSED_TEACHER_GRAPH)
+GRAPH = "graph"
+ORCHESTRATED_GRAPH_NAMES = (GRAPH,)
 
 # Registry name → constructor kwargs factory
 _BUILDERS: dict[str, type[MemoryBuilder]] = {
     RawConversationMemoryBuilder.name: RawConversationMemoryBuilder,
     SessionSummaryMemoryBuilder.name: SessionSummaryMemoryBuilder,
-    TeacherSessionMemoryBuilder.name: TeacherSessionMemoryBuilder,
     AgentFactMemoryBuilder.name: AgentFactMemoryBuilder,
 }
 
@@ -373,13 +366,9 @@ _ALIASES: dict[str, str] = {
     "c1": SessionSummaryMemoryBuilder.name,
     "c1_session_summary": SessionSummaryMemoryBuilder.name,
     "session_summary": SessionSummaryMemoryBuilder.name,
-    "c1_teacher": TeacherSessionMemoryBuilder.name,
-    "teacher": TeacherSessionMemoryBuilder.name,
     "mem0": "mem0",
     "mem0g": "mem0g",
-    TEACHER_GRAPH: TEACHER_GRAPH,
-    POOLED_TEACHER_GRAPH: POOLED_TEACHER_GRAPH,
-    FUSED_TEACHER_GRAPH: FUSED_TEACHER_GRAPH,
+    GRAPH: GRAPH,
     "rag": "rag",
     "full_context": "full_context",
     "full-context": "full_context",
@@ -405,8 +394,8 @@ def resolve_memory_name(name: str) -> str:
 def get_memory_builder(
     name: str,
     max_chars: int | None = None,
-    teacher: Teacher | None = None,
-    orchestrator: TeacherOrchestrator | None = None,
+    writer: Writer | None = None,
+    orchestrator: ModelOrchestrator | None = None,
     mem0_index_dir: str | Path | None = None,
     mem0_top_k: int = 30,
     mem0_embedder: Embedder | None = None,
@@ -473,8 +462,8 @@ def get_memory_builder(
     if resolved in ORCHESTRATED_GRAPH_NAMES:
         if orchestrator is None:
             raise ValueError(
-                f"{resolved} requires a TeacherOrchestrator "
-                "(set teachers: in YAML or --teacher-model for teacher_graph)."
+                f"{resolved} requires a ModelOrchestrator "
+                "(set writer.model in YAML or --writer-model)."
             )
         return OrchestratedGraphMemoryBuilder(orchestrator=orchestrator, name=resolved)
     cls = _BUILDERS[resolved]
@@ -485,18 +474,26 @@ def get_memory_builder(
             retrieve_top_k=retrieve_top_k,
         )
     if resolved == SessionSummaryMemoryBuilder.name:
-        return cls(
+        if writer is not None:
+            return WriterSessionMemoryBuilder(writer=writer)
+        return SessionSummaryMemoryBuilder(
             preprocess_index_dir=preprocess_index_dir,
             retrieve_top_k=retrieve_top_k,
         )
-    if resolved in (TeacherSessionMemoryBuilder.name, AgentFactMemoryBuilder.name):
-        if teacher is None:
+    if resolved == AgentFactMemoryBuilder.name:
+        if writer is None:
             raise ValueError(
-                "teacher_session_summaries requires a Teacher "
-                "(set teacher.model / --teacher-model)."
+                "agent_codex_mem0_facts requires a writer "
+                "(set writer.model / --writer-model)."
             )
-        return cls(teacher=teacher)
+        return AgentFactMemoryBuilder(writer=writer)
     return cls()
+
+
+def is_removed_multi_model_method(memory_method: str) -> bool:
+    """True for deleted pooled_* / fused_* ids so matrices fail closed."""
+    key = str(memory_method or "").strip().lower()
+    return key.startswith("pooled_teacher") or key.startswith("fused_teacher")
 
 
 def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> bool:
@@ -507,11 +504,8 @@ def is_question_independent(name: str, *, retrieve_top_k: int | None = None) -> 
     return resolved in (
         RawConversationMemoryBuilder.name,
         SessionSummaryMemoryBuilder.name,
-        TeacherSessionMemoryBuilder.name,
         AgentFactMemoryBuilder.name,
-        TEACHER_GRAPH,
-        POOLED_TEACHER_GRAPH,
-        FUSED_TEACHER_GRAPH,
+        GRAPH,
         "full_context",
         "openai_memory",
         "workspace_files",

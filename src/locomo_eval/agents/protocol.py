@@ -22,6 +22,7 @@ FAILURE_RETRIEVAL = "retrieval_failure"
 FAILURE_REASONING = "reasoning_failure"
 FAILURE_PARAMETRIC = "parametric_success"
 FAILURE_HARNESS = "harness_execution_failure"
+FAILURE_PROMPT_INJECTED = "prompt_injected"
 
 # Navigation reads (INDEX.md) are not scored as evidence retrieval.
 EVENT_CATALOG = "catalog"
@@ -102,6 +103,7 @@ class AgentRequest:
     prompt: str
     evidence_ids: list[str] = field(default_factory=list)
     tool_budget: dict[str, Any] = field(default_factory=dict)
+    require_workspace_read: bool = True
 
 
 @dataclass

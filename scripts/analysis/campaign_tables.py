@@ -45,10 +45,18 @@ PAPER_METHOD_AXIS = (
 )
 MEMORY_LANE_AXIS = (
     "full_context",
-    "teacher_session_summaries",
-    "teacher_graph",
+    "session_summaries",
+    "graph",
 )
+_MEMORY_LANE_ALIAS = {
+    "session_summaries": "session_summaries",
+    "teacher_session_summaries": "session_summaries",
+    "graph": "graph",
+    "teacher_graph": "graph",
+}
 SYSTEM_HARNESS_AXIS = ("chat_completions", "codex")
+MINI_SIDE_AXIS = ("4o-mini", "4o-mini + Codex")
+GAP_STACK_AXIS = ("2024 model", "2024 model + harness", "2026 model")
 _RESULT_SOURCE_ORDER = {
     "paper": 0,
     "local_clone": 1,
@@ -134,6 +142,14 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
         order = {label: i for i, label in enumerate(PAPER_METHOD_AXIS)}
         out["_paper_ord"] = out["paper_method"].map(lambda v: order.get(str(v), 9))
         sort_cols.append("_paper_ord")
+    if "mini_side" in out.columns:
+        order = {label: i for i, label in enumerate(MINI_SIDE_AXIS)}
+        out["_mini_ord"] = out["mini_side"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_mini_ord")
+    if "gap_stack" in out.columns:
+        order = {label: i for i, label in enumerate(GAP_STACK_AXIS)}
+        out["_gap_ord"] = out["gap_stack"].map(lambda v: order.get(str(v), 9))
+        sort_cols.append("_gap_ord")
     if "memory_lane" in out.columns:
         order = {label: i for i, label in enumerate(MEMORY_LANE_AXIS)}
         out["_lane_ord"] = out["memory_lane"].map(lambda v: order.get(str(v), 9))
@@ -181,6 +197,8 @@ def sort_year_family_table(table: pd.DataFrame) -> pd.DataFrame:
                 "_live_ord",
                 "_lane_ord",
                 "_harness_ord",
+                "_mini_ord",
+                "_gap_ord",
             )
             if c in out.columns
         ]
@@ -560,6 +578,7 @@ FAILURE_MODE_LABELS = {
     "reasoning_failure": "wrong after retrieve",
     "retrieval_failure": "gold ids not retrieved",
     "harness_execution_failure": "no workspace read",
+    "prompt_injected": "evidence delivered in prompt",
     "unjudged": "unjudged (no J)",
 }
 FAILURE_MODE_ORDER = (
@@ -568,6 +587,7 @@ FAILURE_MODE_ORDER = (
     "reasoning_failure",
     "retrieval_failure",
     "harness_execution_failure",
+    "prompt_injected",
     "unjudged",
 )
 RECALL_BIN_LABELS = {
@@ -1086,9 +1106,9 @@ def _live_paper_compare(
         )
     if not is_codex_writer:
         return method or None, None
-    if method == "teacher_graph":
+    if method in ("graph", "graph"):
         return "mem0g", COMPARE_SOURCE_CODEX
-    if method == "teacher_session_summaries":
+    if method in ("session_summaries", "session_summaries"):
         return "session_summaries", COMPARE_SOURCE_CODEX
     return method or None, None
 
@@ -1143,8 +1163,9 @@ def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
 
     Persist-off ``workspace_files`` is the Codex analog of stuffed
     ``full_context``. Persist-on workspace and Codex facts are not lanes
-    (no Chat Completions twin). ``teacher_graph`` stays ``teacher_graph``
-    (not paper Mem0g).
+    (no Chat Completions twin). ``graph`` stays ``graph``
+    (not paper Mem0g). Older packs used ``teacher_session_summaries`` and
+    ``teacher_graph``; those ids display as ``session_summaries`` and ``graph``.
     """
     out = df.copy()
     if out.empty:
@@ -1156,6 +1177,7 @@ def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
     lanes: list[str | None] = []
     for i in range(n):
         method = "" if methods is None else str(methods.iloc[i] or "")
+        method = _MEMORY_LANE_ALIAS.get(method, method)
         flag = None if persist is None else persist.iloc[i]
         if method == "workspace_files":
             lanes.append(None if _truthy_flag(flag) else "full_context")
@@ -1202,6 +1224,97 @@ def annotate_system_harness(df: pd.DataFrame) -> pd.DataFrame:
         else:
             labels.append(None)
     out["system_harness"] = labels
+    return out
+
+
+def annotate_mini_side(df: pd.DataFrame) -> pd.DataFrame:
+    """2024 GPT-4o-mini Chat Completions vs the same model inside Codex.
+
+    2026 Chat Completions stays unlabeled so a year chart does not call
+    Terra "4o-mini".
+    """
+    out = df.copy()
+    if out.empty:
+        out["mini_side"] = []
+        return out
+    if "system_harness" not in out.columns:
+        out = annotate_system_harness(out)
+    n = len(out)
+    harness = out["system_harness"]
+    gens = out["generation"] if "generation" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        gen = "" if gens is None else str(gens.iloc[i] or "")
+        if gen not in {"", "2024", "nan", "None"}:
+            labels.append(None)
+            continue
+        side = str(harness.iloc[i] or "")
+        if side == "chat_completions":
+            labels.append("4o-mini")
+        elif side == "codex":
+            labels.append("4o-mini + Codex")
+        else:
+            labels.append(None)
+    out["mini_side"] = labels
+    return out
+
+
+def annotate_prompt_parity_condition(df: pd.DataFrame) -> pd.DataFrame:
+    """Label model and Codex persistence without dropping null model fields."""
+    out = df.copy()
+    if out.empty:
+        out["prompt_parity_condition"] = []
+        return out
+    agents = out["agent"] if "agent" in out.columns else None
+    persist = out["agent_persist"] if "agent_persist" in out.columns else None
+    labels: list[str] = []
+    for i in range(len(out)):
+        agent = "none" if agents is None else _agent_token(agents.iloc[i])
+        if agent != "codex":
+            labels.append("4o-mini")
+            continue
+        flag = None if persist is None else persist.iloc[i]
+        labels.append(
+            "4o-mini + Codex (persist on)"
+            if _truthy_flag(flag)
+            else "4o-mini + Codex (persist off)"
+        )
+    out["prompt_parity_condition"] = labels
+    return out
+
+
+def annotate_gap_stack(df: pd.DataFrame) -> pd.DataFrame:
+    """Full-context stacks for the year vs harness category chart.
+
+    ``2024 model`` is stuffed Chat Completions. ``2024 model + harness`` is
+    persist-off Codex workspace. ``2026 model`` is Terra thinking-off
+    full_context. Sandwich writers stay unlabeled.
+    """
+    out = df.copy()
+    if out.empty:
+        out["gap_stack"] = []
+        return out
+    if "compare_source" not in out.columns:
+        out = annotate_paper_compare(out)
+    n = len(out)
+    sources = out["compare_source"]
+    lanes = out["memory_lane"] if "memory_lane" in out.columns else None
+    methods = out["memory_method"] if "memory_method" in out.columns else None
+    labels: list[str | None] = []
+    for i in range(n):
+        source = "" if sources is None else str(sources.iloc[i] or "")
+        lane = "" if lanes is None else str(lanes.iloc[i] or "")
+        method = "" if methods is None else str(methods.iloc[i] or "")
+        full = lane == "full_context" or method == "full_context"
+        if source == "2026 Terra model-only":
+            labels.append("2026 model")
+        elif source == COMPARE_SOURCE_LIVE and full:
+            labels.append("2024 model")
+        elif source == COMPARE_SOURCE_CODEX and full:
+            labels.append("2024 model + harness")
+        else:
+            labels.append(None)
+    out["gap_stack"] = labels
     return out
 
 
@@ -1294,6 +1407,8 @@ def _agent_identity_lookup(pack: Path) -> dict[str, dict[str, Any]]:
                 rec["agent_sessions"] = meta.get("agent_sessions")
             if meta.get("agent_tools") is not None:
                 rec["agent_tools"] = meta.get("agent_tools")
+            if meta.get("agent_prompt_mode") is not None:
+                rec["agent_prompt_mode"] = meta.get("agent_prompt_mode")
             contract = meta.get("comparison_contract") if isinstance(meta.get("comparison_contract"), dict) else {}
             if contract.get("status"):
                 rec["comparison_status"] = contract.get("status")
@@ -1308,6 +1423,9 @@ def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.
         work = annotate_memory_lane(work)
         work = annotate_system_harness(work)
         work = annotate_paper_compare(work)
+        work = annotate_mini_side(work)
+        work = annotate_prompt_parity_condition(work)
+        work = annotate_gap_stack(work)
         if (
             "paper_method" in group_by
             and "paper_method" not in work.columns

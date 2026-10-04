@@ -19,5 +19,5 @@ COPY scripts ./scripts
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-ENTRYPOINT ["python", "-m", "src.memorybench"]
+ENTRYPOINT ["python", "-m", "src.experiment_runner"]
 CMD ["--help"]

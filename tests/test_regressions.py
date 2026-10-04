@@ -45,9 +45,9 @@ from src.locomo_eval.readers import (
     build_reader_messages,
 )
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
-from src.locomo_eval.experiments.audit_loader import SandwichAudit, resolve_predictions_jsonl
-from src.locomo_eval.experiments.audit_layout import AuditPaths
-from src.locomo_eval.experiments.claim_audit import lineage_rows
+from src.locomo_eval.experiment_pack.audit_loader import SandwichAudit, resolve_predictions_jsonl
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
+from src.locomo_eval.experiment_pack.claim_audit import lineage_rows
 from src.locomo_eval.run import _reset_run_output, build_parser, run_locomo_pipeline_with_memory_config
 from src.locomo_eval.schemas import Memory
 
@@ -525,8 +525,8 @@ class TestClaimAuditTracingDoesNotLeakAcrossSamplesOrOptionalFilters(unittest.Te
                 {"question_id": "q1", "sample_id": "s2"},
             ],
             memories_by_sample={
-                "s1": Memory(memory_type="fused_teacher_graph", text="p", source_ids=["e0000"]),
-                "s2": Memory(memory_type="fused_teacher_graph", text="z", source_ids=["e0000"]),
+                "s1": Memory(memory_type="graph", text="p", source_ids=["e0000"]),
+                "s2": Memory(memory_type="graph", text="z", source_ids=["e0000"]),
             },
             ingest_rows=[
                 {
@@ -556,33 +556,9 @@ class TestClaimAuditTracingDoesNotLeakAcrossSamplesOrOptionalFilters(unittest.Te
                     ],
                 },
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "kept": True,
-                        }
-                    ],
-                },
-                {
-                    "sample_id": "s2",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "bob",
-                            "relationship": "likes",
-                            "target": "pizza",
-                            "proposed_by": ["anthropic"],
-                            "kept": True,
-                        }
-                    ],
-                },
+            writer_calls=[
+                {"sample_id": "s1", "session_id": 1, "writer_id": "openai"},
+                {"sample_id": "s2", "session_id": 1, "writer_id": "anthropic"},
             ],
         )
         by_q = {row["question_id"]: row for row in rows}

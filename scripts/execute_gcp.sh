@@ -15,10 +15,10 @@ done
 
 REGION="${REGION:-us-central1}"
 
-python -m src.memorybench write-manifest "${CONFIG}"
+python -m src.experiment_runner write-manifest "${CONFIG}"
 N="$(python -c "
-from src.memorybench.expand_run_matrix import expand_run_matrix
-from src.memorybench.load_experiment_yaml import load_experiment_yaml
+from src.experiment_runner.expand_run_matrix import expand_run_matrix
+from src.experiment_runner.load_experiment_yaml import load_experiment_yaml
 print(len(expand_run_matrix(load_experiment_yaml('${CONFIG}'))))
 ")"
 

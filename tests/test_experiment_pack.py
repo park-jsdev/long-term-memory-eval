@@ -10,8 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.audit_layout import AuditPaths, audit_layout_meta
-from src.locomo_eval.experiments.audit_loader import (
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths, audit_layout_meta
+from src.locomo_eval.experiment_pack.audit_loader import (
     SandwichAudit,
     load_json,
     load_jsonl,
@@ -20,12 +20,12 @@ from src.locomo_eval.experiments.audit_loader import (
     predictions_jsonl,
     resolve_predictions_jsonl,
 )
-from src.locomo_eval.experiments.audit_writer import (
+from src.locomo_eval.experiment_pack.audit_writer import (
     write_frozen_config,
     write_graph_ingest,
     write_reader_module,
-    write_teacher_module,
-    write_teacher_sessions,
+    write_writer_module,
+    write_writer_sessions,
 )
 
 
@@ -83,7 +83,7 @@ class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
             self.assertEqual(pack["run_id"], "r1")
             self.assertEqual(pack["by_qid"]["q0"]["predicted_answer"], "a")
 
-    def test_load_sandwich_audit_indexes_teacher_calls_and_fusion(self):
+    def test_load_sandwich_audit_indexes_writer_calls(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             run.mkdir()
@@ -94,13 +94,13 @@ class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
                 prediction_rows=[{"question_id": "q0", "sample_id": "s1"}],
                 traces=[{"question_id": "q0", "role": "reader", "reasoning": ""}],
             )
-            write_teacher_module(
+            write_writer_module(
                 run,
                 calls=[
                     {
                         "sample_id": "s1",
                         "session_id": 1,
-                        "teacher_id": "openai",
+                        "writer_id": "openai",
                         "provider": "openai",
                         "model": "gpt-4o-mini",
                         "reasoning": "because",
@@ -109,31 +109,11 @@ class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
                         ],
                     }
                 ],
-                fusion_rows=[
-                    {
-                        "sample_id": "s1",
-                        "session_id": 1,
-                        "teacher_ids": ["openai"],
-                        "relations": [
-                            {
-                                "source": "alice",
-                                "relationship": "likes",
-                                "target": "pizza",
-                                "proposed_by": ["openai"],
-                                "votes": 1,
-                                "kept": True,
-                            }
-                        ],
-                    }
-                ],
             )
             pack = load_sandwich_audit(run)
-            self.assertEqual(len(pack.teacher_calls_for("openai")), 1)
-            self.assertEqual(pack.teacher_calls_for("openai")[0]["reasoning"], "because")
-            kept = pack.fusion_kept_for(sample_id="s1")
-            self.assertEqual(len(kept), 1)
-            self.assertEqual(kept[0]["proposed_by"], ["openai"])
-            self.assertTrue(AuditPaths.from_run_dir(run).teacher_calls.is_file())
+            self.assertEqual(len(pack.writer_calls_for("openai")), 1)
+            self.assertEqual(pack.writer_calls_for("openai")[0]["reasoning"], "because")
+            self.assertTrue(AuditPaths.from_run_dir(run).writer_calls.is_file())
 
 
 class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
@@ -156,29 +136,28 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
             (run / "metrics.json").write_text("{}", encoding="utf-8")
             pack = load_sandwich_audit(run)
             self.assertEqual(pack.predictions, [])
-            self.assertEqual(pack.teacher_calls, [])
-            self.assertEqual(pack.fusion, [])
+            self.assertEqual(pack.writer_calls, [])
             self.assertEqual(pack.lineage, [])
             self.assertEqual(pack.retrieve_ranks, [])
             self.assertEqual(pack.graph_ingest, [])
             self.assertEqual(pack.attribution, [])
             self.assertEqual(pack.autorater_verdicts, [])
-            self.assertEqual(pack.teacher_quality, {})
+            self.assertEqual(pack.writer_quality, {})
             self.assertEqual(pack.cost, {})
 
-    def test_load_sandwich_audit_falls_back_to_compat_teacher_calls_when_teachers_dir_is_omitted(self):
+    def test_load_sandwich_audit_falls_back_to_compat_writer_calls_when_writer_dir_is_omitted(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             mem = run / "memory"
             mem.mkdir(parents=True)
             (run / "metrics.json").write_text("{}", encoding="utf-8")
-            (mem / "teacher_calls.jsonl").write_text(
-                json.dumps({"teacher_id": "openai", "sample_id": "s1"}) + "\n",
+            (mem / "writer_calls.jsonl").write_text(
+                json.dumps({"writer_id": "openai", "sample_id": "s1"}) + "\n",
                 encoding="utf-8",
             )
             pack = load_sandwich_audit(run)
-            self.assertEqual(len(pack.teacher_calls), 1)
-            self.assertEqual(pack.teacher_calls[0]["teacher_id"], "openai")
+            self.assertEqual(len(pack.writer_calls), 1)
+            self.assertEqual(pack.writer_calls[0]["writer_id"], "openai")
 
     def test_load_qa_pack_uses_directory_name_when_run_meta_run_id_is_omitted(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
@@ -190,26 +169,26 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
             self.assertEqual(pack["predictions"], [])
             self.assertEqual(pack["by_qid"], {})
 
-    def test_teacher_calls_for_falls_back_to_by_teacher_file_when_combined_list_is_empty(self):
+    def test_writer_calls_for_falls_back_to_by_writer_file_when_combined_list_is_empty(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             paths = AuditPaths.from_run_dir(run)
-            dest = paths.teacher_calls_path("openai")
+            dest = paths.writer_calls_path("openai")
             dest.parent.mkdir(parents=True)
             dest.write_text(
-                json.dumps({"teacher_id": "openai", "session_id": 1}) + "\n",
+                json.dumps({"writer_id": "openai", "session_id": 1}) + "\n",
                 encoding="utf-8",
             )
-            audit = SandwichAudit(paths=paths, meta={}, metrics={}, predictions=[], teacher_calls=[])
-            self.assertEqual(len(audit.teacher_calls_for("openai")), 1)
-            self.assertEqual(audit.teacher_calls_for("anthropic"), [])
+            audit = SandwichAudit(paths=paths, meta={}, metrics={}, predictions=[], writer_calls=[])
+            self.assertEqual(len(audit.writer_calls_for("openai")), 1)
+            self.assertEqual(audit.writer_calls_for("anthropic"), [])
 
-    def test_write_teacher_module_returns_none_when_calls_fusion_and_sessions_are_omitted(self):
+    def test_write_writer_module_returns_none_when_calls_and_sessions_are_omitted(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             run.mkdir()
-            self.assertIsNone(write_teacher_module(run, calls=[], fusion_rows=None, session_texts=None))
-            self.assertIsNone(write_teacher_sessions(run, []))
+            self.assertIsNone(write_writer_module(run, calls=[], session_texts=None))
+            self.assertIsNone(write_writer_sessions(run, []))
             self.assertIsNone(write_graph_ingest(run, []))
 
 
@@ -220,23 +199,6 @@ class TestOptionalLoaderFiltersDoNotLeakWhenSetAndReturnAllWhenOmitted(unittest.
             meta={},
             metrics={},
             predictions=[],
-            fusion=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {"source": "alice", "relationship": "started", "target": "painting", "kept": True},
-                        {"source": "alice", "relationship": "quit", "target": "job", "kept": False},
-                    ],
-                },
-                {
-                    "sample_id": "s2",
-                    "session_id": 1,
-                    "relations": [
-                        {"source": "bob", "relationship": "likes", "target": "pizza", "kept": True},
-                    ],
-                },
-            ],
             lineage=[
                 {"question_id": "q0", "sample_id": "s1", "item_id": "e-s1"},
                 {"question_id": "q0", "sample_id": "s2", "item_id": "e-s2"},
@@ -248,54 +210,28 @@ class TestOptionalLoaderFiltersDoNotLeakWhenSetAndReturnAllWhenOmitted(unittest.
             ],
             attribution=[
                 {
-                    "role": "teacher_graph",
-                    "teacher_id": "openai",
+                    "role": "graph",
+                    "writer_id": "openai",
                     "sample_id": "s1",
                     "question_id": None,
                     "claims": [{"injected_question_ids": ["q0"]}],
                 },
                 {
-                    "role": "teacher_graph",
-                    "teacher_id": "anthropic",
+                    "role": "graph",
+                    "writer_id": "anthropic",
                     "sample_id": "s2",
                     "question_id": None,
                     "claims": [{"injected_question_ids": ["q0"]}],
                 },
                 {
                     "role": "reader",
-                    "teacher_id": None,
+                    "writer_id": None,
                     "sample_id": "s1",
                     "question_id": "q0",
                     "claims": [],
                 },
             ],
         )
-
-    def test_fusion_kept_for_returns_all_kept_triples_when_sample_id_is_omitted(self):
-        kept = self._audit().fusion_kept_for()
-        self.assertEqual({row["target"] for row in kept}, {"painting", "pizza"})
-        self.assertNotIn("job", {row["target"] for row in kept})
-
-    def test_fusion_kept_for_excludes_other_samples_when_sample_id_is_set(self):
-        kept = self._audit().fusion_kept_for(sample_id="s1")
-        self.assertEqual([row["target"] for row in kept], ["painting"])
-
-    def test_fusion_kept_for_treats_omitted_kept_flag_as_not_kept(self):
-        audit = SandwichAudit(
-            paths=AuditPaths.from_run_dir("unused"),
-            meta={},
-            metrics={},
-            predictions=[],
-            fusion=[
-                {
-                    "sample_id": "s1",
-                    "relations": [
-                        {"source": "alice", "relationship": "started", "target": "painting"},
-                    ],
-                }
-            ],
-        )
-        self.assertEqual(audit.fusion_kept_for(), [])
 
     def test_lineage_for_returns_all_rows_when_question_and_sample_are_omitted(self):
         self.assertEqual(len(self._audit().lineage_for()), 3)
@@ -331,19 +267,19 @@ class TestOptionalLoaderFiltersDoNotLeakWhenSetAndReturnAllWhenOmitted(unittest.
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["question_id"], "q0")
 
-    def test_attribution_for_question_and_sample_together_does_not_include_the_other_teacher(self):
+    def test_attribution_for_question_and_sample_together_does_not_include_the_other_writer(self):
         rows = self._audit().attribution_for(question_id="q0", sample_id="s1")
-        ids = {(row["role"], row.get("teacher_id"), row["sample_id"]) for row in rows}
-        self.assertEqual(ids, {("teacher_graph", "openai", "s1"), ("reader", None, "s1")})
-        self.assertNotIn("anthropic", [row.get("teacher_id") for row in rows])
+        ids = {(row["role"], row.get("writer_id"), row["sample_id"]) for row in rows}
+        self.assertEqual(ids, {("graph", "openai", "s1"), ("reader", None, "s1")})
+        self.assertNotIn("anthropic", [row.get("writer_id") for row in rows])
 
 
 class TestSessionTextDedupAndPredictionsSearchIsolation(unittest.TestCase):
-    def test_write_teacher_sessions_keeps_first_text_and_drops_later_duplicate_sample_session(self):
+    def test_write_writer_sessions_keeps_first_text_and_drops_later_duplicate_sample_session(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             run.mkdir()
-            write_teacher_sessions(
+            write_writer_sessions(
                 run,
                 [
                     {"sample_id": "s1", "session_id": 1, "session_index": 0, "text": "first"},
@@ -352,9 +288,9 @@ class TestSessionTextDedupAndPredictionsSearchIsolation(unittest.TestCase):
                 ],
             )
             paths = AuditPaths.from_run_dir(run)
-            self.assertEqual(paths.teacher_session_text_path("s1", 1).read_text(encoding="utf-8"), "first")
-            self.assertEqual(paths.teacher_session_text_path("s2", 1).read_text(encoding="utf-8"), "other-sample")
-            index = load_jsonl(paths.teacher_sessions_index)
+            self.assertEqual(paths.writer_session_text_path("s1", 1).read_text(encoding="utf-8"), "first")
+            self.assertEqual(paths.writer_session_text_path("s2", 1).read_text(encoding="utf-8"), "other-sample")
+            index = load_jsonl(paths.writer_sessions_index)
             self.assertEqual(len(index), 2)
             self.assertEqual([row["sample_id"] for row in index], ["s1", "s2"])
 

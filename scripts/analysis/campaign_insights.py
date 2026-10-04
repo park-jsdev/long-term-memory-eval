@@ -20,9 +20,9 @@ APPROACHING_J = 0.80
 SCORE_METRICS = ("locomo_f1", "judge_score", "token_f1", "exact_match")
 RESOURCE_METRICS = (
     "agent_latency_seconds",
-    "teacher_latency_seconds",
+    "writer_latency_seconds",
     "agent_reasoning_tokens",
-    "teacher_reasoning_tokens",
+    "writer_reasoning_tokens",
     "total_latency_seconds_p50",
     "total_latency_seconds_p95",
     "search_latency_seconds_p50",
@@ -41,9 +41,9 @@ RESOURCE_METRICS = (
 LOWER_BETTER = frozenset(
     {
         "agent_latency_seconds",
-        "teacher_latency_seconds",
+        "writer_latency_seconds",
         "agent_reasoning_tokens",
-        "teacher_reasoning_tokens",
+        "writer_reasoning_tokens",
         "total_latency_seconds_p50",
         "total_latency_seconds_p95",
         "search_latency_seconds_p50",
@@ -303,7 +303,7 @@ def efficiency(table: pd.DataFrame) -> pd.DataFrame:
     out = table.copy()
     scores = [m for m in ("locomo_f1", "judge_score") if m in out.columns]
     _ratio(out, scores, "agent_latency_seconds", "per_second")
-    _ratio(out, scores, "teacher_latency_seconds", "per_teacher_second")
+    _ratio(out, scores, "writer_latency_seconds", "per_writer_second")
     _ratio(out, scores, "usd_actual", "per_usd")
     if "agent_reasoning_tokens" in out.columns:
         denom = pd.to_numeric(out["agent_reasoning_tokens"], errors="coerce") / 1000.0
@@ -673,6 +673,57 @@ def _mean_num(piece: pd.DataFrame, metric: str) -> float | None:
     return float(series.mean())
 
 
+def series_gaps(
+    table: pd.DataFrame,
+    *,
+    metric: str,
+    series_col: str,
+    left: str,
+    right: str,
+) -> pd.DataFrame:
+    """Category (or other key) gap: left minus right, largest absolute first.
+
+    Used after a mean table that already splits one metric by two stacks
+    (4o-mini vs Codex, or 2024 model vs harness).
+    """
+    if (
+        table.empty
+        or not series_col
+        or series_col not in table.columns
+        or metric not in table.columns
+        or not left
+        or not right
+    ):
+        return pd.DataFrame()
+    keys = [c for c in table.columns if c not in {series_col, metric, "n"}]
+    left_df = table.loc[table[series_col].astype(str) == left, [*keys, metric]].rename(
+        columns={metric: "left_value"}
+    )
+    right_df = table.loc[table[series_col].astype(str) == right, [*keys, metric]].rename(
+        columns={metric: "right_value"}
+    )
+    if left_df.empty or right_df.empty:
+        return pd.DataFrame()
+    if keys:
+        merged = left_df.merge(right_df, on=keys, how="inner")
+    else:
+        merged = pd.DataFrame(
+            {
+                "left_value": [float(left_df["left_value"].iloc[0])],
+                "right_value": [float(right_df["right_value"].iloc[0])],
+            }
+        )
+    merged["left_value"] = pd.to_numeric(merged["left_value"], errors="coerce")
+    merged["right_value"] = pd.to_numeric(merged["right_value"], errors="coerce")
+    merged["delta"] = merged["left_value"] - merged["right_value"]
+    merged["left_label"] = left
+    merged["right_label"] = right
+    merged["metric"] = metric
+    merged["_abs"] = merged["delta"].abs()
+    merged = merged.sort_values("_abs", ascending=False, kind="mergesort").drop(columns=["_abs"])
+    return merged.reset_index(drop=True)
+
+
 def render_insight(kind: str, table: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
     """Dispatch one YAML insight kind onto an already-aggregated mean table."""
     metrics = kwargs.get("metrics")
@@ -717,6 +768,14 @@ def render_insight(kind: str, table: pd.DataFrame, **kwargs: Any) -> pd.DataFram
         )
     if kind == "j_f1_gap":
         return j_f1_gap(table)
+    if kind == "series_gaps":
+        return series_gaps(
+            table,
+            metric=str(kwargs.get("metric") or "judge_score"),
+            series_col=str(kwargs.get("series_col") or ""),
+            left=str(kwargs.get("left_series") or ""),
+            right=str(kwargs.get("right_series") or ""),
+        )
     raise ValueError(f"unknown insight kind {kind}")
 
 

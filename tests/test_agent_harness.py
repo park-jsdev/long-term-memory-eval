@@ -43,6 +43,7 @@ from src.locomo_eval.agents.comparison import (
     resolve_contract,
     validate_strict_contract,
 )
+from src.locomo_eval.agents.metrics import score_agent_row
 from src.locomo_eval.agents.trajectory import (
     build_trajectory,
     classify_event,
@@ -59,8 +60,8 @@ from src.locomo_eval.agents.workspace import (
 )
 from src.locomo_eval.dataset import load_conversations
 from src.locomo_eval.run import run_locomo_pipeline_with_memory_config
-from src.memorybench.expand_run_matrix import expand_run_matrix
-from src.memorybench.load_experiment_yaml import load_experiment_yaml
+from src.experiment_runner.expand_run_matrix import expand_run_matrix
+from src.experiment_runner.load_experiment_yaml import load_experiment_yaml
 
 GOLD = "UNIQ_GOLD_REF_ZZZ"
 MINI = [
@@ -215,6 +216,20 @@ class TestTrajectoryFailureModes(unittest.TestCase):
             failure_mode(correct=True, evidence_retrieved=False),
             "parametric_success",
         )
+
+    def test_prompt_injected_evidence_is_not_labeled_as_retrieval_failure(self):
+        traj = build_trajectory([], evidence_ids=["D1:1"], usage={})
+
+        scored = score_agent_row(
+            locomo_f1=0.0,
+            exact_match=0.0,
+            trajectory=traj,
+            evidence_delivery="prompt_injected",
+        )
+
+        self.assertEqual(scored["failure_mode"], "prompt_injected")
+        self.assertIsNone(scored["evidence_retrieved"])
+        self.assertIsNone(scored["memory_recall"])
 
 
 class TestCodexJsonlParse(unittest.TestCase):

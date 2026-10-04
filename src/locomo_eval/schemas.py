@@ -97,7 +97,7 @@ class Conversation:
 class ProcessedTurn:
     """One utterance inside a SessionBlock.
 
-    Built by PreprocessingPipeline. Consumed by TeacherOrchestrator and
+    Built by PreprocessingPipeline. Consumed by ModelOrchestrator and
     later eval attribution. ``source_dia_id`` is LoCoMo's ``dia_id``; ``turn_id``
     is ours so downstream can join even if ``dia_id`` is missing.
     """
@@ -188,9 +188,8 @@ class ProcessedConversation:
 class Memory:
     """Context string the frozen answer model is allowed to see.
 
-    Built by MemoryBuilder (raw_chunks / session_summaries / teacher_session_summaries /
-    teacher_graph / pooled_teacher_graph / fused_teacher_graph / full_context / rag /
-    openai_memory / mem0 / mem0g / workspace_files).
+    Built by MemoryBuilder (raw_chunks / session_summaries / graph /
+    full_context / rag / openai_memory / mem0 / mem0g / workspace_files).
     Schema: docs/schemas/memory_runtime.md
     """
 
@@ -198,8 +197,8 @@ class Memory:
     text: str
     source_ids: list[str] = field(default_factory=list)
     schema_version: str = "memory_io.v1"
-    teacher_model: str | None = None
-    teacher_provider: str | None = None
+    writer_model: str | None = None
+    writer_provider: str | None = None
     search_latency_s: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -226,8 +225,8 @@ class Prediction:
     prompt_version: str
     evidence: list[str] = field(default_factory=list)
     run_id: str = ""
-    teacher_model: str | None = None
-    teacher_provider: str | None = None
+    writer_model: str | None = None
+    writer_provider: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

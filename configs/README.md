@@ -8,14 +8,13 @@ configs/
   layouts/       answer prompt + Chat Completions message shape
   readers/       answer LLM request controls
   agents/        coding-agent harness (adapters / persist / tools / comparison profiles)
-  writers/       memory methods (the sandwich middle)
-  teachers/      write-path teacher rosters / request knobs
+  writers/       memory methods and the one write-path model
   autoraters/    LLM-as-a-Judge (separate from QA)
   stacks/        frozen combinations of data+layout+reader+run
   run/           output_dir
   presets/       one-axis overlays (Mem0-parity reader, Luna reader, Codex GPT-5, …)
   models/        generation catalog (snapshots), list prices, context windows
-  experiments/   memorybench matrices
+  experiments/   experiment-runner matrices
   analysis/      campaign vs experiment recipes (tables/plots); engines in scripts/analysis/
 ```
 
@@ -33,4 +32,4 @@ Agent comparison profiles live at `configs/agents/comparison/`. `strict_mock.yam
 is the reference hard-budget smoke profile; `audit_codex.yaml` records Codex
 controls but intentionally cannot certify a strict cross-agent comparison.
 
-Prompt files live under `prompts/{readers,writers,teachers,autoraters}/` with the same roles. After a run, `experiments/<run_id>/TRACE.md` lists the include chain and which jsonl each prompt filled. See `prompts/README.md`.
+Prompt files live under `prompts/{readers,writers,agents,autoraters}/` with the same roles. After a run, `experiments/<run_id>/TRACE.md` lists the include chain and which jsonl each prompt filled. See `prompts/README.md`.

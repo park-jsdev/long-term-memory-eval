@@ -17,7 +17,7 @@ matrix:
     - {display_name: Codex GPT-5, provider: codex, api_model_id: gpt-5, model_snapshot: TO_CONFIRM}
     - {display_name: Codex GPT-5.6 Terra, provider: codex, api_model_id: gpt-5.6-terra, model_snapshot: TO_CONFIRM}
   thinking: [false]
-  memory_method: [teacher_session_summaries, agent_codex_mem0_facts, teacher_graph]
+  memory_method: [session_summaries, agent_codex_mem0_facts, graph]
   seed: [1]
 judge:
   provider: openai

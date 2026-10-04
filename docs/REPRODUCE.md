@@ -13,7 +13,7 @@ spends real API money.
 | 2 | A complete mock run pack you can inspect | none | no |
 | 3 | A mock multi-cell experiment, aggregated and reported | none | no |
 | 4 | One live cell, verified cheaply | cents | yes |
-| 5 | The three-experiment 2025 campaign | substantial | yes |
+| 5 | The six-cell reader comparison | substantial | yes |
 | 6 | Campaign tables, plots, and notebook review | none | no |
 | 7 | Audit trail walked back from a published number | none | no |
 
@@ -25,8 +25,8 @@ clones — the judged `J` here is a protocol clone, not a Platform reproduction.
 ## Stage 0 — Environment and dataset
 
 ```bash
-conda create -n distillation python=3.11 -y
-conda activate distillation
+conda create -n <your-env-name> python=3.11 -y
+conda activate <your-env-name>
 pip install -r requirements.txt
 python scripts/fetch_locomo.py
 ```
@@ -66,9 +66,9 @@ python -m unittest tests/test_regressions.py tests/test_claim_audit.py
 **Checkpoint.** All tests pass or skip. Skips are expected only for a missing dataset file, missing
 `matplotlib`, missing `pyarrow`, or a not-yet-pulled aggregate pack.
 
-What you have just locked: scoring, indexing, pooling and fusion behavior; the judge protocol
-including the category-5 exclusion; the sandwich contracts (one YAML to one pack, replace-not-append,
-gold answers never entering a prompt); YAML merge semantics; hashed run ids; and byte-identical
+What you have just locked: scoring and indexing; the judge protocol, including the
+category-5 exclusion; the sandwich contracts (one YAML to one pack, replace-not-append,
+gold answers never entering a prompt); YAML merge semantics; hashed run ids; and
 analysis output under row reordering.
 
 ---
@@ -92,7 +92,7 @@ files alone:
 | What exact memory text went into the prompt? | `memory/by_sample/*.txt` |
 | What exact request did the model receive? | `reader/traces.jsonl` |
 | Which config produced this, after merging and CLI overrides? | `config.source.yaml`, `config.resolved.yaml` |
-| Which code and data produced this? | `run_meta.json` (git hash, data hash, `audit_pack.v2`) |
+| Which code and data produced this? | `run_meta.json` (git hash, data hash, `audit_pack.v3`) |
 | What did it cost? | `cost.json` |
 
 Try other memory methods offline. Each is one flag, no new code:
@@ -100,8 +100,7 @@ Try other memory methods offline. Each is one flag, no new code:
 ```bash
 python -m src.locomo_eval.run --config configs/writers/raw_chunks.yaml --reader mock --max-questions 5 --run-id smoke_raw
 python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --reader mock --max-questions 5 --run-id smoke_sess
-python -m src.locomo_eval.run --config configs/writers/teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_graph
-python -m src.locomo_eval.run --config configs/writers/fused_teacher_graph.yaml --reader mock --teacher mock --max-questions 3 --run-id smoke_fused
+python -m src.locomo_eval.run --config configs/writers/graph.yaml --reader mock --writer mock --max-questions 3 --run-id smoke_graph
 ```
 
 Compare two arms offline, with no API:
@@ -121,11 +120,11 @@ python scripts/compare_full_runs.py --runs experiments/smoke_raw experiments/smo
 Now use the harness instead of a single run. `configs/experiments/poc.yaml` is a mock matrix.
 
 ```bash
-python -m src.memorybench write-manifest configs/experiments/poc.yaml
-python -m src.memorybench execute-qa        configs/experiments/poc.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/poc.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/poc.yaml
-python -m src.memorybench status            configs/experiments/poc.yaml
+python -m src.experiment_runner write-manifest configs/experiments/poc.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/poc.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/poc.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/poc.yaml
+python -m src.experiment_runner status            configs/experiments/poc.yaml
 ```
 
 **Checkpoint.** `status` reports `qa_completed` and `autorater_completed` greater than zero, and
@@ -150,7 +149,7 @@ python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml \
 Then verify the write-path providers you plan to use:
 
 ```bash
-python -m src.locomo_eval.ping_teachers --providers openai,anthropic,deepseek
+python -m src.locomo_eval.ping_writers --providers openai,anthropic,deepseek
 ```
 
 **Checkpoint.** `reader/traces.jsonl` shows a real model id and real token usage, and `cost.json` is
@@ -162,106 +161,77 @@ failure modes this campaign already hit and pinned:
 
 ---
 
-## Stage 5 — The 2025 campaign
+## Stage 5 — Reader comparison
 
-**Active (budget):** GPT-5 vs DeepSeek-V3. Anthropic cells are parked in the original three-family
-YAMLs (`2025_readers_full_context*.yaml`, `mem0_reader_2025_writers.yaml`) until more funds.
-Do not mix the two experiment-name prefixes.
+Six cells. Both sides use GPT-4o-mini. Chat Completions receives the released `qa_mem0_v1`
+prompt as one request. Codex receives that same rendered payload. The two texts are stuffed
+`full_context` and the dataset `session_summaries` field. No writer model runs. Codex is
+included with persist off and persist on. Persist-on may add notes after the first question,
+so that pair is a trajectory condition, not a byte-identical request.
 
-Three experiments, run in order. Each is one sandwich claim.
+| Text | Chat Completions | Codex, persist off | Codex, persist on |
+|---|---|---|---|
+| `full_context` | 1 | 1 | 1 |
+| `session_summaries` | 1 | 1 | 1 |
 
-| # | Claim | Frozen | Varies | Cells |
-|---|---|---|---|---|
-| 1 smoke | Do the two 2025 readers work at all? | LoCoMo, `qa_mem0_v1`, `full_context`, judge | reader: GPT-5, DeepSeek-V3 | 2 |
-| 2 baseline | Full-context vs Mem0-paper RAG, per reader | prompt, judge, shared `rag_locomo10` dump | reader × `{full_context, rag}` | 4 |
-| 3 writers | Which 2025 writer builds better memory? | **reader frozen** to `gpt-4o-mini` + `qa_mem0_v1`, judge | writer × `{teacher_session_summaries, teacher_graph}` | 4 |
+YAML: `configs/experiments/openai_mini_codex_readers_analysis.yaml`. Operator steps:
+[`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md).
 
-Parked three-family (adds Claude Sonnet 4.5): 3 / 6 / 6 cells. Operator: [`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md).
-
-Experiment 3 varies only the *write* model. The reader is frozen, so a difference in score is a
-claim about memory construction rather than about answering ability.
-
-Note what experiment 3 is **not**: it does not run the Mem0 paper write path. Both memory methods
-send the same prompt (`teacher_session_v1` or `teacher_graph_v1`) to both writers. LoCoMo's own
-`session_summaries` are dataset text and are not generated here.
-
-### Prerequisite: the shared RAG index
-
-Experiment 2 needs a frozen RAG dump so that every reader retrieves from identical chunks. Build it
-once — chunk size 256, k=2, `text-embedding-3-small`:
-
-```bash
-python -m src.locomo_eval.rag.run_index --config configs/writers/rag.yaml --run-id rag_locomo10
-```
-
-**Checkpoint.** `experiments/rag_locomo10/rag_index/` contains `schema.json` and `index.jsonl`. If
-you run in the cloud, this directory must also exist under the bucket's `shared/` prefix, or RAG
-cells will exit.
+A separate sandwich freezes the GPT-4o-mini reader and compares a GPT-4o-mini writer with a
+Codex writer on `session_summaries` and `graph` (2 cells). Those prompts are
+`prompts/writers/session_summary_v1.txt` and `prompts/writers/graph_v1.txt`. Operator steps:
+[`runbook_mini_vs_codex_writers.md`](runbook_mini_vs_codex_writers.md). Dataset
+`session_summaries` with no writer is the reader cell above, not that sandwich.
 
 ### Option A — Local
 
-Each cell is one command. Run the indices in order; watch cost between cells.
+`write-manifest` prints `wrote 6 runs`. Finish every QA index before the autorater. The judge
+stops if a cell has no QA `_SUCCESS`.
 
 ```bash
-# Experiment 1 (smoke, 4 cells: 2 readers × thinking)
-python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek_smoke.yaml
-python -m src.memorybench execute-qa        configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench execute-autorater configs/experiments/2025_readers_openai_deepseek_smoke.yaml --run-index 0
-python -m src.memorybench aggregate         configs/experiments/2025_readers_openai_deepseek_smoke.yaml
+python -m src.experiment_runner write-manifest configs/experiments/openai_mini_codex_readers_analysis.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/openai_mini_codex_readers_analysis.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/openai_mini_codex_readers_analysis.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/openai_mini_codex_readers_analysis.yaml
 ```
 
-Repeat `--run-index 1 … 7` for experiment 2 (8 cells) and experiment 3 (8 writer cells), using
-`configs/experiments/2025_readers_openai_deepseek.yaml` and
-`configs/experiments/mem0_reader_2025_writers_openai_deepseek.yaml`. Always finish **all** QA for an experiment
-before starting its autorater; the judge fail-fasts on a missing QA `_SUCCESS` rather than scoring a
-partial answer set.
-
-Confirm which index is which cell at any time:
-
-```bash
-python -m src.memorybench write-manifest configs/experiments/2025_readers_openai_deepseek.yaml
-```
+Repeat `--run-index` for `1` through `5` on both QA and the autorater.
 
 ### Option B — Cloud Run
 
-Use the `_gcs.yaml` overlays, which change only the storage block. Full operator detail is in
-[`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md). Parked three-family
-operator notes: [`docs/agent/RUNBOOK_2025_LIVE.md`](agent/RUNBOOK_2025_LIVE.md). One-time GCP bootstrap is in
-[`docs/agent/GCP_RUNBOOK.md`](agent/GCP_RUNBOOK.md). The 2026 Terra vs DeepSeek-V4 campaign uses the same
-waves with [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md).
-
-The shape per experiment, three sequential waves:
+Set `PROJECT_ID`, `REGION`, and `BUCKET` in the environment. Do not write them into a tracked
+file. One-time bootstrap is in [`docs/gcp.md`](gcp.md). The `_gcs.yaml` overlay changes only
+storage. Line-by-line steps are in the reader runbook.
 
 ```powershell
-$env:EXPERIMENT_YAML = "configs/experiments/2025_readers_openai_deepseek_smoke_gcs.yaml"
+$env:EXPERIMENT_YAML = "configs/experiments/openai_mini_codex_readers_analysis_gcs.yaml"
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
 
-gcloud.cmd run jobs execute memorybench-qa         --region=us-central1 --tasks=4 --async
-# wait for 4 _SUCCESS under experiments/<name>/runs/**/_SUCCESS
-gcloud.cmd run jobs execute memorybench-autorater  --region=us-central1 --tasks=4 --async
-# wait for 4 autorater/_SUCCESS
-gcloud.cmd run jobs execute memorybench-aggregate  --region=us-central1 --tasks=1 --async
+gcloud.cmd run jobs execute memorybench-qa         --region=$env:REGION --tasks=6 --async
+# wait for 6 _SUCCESS under experiments/locomo-openai-mini-codex-readers-analysis-v2/runs/**/_SUCCESS
+gcloud.cmd run jobs execute memorybench-autorater  --region=$env:REGION --tasks=6 --async
+# wait for 6 autorater/_SUCCESS
+gcloud.cmd run jobs execute memorybench-aggregate  --region=$env:REGION --tasks=1 --async
+gcloud.cmd run jobs execute memorybench-collect-full --region=$env:REGION --tasks=1 --async
 ```
 
 Three rules that cause most operator errors:
 
 1. **Redeploy whenever you change `EXPERIMENT_YAML`.** Job arguments are baked into the job spec, so
    an un-redeployed job silently runs the previous experiment. Verify with
-   `gcloud.cmd run jobs describe memorybench-qa --region=us-central1 --format="value(spec.template.spec.template.spec.containers[0].args)"`.
-2. **`--parallelism` is not an `execute` flag.** It is set at deploy time (`8` here). Passing it to
+   `gcloud.cmd run jobs describe memorybench-qa --region=$env:REGION --format="value(spec.template.spec.template.spec.containers[0].args)"`.
+2. **`--parallelism` is not an `execute` flag.** It is set at deploy time. Passing it to
    `execute` fails.
-3. **Set `--tasks` to the cell count**: 4 for the smoke, 8 for experiments 2 and 3, and 1 for the
-   collector.
+3. **Set `--tasks` to the cell count**: 6 for QA and the autorater, and 1 for each collector.
 
-Pull each aggregate locally when its wave finishes:
+Pull the aggregate when the collector finishes:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path experiments\locomo-2025-readers-openai-deepseek-smoke | Out-Null
-gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-2025-readers-openai-deepseek-smoke/aggregate" experiments/locomo-2025-readers-openai-deepseek-smoke/
+New-Item -ItemType Directory -Force -Path experiments\locomo-openai-mini-codex-readers-analysis-v2 | Out-Null
+gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-openai-mini-codex-readers-analysis-v2/aggregate" experiments/locomo-openai-mini-codex-readers-analysis-v2/
 ```
 
-For deep audit — the full `memory/` and `reader/` dumps rather than the thin catalog — run
-`memorybench-collect-full` with `--tasks=1` and copy the `collected/` prefix instead.
+For the full `memory/`, `reader/`, and `agent/` dumps, copy the `collected/` prefix as well.
 
 ---
 
@@ -271,20 +241,15 @@ One command regenerates every table and figure from the analysis recipe. It read
 and never calls an API.
 
 ```bash
-# One experiment
-python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml --experiment smoke
-
-# Every experiment plus the cross-experiment campaign concat
-python -m src.memorybench report configs/analysis/campaign_2025_openai_deepseek.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
 ```
 
 Outputs:
 
 ```text
-experiments/<experiment-name>/analysis/tables/*.csv
-experiments/<experiment-name>/analysis/plots/*.png
-experiments/<experiment-name>/analysis/SUMMARY.md
-experiments/_campaign/2025_openai_deepseek/analysis/...
+experiments/_campaign/openai_mini_codex_readers_analysis/analysis/tables/*.csv
+experiments/_campaign/openai_mini_codex_readers_analysis/analysis/plots/*.png
+experiments/_campaign/openai_mini_codex_readers_analysis/analysis/SUMMARY.md
 ```
 
 Missing packs are listed and skipped, so this works before every experiment has landed.
@@ -292,13 +257,10 @@ Missing packs are listed and skipped, so this works before every experiment has 
 That command is the whole analysis step — every table and figure in the repository comes out of it,
 so you never need a notebook to reproduce a published number.
 
-Notebooks are an optional review layer on top. Each is a thin wrapper that selects a scope and
-displays the result of the same YAML, with no plotting code of its own. `notebooks/` is gitignored
-because notebooks accumulate local paths, cloud ids, and executed output; only the notebooks backing
-a specific reported result are force-added. See `notebooks/README.md` for the naming convention and
-the per-study index, and write your own wrapper the same way if you want one.
+Notebooks are an optional local review layer. They are gitignored. `report` is the
+reproduction step.
 
-To add a comparison, edit `configs/analysis/campaign_2025_openai_deepseek.yaml` and re-run `report`. Do not fork
+To add a comparison, edit `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` and re-run `report`. Do not fork
 the plotting code; the engine is shared on purpose, which is why category axes read
 `1 multi-hop` / `2 temporal` / `3 open-domain` and legends sit outside the bars everywhere without
 per-campaign styling.
@@ -336,8 +298,8 @@ down:
 7. **`experiments/<run_id>/memory/`** — the exact memory text in the prompt. Query-dependent methods
    such as `rag` and `mem0` write `by_question/<qid>.txt`; whole-conversation methods such as
    `session_summaries` and `full_context` write `by_sample/<sample_id>.txt`.
-8. **`memory/lineage.jsonl`** — which memory item came from which teacher.
-9. **`memory/teachers/calls.jsonl`** — the write-path call behind that item.
+8. **`memory/lineage.jsonl`** — which memory item came from which writer.
+9. **`memory/writer/calls.jsonl`** — the write-path call behind that item.
 10. **`memory/retrieve_ranks.jsonl`** — for retrieval conditions, what was rejected as well as what
     won.
 11. **`autorater/traces.jsonl`** — the judge's reasoning for that verdict.
@@ -368,9 +330,8 @@ the incomplete cells.
 
 ## Where to go next
 
-- Architecture, layer diagrams, and the LLM call inventory: [`../README.md`](../README.md)
+- Architecture, layer diagrams, and the LLM call inventory: [`architecture.md`](architecture.md)
 - On-disk contracts: [`schemas/experiment_pack.md`](schemas/experiment_pack.md),
   [`schemas/analysis_campaign.md`](schemas/analysis_campaign.md)
-- Freeze and extend rules: [`reports/engineering_notebook.md`](reports/engineering_notebook.md)
-- Teacher and fusion methodology: [`reports/multi_teacher_methodologies.md`](reports/multi_teacher_methodologies.md)
+- One question, from config to score: [`loop.md`](loop.md)
 - Dataset and third-party prompt terms: [`NOTICE.md`](../NOTICE.md)

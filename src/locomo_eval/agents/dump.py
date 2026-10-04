@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.audit_layout import AuditPaths
-from src.locomo_eval.report import write_json, write_jsonl
+from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
+from src.locomo_eval.report import append_jsonl, write_json, write_jsonl
 
 from .metrics import summarize_agent_rows
 
@@ -58,6 +58,77 @@ def write_agent_module(
             f"`{payload.get('used_non_workspace_tools_rate')}`",
         ]
         comparison_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {
+        "agent_dir": str(paths.agent_dir),
+        "agent_traces": str(paths.agent_traces),
+        "agent_trajectory": str(paths.agent_trajectory),
+        "agent_events": str(paths.agent_events),
+        "agent_metrics": str(paths.agent_metrics),
+        "comparison": str(comparison_path) if comparison_contract is not None else "",
+    }
+
+
+def append_agent_artifacts(
+    run_dir: Path,
+    *,
+    trace: dict[str, Any],
+    trajectory: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> None:
+    """Persist one harness result immediately to bound long-run memory use."""
+    paths = AuditPaths.from_run_dir(run_dir)
+    paths.agent_dir.mkdir(parents=True, exist_ok=True)
+    append_jsonl(paths.agent_traces, [trace])
+    append_jsonl(paths.agent_trajectory, [trajectory])
+    append_jsonl(paths.agent_events, events)
+
+
+def finalize_agent_module(
+    run_dir: Path,
+    *,
+    metrics: dict[str, Any],
+    summary_rows: list[dict[str, Any]],
+    comparison_contract: dict[str, Any] | None,
+) -> dict[str, str]:
+    """Write agent summaries without replacing the append-only audit journals."""
+    paths = AuditPaths.from_run_dir(run_dir)
+    paths.agent_dir.mkdir(parents=True, exist_ok=True)
+    payload = dict(metrics)
+    payload.update(summarize_agent_rows(summary_rows))
+    if comparison_contract is not None:
+        payload["comparison_status"] = comparison_contract.get("status")
+        payload["comparison_contract_sha256"] = comparison_contract.get("sha256")
+    write_json(paths.agent_metrics, payload)
+    comparison_path = paths.agent_dir / "COMPARISON.md"
+    if comparison_contract is not None:
+        controls = comparison_contract
+        comparison_path.write_text(
+            "\n".join(
+                [
+                    "# Agent comparison controls",
+                    "",
+                    f"- schema: `{controls.get('schema_version')}`",
+                    f"- status: **{controls.get('status')}**",
+                    f"- contract sha256: `{controls.get('sha256')}`",
+                    f"- backbone: `{(controls.get('backbone') or {}).get('adapter')}` / "
+                    f"`{(controls.get('backbone') or {}).get('model')}`",
+                    f"- task prompt sha256: "
+                    f"`{(controls.get('task_prompt') or {}).get('sha256')}`",
+                    f"- workspace manifest sha256: "
+                    f"`{(controls.get('context') or {}).get('workspace_manifest_sha256')}`",
+                    f"- retrieval: `{controls.get('retrieval')}`",
+                    f"- memory write: `{controls.get('memory_write')}`",
+                    f"- judge: `{controls.get('judge')}`",
+                    f"- tool budget: `{controls.get('tool_budget')}`",
+                    f"- n_web_search (run sum): `{payload.get('n_web_search_sum')}`",
+                    f"- n_mcp (run sum): `{payload.get('n_mcp_sum')}`",
+                    f"- used_non_workspace_tools_rate: "
+                    f"`{payload.get('used_non_workspace_tools_rate')}`",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     return {
         "agent_dir": str(paths.agent_dir),
         "agent_traces": str(paths.agent_traces),

@@ -1,9 +1,9 @@
 # GPT-4o-mini Chat Completions vs GPT-4o-mini + Codex as sandwich writers,
 # plus stuffed full_context / persist-off workspace as a ceiling overlay.
 # Frozen mini reader on sandwich cells. Overlapping methods: session summaries
-# and Mem0g-shaped teacher_graph. Not paper Mem0 extract / Mem0g.
+# and Mem0g-shaped graph. Not paper Mem0 extract / Mem0g.
 #
-#   python -m src.memorybench report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
+#   python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
 # Notebook: notebooks/17_openai_mini_vs_codex_writers_analysis.ipynb
 
 campaign:
@@ -13,7 +13,7 @@ campaign:
   freeze_note: >
     Frozen GPT-4o-mini + qa_mem0_v1 reader on sandwich cells. Writers are
     GPT-4o-mini Chat Completions vs Codex CLI around GPT-4o-mini (thinking
-    off). Methods are teacher_session_summaries and teacher_graph
+    off). Methods are session_summaries and graph
     (Mem0g-shaped schema). methods_vs_full_context is a ceiling overlay,
     not a sandwich ranking: stuffed Chat Completions full_context sits next
     to persist-off Codex workspace (the harness analog of the conversation)
@@ -32,7 +32,7 @@ campaign_analyses:
     title: Mini methods vs full_context — Chat Completions vs Codex
     experiments: [readers, chat, codex]
     where:
-      memory_lane: [full_context, teacher_session_summaries, teacher_graph]
+      memory_lane: [full_context, session_summaries, graph]
     group_by: [memory_lane, system_harness]
     metrics: [judge_score, locomo_f1, exact_match, answer_n_words]
     plots:
@@ -42,7 +42,7 @@ campaign_analyses:
     title: Mini Chat Completions vs mini+Codex writers (summaries and graph)
     experiments: [chat, codex]
     where:
-      memory_method: [teacher_session_summaries, teacher_graph]
+      memory_method: [session_summaries, session_summaries, graph, graph]
     group_by: [memory_method, writer_harness]
     plots:
       - {kind: grouped_bar, x: memory_method, hue: writer_harness, y: judge_score}
@@ -53,7 +53,7 @@ campaign_analyses:
     title: Same answers, Mem0 J vs LoCoMo F1
     experiments: [chat, codex]
     where:
-      memory_method: [teacher_session_summaries, teacher_graph]
+      memory_method: [session_summaries, session_summaries, graph, graph]
     group_by: [memory_method, writer_harness]
     metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
     plots:
@@ -64,7 +64,7 @@ campaign_analyses:
     title: Writer harness × LoCoMo category
     experiments: [chat, codex]
     where:
-      memory_method: [teacher_session_summaries, teacher_graph]
+      memory_method: [session_summaries, session_summaries, graph, graph]
     group_by: [question_category, memory_method, writer_harness]
     plots:
       - {kind: grouped_bar, x: question_category, hue: writer_harness, y: judge_score}
@@ -85,14 +85,14 @@ takeaways:
       memory_lane: full_context
       system_harness: chat_completions
     right:
-      memory_lane: teacher_session_summaries
+      memory_lane: session_summaries
       system_harness: chat_completions
     left_label: chat_full_context
     right_label: chat_summaries
     metrics: [judge_score, locomo_f1]
     finding: >
       Ceiling overlay, not a sandwich ranking. Chat Completions stuffed
-      full_context is a model reader; teacher_session_summaries here is a
+      full_context is a model reader; session_summaries here is a
       sandwich writer with the same frozen mini reader. Persist-off Codex
       workspace is the harness analog of the conversation (not persist-on
       notes). Native Codex stays incomparable.
@@ -101,10 +101,10 @@ takeaways:
     claim: writer_harness_delta_summaries
     from: structured_writers
     left:
-      memory_method: teacher_session_summaries
+      memory_method: [session_summaries, session_summaries]
       writer_harness: chat_completions
     right:
-      memory_method: teacher_session_summaries
+      memory_method: [session_summaries, session_summaries]
       writer_harness: codex
     left_label: chat_summaries
     right_label: codex_summaries
@@ -118,16 +118,16 @@ takeaways:
     claim: writer_harness_delta_graph
     from: structured_writers
     left:
-      memory_method: teacher_graph
+      memory_method: [graph, graph]
       writer_harness: chat_completions
     right:
-      memory_method: teacher_graph
+      memory_method: [graph, graph]
       writer_harness: codex
     left_label: chat_graph
     right_label: codex_graph
     metrics: [judge_score, locomo_f1]
     finding: >
-      Both cells write locked Mem0GraphMemory (teacher_graph). This is not OSS
+      Both cells write locked Mem0GraphMemory (graph). This is not OSS
       mem0g extract/update. The delta is Codex vs Chat Completions as the
       teacher. Native Codex stays incomparable until comparison_status is
       comparable.
@@ -163,8 +163,8 @@ experiments:
       scientific_claim: false
       hypotheses:
         - Frozen mini Chat Completions reader; only the writer harness changes vs Codex.
-        - teacher_graph is Mem0g-shaped schema, not paper Mem0g extract.
-        - teacher_session_summaries is an LLM writer, not dataset session_summary.
+        - graph is Mem0g-shaped schema, not paper Mem0g extract.
+        - session_summaries is an LLM writer, not dataset session_summary.
   codex:
     name: locomo-openai-codex-poc-writers
     pack: experiments/locomo-openai-codex-poc-writers

@@ -2,7 +2,7 @@
 # Native Codex is audit-only unless comparison_status=comparable.
 # Paper / local_clone pins are literature context, not OSS-clone Table 2 J.
 #
-#   python -m src.memorybench report configs/analysis/campaign_openai_agents.yaml
+#   python -m src.experiment_runner report configs/analysis/campaign_openai_agents.yaml
 # Notebook: notebooks/17_openai_agent_reader_writer_analysis.ipynb
 
 campaign:
@@ -19,7 +19,7 @@ campaign:
     is the all-failed cell label, not a 1–2% miss rate. Partial misses
     stay incomparable with harness_failed_rate. n_web_search / n_mcp
     should be 0.
-    teacher_session_summaries / teacher_graph / agent_codex_mem0_facts
+    session_summaries / graph / agent_codex_mem0_facts
     are not paper Mem0 extract or Mem0g. Paper and local_clone rows are
     Table 2 / clone pins (n=1540 judged subset). Do not mix stuffed
     {memory} reader scores into Codex workspace bars.
@@ -135,7 +135,7 @@ campaign_analyses:
     title: Chat vs Codex teachers (frozen mini reader; overlapping methods)
     experiments: [writers, codex_writers]
     where:
-      memory_method: [teacher_session_summaries, teacher_graph]
+      memory_method: [session_summaries, session_summaries, graph, graph]
     group_by: [generation, memory_method, writer_harness]
     plots:
       - {kind: grouped_bar, x: generation, hue: writer_harness, y: judge_score}
@@ -147,8 +147,10 @@ campaign_analyses:
     include_pins: true
     where:
       memory_method:
-        - teacher_session_summaries
-        - teacher_graph
+        - session_summaries
+        - session_summaries
+        - graph
+        - graph
         - agent_codex_mem0_facts
         - mem0
         - mem0g
@@ -340,11 +342,12 @@ experiments:
     role: reader_sweep
     family_from: reader
     pretest:
-      n_cells: 21
+      n_cells: 15
       scientific_claim: true
       hypotheses:
         - Mini / GPT-5 / Terra year moves on stuffed memory are a reader-sweep, not a sandwich.
-        - full_context / rag / openai_memory / mem0 / mem0g vs Table 2 is not a matched stack.
+        - full_context / rag / openai_memory vs Table 2 is not a matched stack.
+        - mem0 and mem0g are not in this matrix.
   writers:
     name: locomo-openai-agent-writers
     pack: experiments/locomo-openai-agent-writers
@@ -355,7 +358,7 @@ experiments:
       scientific_claim: true
       hypotheses:
         - Frozen mini reader; Chat Completions teachers vary by model year.
-        - teacher_session_summaries / teacher_graph are not paper Mem0 or Mem0g.
+        - session_summaries / graph are not paper Mem0 or Mem0g.
   codex_readers:
     name: locomo-openai-codex-readers
     pack: experiments/locomo-openai-codex-readers

@@ -2,7 +2,7 @@
 
 HLD components:
   i)   pre-processing — tests/test_preprocessing_pipeline.py (not wired into run.py)
-  ii)  teacher orchestrator — pooling/fusion in teacher_orchestrator.py (passthrough if no teachers)
+  ii)  model orchestrator — one writer model in model_orchestrator.py (passthrough if no model)
   iii) post-processing — not this file
   iv)  evaluation  ← this file (string metrics + LoCoMo F1)
 
@@ -11,8 +11,8 @@ Online / LLM autoraters are out of scope until that split is designed.
 Parse and memory-builder checks remain in this module as the frozen *inputs*
 to the scorer, including a raw_chunks vs session_summaries prompt-text
 check (different memories must fill different reader prompts).
-Dedicated pre-processing / teacher-memory test modules wait on HLD lock-in —
-do not rename production classes to match an unfinished LLD.
+Dedicated pre-processing and writer-memory checks live in their own modules.
+Do not rename production classes to match an unfinished design note.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.dataset import iter_questions, parse_sample, select_question_pairs
+from src.locomo_eval.dataset import parse_sample
 from src.locomo_eval.schemas import Conversation, Question
 from src.locomo_eval.memory import (
     RawConversationMemoryBuilder,
@@ -100,55 +100,6 @@ class TestParseSample(unittest.TestCase):
         conv = parse_sample(MINI)
         self.assertIn(1, conv.session_summaries)
         self.assertIn("painting", conv.session_summaries[1])
-
-
-class TestSelectQuestionPairs(unittest.TestCase):
-    def _pairs(self):
-        convs = []
-        for sid, n_q in (("c1", 3), ("c2", 3)):
-            questions = [
-                Question(
-                    sample_id=sid,
-                    question_id=f"{sid}-q-{i}",
-                    question=f"q{i}",
-                    answer="a",
-                    category=4,
-                )
-                for i in range(n_q)
-            ]
-            convs.append(
-                Conversation(
-                    sample_id=sid,
-                    speaker_a="A",
-                    speaker_b="B",
-                    sessions=[],
-                    session_summaries={},
-                    observations={},
-                    questions=questions,
-                )
-            )
-        return list(iter_questions(convs))
-
-    def test_round_robin_takes_one_question_from_each_conversation_before_a_second(self):
-        pairs = self._pairs()
-        got = select_question_pairs(pairs, 2, mode="round_robin")
-        self.assertEqual(
-            [q.question_id for _, q in got],
-            ["c1-q-0", "c2-q-0"],
-        )
-        got4 = select_question_pairs(pairs, 4, mode="round_robin")
-        self.assertEqual(
-            [q.question_id for _, q in got4],
-            ["c1-q-0", "c2-q-0", "c1-q-1", "c2-q-1"],
-        )
-
-    def test_prefix_takes_the_first_n_pairs_in_file_order(self):
-        pairs = self._pairs()
-        got = select_question_pairs(pairs, 2, mode="prefix")
-        self.assertEqual(
-            [q.question_id for _, q in got],
-            ["c1-q-0", "c1-q-1"],
-        )
 
 
 class TestSessionSummaryMemoryBuilder(unittest.TestCase):

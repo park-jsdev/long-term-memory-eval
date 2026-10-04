@@ -451,9 +451,7 @@ class TestDefaultYamlPinsMem0ReaderAndPrompt(unittest.TestCase):
             "configs/writers/session_summaries.yaml",
             "configs/writers/mem0.yaml",
             "configs/writers/mem0g.yaml",
-            "configs/writers/teacher_graph.yaml",
-            "configs/writers/pooled_teacher_graph.yaml",
-            "configs/writers/fused_teacher_graph.yaml",
+            "configs/writers/graph.yaml",
         ):
             cfg = load_config(ROOT / rel)
             self.assertEqual(cfg["reader"]["model"], "gpt-4o-mini", rel)

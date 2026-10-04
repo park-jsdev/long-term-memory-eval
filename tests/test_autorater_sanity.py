@@ -1,4 +1,4 @@
-"""Autorater sanity: Mem0 judge protocol, GPT-4o seam, and fresh reports.
+"""Autorater sanity: Mem0 judge protocol, GPT-4o-mini seam, and fresh reports.
 
 Offline only. ``MockAutorater`` replaces API calls while preserving the same
 Prediction → AutoraterVerdict → benchmark-report data path.

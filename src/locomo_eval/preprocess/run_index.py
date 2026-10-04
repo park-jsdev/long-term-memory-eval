@@ -160,8 +160,8 @@ def _eval_after_index(
             memory=None,
             reader=eval_reader,
             model=None,
-            teacher=None,
-            teacher_model=None,
+            writer=None,
+            writer_model=None,
             prompt=None,
             output_dir=str(out_root),
             run_id=eval_run_id,
@@ -173,7 +173,6 @@ def _eval_after_index(
             temperature=None,
             max_tokens=None,
             message_layout=None,
-            question_sample=getattr(overrides, "question_sample", None) or "round_robin",
         )
         run_dir = run_locomo_pipeline_with_memory_config(eval_cfg, ns)
         print(f"  eval {memory_name}: {run_dir}")
@@ -196,14 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--eval-questions",
         type=int,
         default=None,
-        help="After indexing, run this many reader LLM calls per sanity memory YAML "
-        "(round-robin across conversations by default).",
-    )
-    p.add_argument(
-        "--question-sample",
-        default="round_robin",
-        choices=("round_robin", "prefix"),
-        help="How --eval-questions picks items (default: round_robin)",
+        help="After indexing, run this many reader LLM calls per sanity memory YAML.",
     )
     p.add_argument(
         "--eval-reader",

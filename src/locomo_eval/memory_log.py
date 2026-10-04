@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from src.locomo_eval.experiments.audit_writer import write_teacher_module
+from src.locomo_eval.experiment_pack.audit_writer import write_writer_module
 from .prompts import render_qa_prompt
 from .report import write_json
 from .schemas import Memory
@@ -45,22 +45,9 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "[Session {k}]\n{session_k_summary text}\n\n"
             "[Session {k+1}]\n…"
         ),
-        "notes": "LoCoMo-provided summaries; chronological by session id.",
-    },
-    "teacher_session_summaries": {
-        "builder": "TeacherSessionMemoryBuilder",
-        "code": "src/locomo_eval/memory.py",
-        "source_fields": [
-            "conversation.session_k turns",
-            "teacher.model (per-session summarize)",
-        ],
-        "text_layout": (
-            "[Session {k}]\n{teacher summary of session k}\n\n"
-            "[Session {k+1}]\n…"
-        ),
         "notes": (
-            "Live single teacher; swap teacher.model within a family. "
-            "Not multi-teacher fusion."
+            "Dataset summaries when no writer is set. A writer model "
+            "replaces the text and records writer_model."
         ),
     },
     "mem0": {
@@ -95,12 +82,12 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "Swap GraphMemory later; freeze extract for that claim."
         ),
     },
-    "teacher_graph": {
+    "graph": {
         "builder": "OrchestratedGraphMemoryBuilder",
         "code": "src/locomo_eval/memory.py",
         "source_fields": [
             "conversation sessions via PreprocessingPipeline",
-            "one Teacher.extract_session_graph",
+            "one writer extract_session_graph",
             "Mem0GraphMemory.ingest_triples",
         ],
         "text_layout": (
@@ -108,47 +95,7 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
             "Graph relations:\n"
             "{source} -- {relationship} -- {target}"
         ),
-        "notes": (
-            "Single interchangeable teacher (openai / anthropic / deepseek) "
-            "writes locked Mem0GraphMemory. Swap teacher.model."
-        ),
-    },
-    "pooled_teacher_graph": {
-        "builder": "OrchestratedGraphMemoryBuilder",
-        "code": "src/locomo_eval/memory.py",
-        "source_fields": [
-            "conversation sessions via PreprocessingPipeline",
-            "TeacherOrchestrator (equal_weight | random | round_robin)",
-            "Mem0GraphMemory.ingest_triples",
-        ],
-        "text_layout": (
-            "Conversation between {speaker_a} and {speaker_b}.\n\n"
-            "Graph relations:\n"
-            "{source} -- {relationship} -- {target}"
-        ),
-        "notes": (
-            "Naive multi-teacher pool into locked Mem0g. equal_weight unions "
-            "triples; random/round_robin pick one teacher per session."
-        ),
-    },
-    "fused_teacher_graph": {
-        "builder": "OrchestratedGraphMemoryBuilder",
-        "code": "src/locomo_eval/memory.py",
-        "source_fields": [
-            "conversation sessions via PreprocessingPipeline",
-            "TeacherOrchestrator (K teachers, majority_vote or resolve_*)",
-            "Mem0GraphMemory.ingest_triples",
-        ],
-        "text_layout": (
-            "Conversation between {speaker_a} and {speaker_b}.\n\n"
-            "Graph relations:\n"
-            "{source} -- {relationship} -- {target}"
-        ),
-        "notes": (
-            "Fusion into locked Mem0g: majority_vote, or resolve_* baselines "
-            "(top_voted / first / random / round_robin / confidence) for "
-            "source+relationship disagreements. Not a paper-J claim."
-        ),
+        "notes": "One writer model writes locked Mem0GraphMemory. Swap writer.model.",
     },
     "rag": {
         "builder": "RagMemoryBuilder",
@@ -205,7 +152,9 @@ CONDITION_LAYOUTS: dict[str, dict[str, Any]] = {
 # Older run packs may still log the numbered ids.
 CONDITION_LAYOUTS["c0_raw"] = CONDITION_LAYOUTS["raw_chunks"]
 CONDITION_LAYOUTS["c1_session_summary"] = CONDITION_LAYOUTS["session_summaries"]
-CONDITION_LAYOUTS["c1_teacher"] = CONDITION_LAYOUTS["teacher_session_summaries"]
+CONDITION_LAYOUTS["c1_teacher"] = CONDITION_LAYOUTS["session_summaries"]
+CONDITION_LAYOUTS["session_summaries"] = CONDITION_LAYOUTS["session_summaries"]
+CONDITION_LAYOUTS["graph"] = CONDITION_LAYOUTS["graph"]
 
 
 def memory_to_record(memory: Memory) -> dict[str, Any]:
@@ -215,10 +164,10 @@ def memory_to_record(memory: Memory) -> dict[str, Any]:
         "text": memory.text,
         "source_ids": list(memory.source_ids),
     }
-    if memory.teacher_model:
-        rec["teacher_model"] = memory.teacher_model
-    if memory.teacher_provider:
-        rec["teacher_provider"] = memory.teacher_provider
+    if memory.writer_model:
+        rec["writer_model"] = memory.writer_model
+    if memory.writer_provider:
+        rec["writer_provider"] = memory.writer_provider
     if memory.search_latency_s is not None:
         rec["search_latency_s"] = memory.search_latency_s
     return rec
@@ -237,7 +186,7 @@ def write_memory_run_log(
     example_question: str | None,
     doc_path: str = "docs/schemas/memory_runtime.md",
     memories_by_question: dict[str, Memory] | None = None,
-    question_sample_ids: dict[str, str] | None = None,
+    question_conversation_ids: dict[str, str] | None = None,
 ) -> Path:
     """Write experiments/<run_id>/memory/ audit package.
 
@@ -284,11 +233,11 @@ def write_memory_run_log(
             "text": "full string injected as prompt {memory}",
             "source_ids": "provenance list",
             "schema_version": SCHEMA_VERSION,
-            "teacher_model": "write-path model id(s); '+' joins multi-teacher runs",
-            "teacher_provider": "openai | anthropic | deepseek | mock | '+' joined",
+            "writer_model": "write-path model id",
+            "writer_provider": "openai | anthropic | deepseek | mock | codex",
         },
-        "teacher_model": first.teacher_model,
-        "teacher_provider": first.teacher_provider,
+        "writer_model": first.writer_model,
+        "writer_provider": first.writer_provider,
         "injection": {
             "prompt_placeholders": ["{memory}", "{question}"],
             "gold_answer_in_memory": False,
@@ -310,9 +259,9 @@ def write_memory_run_log(
             f"- Full texts: `memory/by_sample/<sample_id>.txt`",
             f"- Per-question texts (when retrieve is question-dependent): `memory/by_question/<question_id>.txt`",
             f"- Index: `memory/index.jsonl`",
-            f"- Teacher LLM traces (when used): `memory/teachers/`",
-            f"- Fused graph snapshot (when used): `memory/graph/`",
-            f"- Claim lineage: `memory/lineage.jsonl` (question → item → teacher)",
+            f"- Writer LLM traces (when used): `memory/writer/`",
+            f"- Graph snapshot (when used): `memory/graph/`",
+            f"- Claim lineage: `memory/lineage.jsonl` (question → item → writer)",
             f"- Retrieve ranks (losers included): `memory/retrieve_ranks.jsonl`",
             f"- Attribution (call → role → claims): `ATTRIBUTION.md` / `attribution.jsonl`",
             "",
@@ -340,8 +289,8 @@ def write_memory_run_log(
                 "text_head": text[:400],
                 "text_tail": text[-200:] if len(text) > 200 else text,
                 "full_text_path": rel,
-                "teacher_model": memory.teacher_model,
-                "teacher_provider": memory.teacher_provider,
+                "writer_model": memory.writer_model,
+                "writer_provider": memory.writer_provider,
                 "search_latency_s": memory.search_latency_s,
                 "key_kind": "sample",
             }
@@ -349,14 +298,14 @@ def write_memory_run_log(
         if memories_by_question:
             q_dir = mem_dir / "by_question"
             q_dir.mkdir(parents=True, exist_ok=True)
-            q_sample = question_sample_ids or {}
+            q_conversation = question_conversation_ids or {}
             for question_id, memory in sorted(memories_by_question.items()):
                 text = memory.text or ""
                 rel = f"memory/by_question/{question_id}.txt"
                 (q_dir / f"{question_id}.txt").write_text(text, encoding="utf-8")
                 row = {
                     "schema_version": SCHEMA_VERSION,
-                    "sample_id": q_sample.get(question_id),
+                    "sample_id": q_conversation.get(question_id),
                     "question_id": question_id,
                     "memory_type": memory.memory_type,
                     "n_source_ids": len(memory.source_ids),
@@ -391,21 +340,14 @@ def write_memory_run_log(
     return mem_dir
 
 
-def collect_teacher_call_log(builder: Any) -> list[dict[str, Any]]:
-    """Gather teacher call rows from an orchestrator and/or session builder."""
+def collect_writer_call_log(builder: Any) -> list[dict[str, Any]]:
+    """Gather writer call rows from the orchestrator and/or session builder."""
     rows: list[dict[str, Any]] = []
     orch = getattr(builder, "orchestrator", None)
     if orch is not None:
         rows.extend(list(getattr(orch, "call_log", []) or []))
     rows.extend(list(getattr(builder, "teacher_call_log", []) or []))
     return rows
-
-
-def collect_fusion_log(builder: Any) -> list[dict[str, Any]]:
-    orch = getattr(builder, "orchestrator", None)
-    if orch is None:
-        return []
-    return list(getattr(orch, "fusion_log", []) or [])
 
 
 def collect_ingest_log(builder: Any) -> list[dict[str, Any]]:
@@ -432,6 +374,6 @@ def collect_session_texts(builder: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def write_teacher_call_log(run_dir: Path, rows: list[dict[str, Any]]) -> Path | None:
-    """Compat wrapper: write memory/teachers/ (and teacher_calls.jsonl)."""
-    return write_teacher_module(run_dir, calls=rows)
+def write_writer_call_log(run_dir: Path, rows: list[dict[str, Any]]) -> Path | None:
+    """Compat wrapper: write memory/writer/ (and writer_calls.jsonl)."""
+    return write_writer_module(run_dir, calls=rows)

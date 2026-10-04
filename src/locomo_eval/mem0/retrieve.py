@@ -63,7 +63,7 @@ def rank_speaker_facts(
     top_k: int,
 ) -> list[dict]:
     """All scored facts with rank + selected flag for claim audit."""
-    from ..experiments.claim_audit import preview
+    from ..experiment_pack.claim_audit import preview
 
     ranked = store.rank_all(query_embedding)
     selected_ids = {fact.fact_id for fact, _ in ranked[: max(0, int(top_k))]}

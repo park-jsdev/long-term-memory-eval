@@ -56,13 +56,13 @@ def _args(tmp: Path, **kwargs) -> Namespace:
         temperature=None,
         max_tokens=None,
         message_layout=None,
-        teacher=None,
-        teacher_model=None,
+        writer=None,
+        writer_model=None,
+        writer_max_tokens=None,
         prompt=str(ROOT / "prompts" / "readers" / "qa_mem0_v1.txt"),
         output_dir=str(Path(tmp) / "experiments"),
         run_id="smoke_eval",
         max_questions=1,
-        question_sample=None,
         sample_id=None,
         max_samples=1,
         index_run_id=None,
@@ -148,8 +148,8 @@ class TestEvalIndexSampleScope(unittest.TestCase):
 
         self.assertEqual(resolve_eval_index_run_id("rag", cfg, args), "rag_locomo10")
 
-    def test_rag_max_samples_keeps_round_robin_inside_indexed_conversation(self):
-        """The documented smoke: --max-samples 1 --max-questions 5 must not hit sample 2."""
+    def test_rag_max_samples_keeps_capped_qa_inside_indexed_conversation(self):
+        """A capped QA run must not read beyond the indexed conversation."""
 
         def _sample(sid: str, n_q: int) -> dict:
             return {
@@ -176,7 +176,6 @@ class TestEvalIndexSampleScope(unittest.TestCase):
                 index_run_id=None,
                 max_samples=1,
                 max_questions=5,
-                question_sample="round_robin",
                 n_judge_runs=1,
                 label="rag",
             )

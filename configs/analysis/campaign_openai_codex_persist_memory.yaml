@@ -2,7 +2,7 @@
 # Native Codex is audit-only unless comparison_status=comparable.
 # notes_only (sessions hidden after ingest) is the memory-method cell.
 #
-#   python -m src.memorybench report configs/analysis/campaign_openai_codex_persist_memory.yaml
+#   python -m src.experiment_runner report configs/analysis/campaign_openai_codex_persist_memory.yaml
 # Notebook: notebooks/17_openai_codex_persist_memory_analysis.ipynb
 
 campaign:
@@ -14,7 +14,7 @@ campaign:
     Persist-on + full sessions is a write ablation, not a memory method
     (session haystack stays on disk). Persist-on + notes_only hides
     sessions after ingest — that cell is the harness memory method.
-    Compare it to teacher_session_summaries from the PoC writers pack
+    Compare it to session_summaries from the PoC writers pack
     (frozen mini Chat Completions reader). Native Codex stays audit-only
     unless comparison_status is comparable. n_web_search / n_mcp should
     be 0. Do not mix these scores into a stuffed-context reader table.
@@ -109,7 +109,7 @@ campaign_analyses:
     title: Codex session-summary sandwich writer (frozen mini reader)
     experiments: [summaries]
     where:
-      memory_method: [teacher_session_summaries]
+      memory_method: [session_summaries, session_summaries]
     group_by: [memory_method, writer_model]
     plots:
       - {kind: grouped_bar, x: memory_method, y: locomo_f1}
@@ -146,7 +146,7 @@ takeaways:
     left:
       agent_sessions: notes_only
     right:
-      memory_method: teacher_session_summaries
+      memory_method: [session_summaries, session_summaries]
     left_label: notes_only
     right_label: session_summaries
     metrics: [judge_score, locomo_f1]
@@ -179,4 +179,4 @@ experiments:
       n_cells: 3
       scientific_claim: false
       hypotheses:
-        - Frozen mini Chat Completions reader; teacher_session_summaries is the writer pin.
+        - Frozen mini Chat Completions reader; session_summaries is the writer pin.

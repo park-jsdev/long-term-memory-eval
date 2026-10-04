@@ -17,12 +17,12 @@ Passed from builder → runner → prompt fill. Never includes the gold answer.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `memory_type` | string | Condition id, e.g. `raw_chunks`, `session_summaries`, `teacher_session_summaries` |
-| `text` | string | **Full payload** inserted into `prompts/readers/qa_v1.txt` as `{memory}` |
+| `memory_type` | string | Condition id, e.g. `raw_chunks`, `session_summaries`, `graph` |
+| `text` | string | **Full payload** inserted into the answer prompt as `{memory}` |
 | `source_ids` | list[string] | Provenance ids (turn `dia_id`s or `session_k_summary`) |
 | `schema_version` | string | Always `memory_io.v1` for this layout family |
-| `teacher_model` | string or null | Write-path model id when using `teacher_session_summaries` |
-| `teacher_provider` | string or null | `openai`, `anthropic`, `deepseek`, `mock`, or `+`-joined |
+| `writer_model` | string or null | Write-path model id when a writer produced this memory |
+| `writer_provider` | string or null | `openai`, `anthropic`, `deepseek`, or `mock` |
 
 JSON shape (also in `memory_io.schema.json`):
 
@@ -91,17 +91,15 @@ Config: `configs/writers/session_summaries.yaml` · uses LoCoMo release field `s
 
 Sessions omitted if empty. Order = chronological session number.
 
-### Condition `teacher_session_summaries` (`TeacherSessionMemoryBuilder`)
+### Condition `session_summaries`
 
-Config: `configs/writers/teacher_session_summaries.yaml` · `teacher.model` / `--teacher-model`.
+Config: `configs/writers/session_summaries.yaml`. With no `writer` block, `SessionSummaryMemoryBuilder` copies the dataset summaries. With `writer.model` (or `--writer-model`), `WriterSessionMemoryBuilder` writes one summary per session (`prompts/writers/session_summary_v1.txt`). `writer_model` is stored on the Memory object and in `memory/schema.json`, not inside `{memory}` text.
 
-Same `[Session k]` concatenation as `session_summaries`, but each block is a **teacher** summary of that session's turns (prompt: `prompts/teachers/teacher_session_v1.txt`). `teacher_model` is stored on the Memory object and in `memory/schema.json` — not inside `{memory}` text (so the answer LLM does not see the teacher id).
+### Condition `graph`
 
-### Condition `teacher_graph` / `pooled_teacher_graph` / `fused_teacher_graph`
+Config: `configs/writers/graph.yaml` (includes `configs/writers/openai_mini.yaml`).
 
-Configs: `configs/writers/teacher_graph.yaml`, `pooled_teacher_graph.yaml`, `fused_teacher_graph.yaml`.
-
-Teachers extract Mem0-shaped triples; `TeacherOrchestrator` writes **locked** `Mem0GraphMemory` (`ingest_triples`). `{memory}` is:
+One writer model extracts Mem0-shaped triples; `ModelOrchestrator` writes **locked** `Mem0GraphMemory` (`ingest_triples`). `{memory}` is:
 
 ```text
 Conversation between {speaker_a} and {speaker_b}.
@@ -111,7 +109,7 @@ Graph relations:
 ...
 ```
 
-`teacher_graph` is K=1 (`pool: single`, `openai_single.yaml`). `pooled_teacher_graph` uses `orchestrator.pool` (`equal_weight` | `random` | `round_robin`) with `cheap_k3`. `fused_teacher_graph` keeps triples with majority votes. Gold answers never enter teacher prompts. Current `configs/experiments/` matrices schedule only K=1; pooled/fused stay locomo_eval plumbing.
+Swap the model with `writer.model` or `--writer-model`. Gold answers never enter writer prompts.
 
 ### Injection into the fixed prompt
 
@@ -136,9 +134,9 @@ Every Phase‑1 run writes under `experiments/<run_id>/memory/`:
 | `memory/index.jsonl` | One line per **unique** `sample_id` used in the run: ids, char counts, sha256 of `text`, head/tail previews |
 | `memory/by_sample/<sample_id>.txt` | **Full** `Memory.text` for that conversation (what the model saw as memory; same for all Qs under that sample for current builders) |
 | `memory/prompt_fill_example.txt` | One concrete filled prompt (memory + first question), truncated if huge |
-| `memory/teachers/` | Write-path LLM traces when a teacher ran (`index.jsonl`, `calls.jsonl`, `by_teacher/<id>/`, `fusion.jsonl`, `sessions/`, `quality.json`) |
-| `memory/graph/` | Fused Mem0g snapshot (`by_sample/<id>.json`) plus `ingest.jsonl` (MERGE / invalidate after fusion) |
-| `memory/lineage.jsonl` | Question → injected memory item → teacher (`proposed_by`) |
+| `memory/writer/` | Write-path LLM traces when a writer ran (`index.jsonl`, `calls.jsonl`, `by_writer/<id>/`, `sessions/`, `quality.json`) |
+| `memory/graph/` | Mem0g snapshot (`by_sample/<id>.json`) plus `ingest.jsonl` (MERGE / invalidate / skip_dup) |
+| `memory/lineage.jsonl` | Question → injected memory item → writer (`proposed_by`) |
 | `memory/retrieve_ranks.jsonl` | Full ranked retrieve candidates, not just winners |
 
 Run-root `ATTRIBUTION.md` / `attribution.jsonl` join each LLM call to its sandwich role and the claims it made (not stored under `memory/`).

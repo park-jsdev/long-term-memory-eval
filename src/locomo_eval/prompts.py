@@ -4,8 +4,8 @@ Repo layout mirrors ``configs/`` roles so a human can walk YAML → txt → json
 
 - ``prompts/readers/`` — answer LLM (``pipeline.prompt_path`` / layouts)
 - ``prompts/agents/`` — coding-agent harness (workspace files, not stuffed memory)
-- ``prompts/writers/`` — mem0 / mem0g / openai_memory extract
-- ``prompts/teachers/`` — session summary + graph teachers
+- ``prompts/writers/`` — session summaries, graph, mem0 / mem0g, and
+  openai_memory write-path prompts
 - ``prompts/autoraters/`` — LLM-as-a-Judge (separate job from QA)
 """
 
@@ -21,8 +21,8 @@ QA_WORKSPACE_V1 = "prompts/agents/qa_workspace_v1.txt"
 QA_WORKSPACE_PERSIST_V1 = "prompts/agents/qa_workspace_persist_v1.txt"
 QA_WORKSPACE_NOTES_ONLY_V1 = "prompts/agents/qa_workspace_notes_only_v1.txt"
 INGEST_NOTES_V1 = "prompts/agents/ingest_notes_v1.txt"
-TEACHER_SESSION_V1 = "prompts/teachers/teacher_session_v1.txt"
-TEACHER_GRAPH_V1 = "prompts/teachers/teacher_graph_v1.txt"
+SESSION_SUMMARY_PROMPT_V1 = "prompts/writers/session_summary_v1.txt"
+GRAPH_PROMPT_V1 = "prompts/writers/graph_v1.txt"
 AUTORATER_MEM0_V1 = "prompts/autoraters/autorater_mem0_v1.txt"
 MEM0_EXTRACT_V1 = "prompts/writers/mem0_extract_v1.txt"
 MEM0_UPDATE_V1 = "prompts/writers/mem0_update_v1.txt"
@@ -57,6 +57,22 @@ def render_qa_prompt(template: str, memory: str, question: str) -> str:
     return template.format(memory=memory, question=question)
 
 
+def render_persisted_agent_prompt(reader_payload: str) -> str:
+    """Add harness-only note controls after the frozen reader payload.
+
+    The payload remains separately hashed so analysis can distinguish shared
+    LoCoMo evidence from Codex-only persistent execution state.
+    """
+    return (
+        f"{reader_payload}\n\n"
+        "# HARNESS PERSISTENCE\n"
+        "Before answering, read `memory/notes.md` if it exists. Use it only "
+        "as a working index; the Memories above remain the source of truth. "
+        "After answering, append concise, evidence-grounded facts to "
+        "`memory/notes.md` without overwriting existing lines."
+    )
+
+
 def render_autorater_prompt(
     template: str,
     *,
@@ -72,7 +88,7 @@ def render_autorater_prompt(
     )
 
 
-def render_teacher_session_prompt(
+def render_session_summary_prompt(
     template: str,
     *,
     date: str,
@@ -80,7 +96,7 @@ def render_teacher_session_prompt(
     speaker_a: str,
     speaker_b: str,
 ) -> str:
-    """Fill prompts/teachers/teacher_session_v1.txt. Gold answers must not appear here."""
+    """Fill prompts/writers/session_summary_v1.txt. Gold answers must not appear here."""
     return template.format(
         date=date,
         session_text=session_text,
@@ -89,6 +105,6 @@ def render_teacher_session_prompt(
     )
 
 
-def render_teacher_graph_prompt(template: str, *, user_id: str, text: str) -> str:
-    """Fill prompts/teachers/teacher_graph_v1.txt. Gold answers must not appear here."""
+def render_graph_prompt(template: str, *, user_id: str, text: str) -> str:
+    """Fill prompts/writers/graph_v1.txt. Gold answers must not appear here."""
     return template.format(user_id=user_id, text=text)

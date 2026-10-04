@@ -38,7 +38,7 @@ class RagMemoryBuilder(MemoryBuilder):
             self.embedder,
             self.top_k,
         )
-        from ..experiments.claim_audit import retrieve_rank_row
+        from ..experiment_pack.claim_audit import retrieve_rank_row
 
         self.retrieve_log.append(
             retrieve_rank_row(

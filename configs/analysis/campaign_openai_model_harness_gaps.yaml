@@ -1,0 +1,174 @@
+# Focused gaps: 4o-mini vs 4o-mini + Codex, then 2026 model vs 2024 model
+# vs 2024 model + harness. Category charts keep LoCoMo category 5.
+# Overall tables drop category 5 (Mem0 J).
+#
+#   python -m src.experiment_runner report configs/analysis/campaign_openai_model_harness_gaps.yaml
+# Notebook: notebooks/17_openai_model_harness_gaps_analysis.ipynb
+
+campaign:
+  id: openai_model_harness_gaps
+  title: Model vs harness gaps (4o-mini, Codex, 2026)
+  notebook: notebooks/17_openai_model_harness_gaps_analysis.ipynb
+  freeze_note: >
+    Three charts. (1) Full-context J by LoCoMo category: GPT-4o-mini Chat
+    Completions vs persist-off Codex workspace (same mini backbone).
+    (2) Session-summary writer J by category: mini Chat Completions writer
+    vs Codex writer, frozen mini reader. (3) Full-context J by category:
+    2026 Terra model-only vs 2024 mini model-only vs 2024 mini + Codex.
+    Overall tables drop adversarial category 5. Category charts keep it.
+    Mem0 J is not scored on category 5 (stored judge_score is the skip
+    placeholder 0). The adversarial plot uses LoCoMo refusal: 1 when the
+    answer says "not mentioned" or "no information available".
+    delta in the gap tables is left minus right. Native Codex is audit-only
+    unless comparison_status is comparable. Traces for the harness
+    full-context cell live under
+    experiments/locomo-openai-codex-poc-readers/collected/runs/.
+
+defaults:
+  source: examples
+  metrics: [judge_score, locomo_f1]
+  output_subdir: analysis
+
+campaign_analyses:
+  - id: overall_mini_vs_codex
+    title: Overall J and F1 — 4o-mini vs 4o-mini + Codex
+    experiments: [readers, chat, codex]
+    where:
+      memory_lane: [full_context, session_summaries, graph]
+      mini_side: ["4o-mini", "4o-mini + Codex"]
+    group_by: [memory_lane, mini_side]
+    metrics: [judge_score, locomo_f1, exact_match, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: memory_lane, hue: mini_side, y: judge_score, title: Overall J — 4o-mini vs 4o-mini + Codex}
+      - {kind: grouped_bar, x: memory_lane, hue: mini_side, y: locomo_f1, title: Overall LoCoMo F1 — 4o-mini vs 4o-mini + Codex}
+  - id: fc_category_j
+    title: Full-context J by category — 4o-mini vs 4o-mini + Codex
+    experiments: [readers]
+    where:
+      memory_lane: [full_context]
+      mini_side: ["4o-mini", "4o-mini + Codex"]
+    group_by: [question_category, mini_side]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: mini_side, y: judge_score, title: Full-context J by category — 4o-mini vs 4o-mini + Codex}
+  - id: summaries_category_j
+    title: Session-summary J by category — 4o-mini vs 4o-mini + Codex
+    experiments: [chat, codex]
+    where:
+      memory_lane: [session_summaries]
+      mini_side: ["4o-mini", "4o-mini + Codex"]
+    group_by: [question_category, mini_side]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: mini_side, y: judge_score, title: Session-summary J by category — 4o-mini vs 4o-mini + Codex}
+  - id: year_fc_overall
+    title: Full-context overall — 2026 model vs 2024 model vs 2024 harness
+    experiments: [readers, year_2026]
+    where:
+      gap_stack: ["2026 model", "2024 model", "2024 model + harness"]
+    group_by: [gap_stack]
+    metrics: [judge_score, locomo_f1]
+    plots:
+      - {kind: bar, x: gap_stack, y: judge_score, title: Full-context overall J — 2026 model vs 2024 model vs harness}
+  - id: year_fc_category_j
+    title: Full-context J by category — 2026 model vs 2024 model vs 2024 harness
+    experiments: [readers, year_2026]
+    where:
+      gap_stack: ["2026 model", "2024 model", "2024 model + harness"]
+    group_by: [question_category, gap_stack]
+    metrics: [judge_score]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: gap_stack, y: judge_score, title: Full-context J by category — 2026 model vs 2024 model vs 2024 model + harness}
+  - id: year_fc_adversarial
+    title: Full-context adversarial refusal — 2026 model vs 2024 model vs 2024 + Codex
+    experiments: [readers, year_2026]
+    where:
+      gap_stack: ["2026 model", "2024 model", "2024 model + harness"]
+    # Drop categories 1–4 so the mean is adversarial only. Category 5 is
+    # not in group_by, so the default Mem0 drop would remove it instead.
+    exclude_question_categories: [1, 2, 3, 4]
+    group_by: [gap_stack]
+    metrics: [locomo_f1, judge_score]
+    plots:
+      - {kind: bar, x: gap_stack, y: locomo_f1, title: Full-context adversarial refusal — 2026 model vs 2024 model vs 2024 model + Codex}
+
+insights:
+  - id: fc_category_gaps
+    title: Full-context category J gaps (4o-mini minus 4o-mini + Codex)
+    kind: series_gaps
+    from: fc_category_j
+    metric: judge_score
+    series_col: mini_side
+    left_series: 4o-mini
+    right_series: 4o-mini + Codex
+  - id: summaries_category_gaps
+    title: Session-summary category J gaps (4o-mini minus 4o-mini + Codex)
+    kind: series_gaps
+    from: summaries_category_j
+    metric: judge_score
+    series_col: mini_side
+    left_series: 4o-mini
+    right_series: 4o-mini + Codex
+  - id: year_vs_2024_model_gaps
+    title: Full-context category J gaps (2026 model minus 2024 model)
+    kind: series_gaps
+    from: year_fc_category_j
+    metric: judge_score
+    series_col: gap_stack
+    left_series: 2026 model
+    right_series: 2024 model
+  - id: harness_vs_2024_model_gaps
+    title: Full-context category J gaps (2024 model minus 2024 model + harness)
+    kind: series_gaps
+    from: year_fc_category_j
+    metric: judge_score
+    series_col: gap_stack
+    left_series: 2024 model
+    right_series: 2024 model + harness
+
+experiments:
+  readers:
+    name: locomo-openai-codex-poc-readers
+    pack: experiments/locomo-openai-codex-poc-readers
+    role: agent_reader
+    family_from: reader
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Stuffed full_context is 4o-mini model-only.
+        - Persist-off workspace_files is 4o-mini + Codex.
+        - Persist-on workspace is excluded.
+  chat:
+    name: locomo-openai-mini-writers-structured
+    pack: experiments/locomo-openai-mini-writers-structured
+    role: sandwich
+    family_from: writer
+    pretest:
+      n_cells: 2
+      scientific_claim: false
+      hypotheses:
+        - session_summaries is the 4o-mini writer.
+        - Frozen mini reader; the harness is the writer.
+  codex:
+    name: locomo-openai-codex-poc-writers
+    pack: experiments/locomo-openai-codex-poc-writers
+    role: sandwich
+    family_from: writer
+    pretest:
+      n_cells: 3
+      scientific_claim: false
+      hypotheses:
+        - Codex session_summaries is the harness writer twin.
+        - Facts and graph stay out of the summary category chart.
+  year_2026:
+    name: locomo-2026-readers-openai-deepseek
+    pack: experiments/locomo-2026-readers-openai-deepseek
+    role: reader_sweep
+    family_from: reader
+    pretest:
+      n_cells: 8
+      scientific_claim: false
+      hypotheses:
+        - GPT-5.6 Terra full_context thinking-off is the 2026 model bar.
+        - DeepSeek and thinking-on cells stay out of gap_stack.

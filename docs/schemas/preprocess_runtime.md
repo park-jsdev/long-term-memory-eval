@@ -9,7 +9,7 @@
 
 Schema id: **`preprocess_io.v1`**
 
-HLD: raw LoCoMo conversation → DataIngestor → PreprocessingPipeline (session segmentation, turn ids/metadata, speaker and time normalization) → Teacher Orchestrator.
+HLD: raw LoCoMo conversation → DataIngestor → PreprocessingPipeline (session segmentation, turn ids/metadata, speaker and time normalization) → Writer Orchestrator.
 
 ---
 
@@ -29,7 +29,7 @@ Gold answers stay on `Conversation.questions` / `Prediction.reference_answer`. T
 
 ### `SessionBlock`
 
-One LoCoMo `session_N` after preprocess. This is the unit `TeacherOrchestrator` iterates.
+One LoCoMo `session_N` after preprocess. This is the unit `ModelOrchestrator` iterates.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -104,6 +104,6 @@ Complete sample (required before a later retrieve/format load): both `sessions.j
 
 ---
 
-## 5. Teacher orchestrator (HLD ii, thin seam)
+## 5. Writer orchestrator (HLD ii, thin seam)
 
-`src/locomo_eval/teacher_orchestrator.py` iterates **one `SessionBlock` at a time** and returns a passthrough record (`status="passthrough"`). No LLM, no fusion. Promote to a `write/` package only when teachers actually generate memory.
+`src/locomo_eval/model_orchestrator.py` iterates **one `SessionBlock` at a time**. With no writer it returns a passthrough record (`status="passthrough"`). A writer set on `session_summaries` or `graph` generates memory for that block.

@@ -11,22 +11,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.experiments.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
-from src.locomo_eval.experiments.audit_loader import load_sandwich_audit
-from src.locomo_eval.experiments.audit_writer import (
+from src.locomo_eval.experiment_pack.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
+from src.locomo_eval.experiment_pack.audit_loader import load_sandwich_audit
+from src.locomo_eval.experiment_pack.audit_writer import (
     write_claim_audit,
     write_frozen_config,
     write_graph_ingest,
-    write_teacher_module,
+    write_writer_module,
 )
-from src.locomo_eval.experiments.claim_audit import (
+from src.locomo_eval.experiment_pack.claim_audit import (
     attribution_call_rows,
     cost_rollup,
     graph_edge_provenance,
     infer_llm_role,
     lineage_rows,
     ranked_candidates,
-    teacher_quality_stats,
+    writer_quality_stats,
 )
 from src.locomo_eval.mem0.embeddings import MockEmbedder
 from src.locomo_eval.mem0.graph_memory import Mem0GraphMemory
@@ -113,9 +113,29 @@ class TestGraphIngestAfterFusion(unittest.TestCase):
 
 
 class TestLineageJoinsQuestionToTeacher(unittest.TestCase):
-    def test_graph_lineage_uses_ingest_edge_id_and_fusion_proposed_by(self):
+    def test_full_context_lineage_uses_one_payload_row_per_question(self):
         memory = Memory(
-            memory_type="fused_teacher_graph",
+            memory_type="full_context",
+            text="long conversation",
+            source_ids=["d1", "d2", "d3"],
+        )
+
+        rows = lineage_rows(
+            prediction_rows=[
+                {"question_id": "q0", "sample_id": "s1"},
+                {"question_id": "q1", "sample_id": "s1"},
+            ],
+            memories_by_sample={"s1": memory},
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["item_kind"], "full_context_payload")
+        self.assertEqual(rows[0]["item_id"], "full_context:s1")
+        self.assertEqual(rows[0]["source_id_count"], 3)
+
+    def test_graph_lineage_uses_ingest_edge_id_and_the_writer_call(self):
+        memory = Memory(
+            memory_type="graph",
             text="alice -- started -- painting",
             source_ids=["e0000"],
         )
@@ -139,35 +159,21 @@ class TestLineageJoinsQuestionToTeacher(unittest.TestCase):
                     ],
                 }
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai", "anthropic"],
-                            "votes": 2,
-                            "kept": True,
-                        }
-                    ],
-                }
-            ],
+            writer_calls=[{"sample_id": "s1", "session_id": 1, "writer_id": "openai"}],
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["question_id"], "q0")
         self.assertEqual(rows[0]["item_id"], "e0000")
-        self.assertEqual(rows[0]["proposed_by"], ["openai", "anthropic"])
+        self.assertEqual(rows[0]["proposed_by"], ["openai"])
+        self.assertTrue(rows[0]["kept"])
 
 
 class TestTeacherQualityAndCost(unittest.TestCase):
     def test_quality_counts_parse_ok_and_keep_rate(self):
-        stats = teacher_quality_stats(
+        stats = writer_quality_stats(
             calls=[
                 {
-                    "teacher_id": "openai",
+                    "writer_id": "openai",
                     "model": "gpt-4o-mini",
                     "parse": "ok",
                     "n_entities": 2,
@@ -176,21 +182,11 @@ class TestTeacherQualityAndCost(unittest.TestCase):
                     "latency_s": 0.2,
                 }
             ],
-            fusion_rows=[
-                {
-                    "teacher_ids": ["openai"],
-                    "relations": [
-                        {"proposed_by": ["openai"], "kept": True},
-                        {"proposed_by": ["openai"], "kept": False},
-                    ],
-                }
-            ],
         )
-        rec = stats["by_teacher"]["openai"]
+        rec = stats["by_writer"]["openai"]
         self.assertEqual(rec["n_parse_ok"], 1)
-        self.assertEqual(rec["n_proposed_kept"], 1)
-        self.assertEqual(stats["fusion"]["n_triples_kept"], 1)
-        self.assertEqual(stats["fusion"]["n_triples_discarded"], 1)
+        self.assertEqual(rec["n_relations"], 2)
+        self.assertNotIn("fusion", stats)
 
     def test_cost_rollup_prices_known_openai_model(self):
         cost = cost_rollup(
@@ -200,7 +196,7 @@ class TestTeacherQualityAndCost(unittest.TestCase):
                     "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0, "total_tokens": 1_000_000},
                 }
             ],
-            teacher_calls=[],
+            writer_calls=[],
         )
         self.assertEqual(cost["reader"]["usd"], 0.15)
         self.assertEqual(cost["total"]["usd"], 0.15)
@@ -218,7 +214,7 @@ class TestTeacherQualityAndCost(unittest.TestCase):
                     },
                 }
             ],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "model": "gpt-5",
                     "reasoning_tokens": 40,
@@ -231,7 +227,7 @@ class TestTeacherQualityAndCost(unittest.TestCase):
             ],
         )
         self.assertEqual(cost["reader"]["reasoning_tokens"], 8)
-        self.assertEqual(cost["teacher"]["reasoning_tokens"], 40)
+        self.assertEqual(cost["writer"]["reasoning_tokens"], 40)
         self.assertEqual(cost["total"]["reasoning_tokens"], 48)
 
     def test_ranked_candidates_sets_rank_and_selected(self):
@@ -245,7 +241,7 @@ class TestTeacherQualityAndCost(unittest.TestCase):
 
 
 class TestAttributionLinksCallRoleAndClaims(unittest.TestCase):
-    def test_teacher_graph_call_lists_kept_triple_and_injected_question(self):
+    def test_graph_call_lists_kept_triple_and_injected_question(self):
         calls = attribution_call_rows(
             reader_traces=[
                 {
@@ -256,32 +252,16 @@ class TestAttributionLinksCallRoleAndClaims(unittest.TestCase):
                     "predicted_answer": "painting",
                 }
             ],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
+                    "writer_id": "openai",
                     "provider": "openai",
                     "model": "gpt-4o-mini",
-                    "role": "teacher_graph",
+                    "role": "graph",
                     "relations": [
                         {"source": "alice", "relationship": "started", "target": "painting"}
-                    ],
-                }
-            ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "votes": 1,
-                            "kept": True,
-                        }
                     ],
                 }
             ],
@@ -300,12 +280,12 @@ class TestAttributionLinksCallRoleAndClaims(unittest.TestCase):
                 }
             ],
         )
-        teachers = [c for c in calls if c["role"] == "teacher_graph"]
+        writers = [c for c in calls if c["role"] == "graph"]
         readers = [c for c in calls if c["role"] == "reader"]
-        self.assertEqual(len(teachers), 1)
-        self.assertEqual(teachers[0]["layer"], "write")
-        self.assertEqual(len(teachers[0]["claims"]), 1)
-        claim = teachers[0]["claims"][0]
+        self.assertEqual(len(writers), 1)
+        self.assertEqual(writers[0]["layer"], "write")
+        self.assertEqual(len(writers[0]["claims"]), 1)
+        claim = writers[0]["claims"][0]
         self.assertEqual(claim["claim_kind"], "graph_triple")
         self.assertTrue(claim["kept"])
         self.assertEqual(claim["injected_question_ids"], ["q0"])
@@ -318,13 +298,13 @@ class TestAttributionLinksCallRoleAndClaims(unittest.TestCase):
     def test_session_summary_call_lists_summary_text_as_claim(self):
         calls = attribution_call_rows(
             reader_traces=[],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 2,
-                    "teacher_id": "openai",
+                    "writer_id": "openai",
                     "model": "gpt-4o-mini",
-                    "role": "teacher",
+                    "role": "writer",
                     "output_text": "Alice started painting.",
                 }
             ],
@@ -332,14 +312,14 @@ class TestAttributionLinksCallRoleAndClaims(unittest.TestCase):
                 {
                     "question_id": "q1",
                     "sample_id": "s1",
-                    "item_id": "session_2_teacher",
-                    "item_kind": "teacher_summary",
+                    "item_id": "session_2_summary",
+                    "item_kind": "session_summary",
                     "session_id": 2,
                     "proposed_by": ["openai"],
                 }
             ],
         )
-        self.assertEqual(calls[0]["role"], "teacher")
+        self.assertEqual(calls[0]["role"], "writer")
         self.assertEqual(calls[0]["claims"][0]["claim_kind"], "session_summary")
         self.assertIn("painting", calls[0]["claims"][0]["text_preview"])
         self.assertEqual(calls[0]["claims"][0]["injected_question_ids"], ["q1"])
@@ -352,38 +332,21 @@ class TestClaimAuditDump(unittest.TestCase):
             run.mkdir()
             write_frozen_config(
                 run,
-                cfg={"pipeline": {"memory": "teacher_graph"}},
+                cfg={"pipeline": {"memory": "graph"}},
                 overrides=type("NS", (), {"config": None, "reader": "mock", "max_questions": 1})(),
             )
-            write_teacher_module(
+            write_writer_module(
                 run,
                 calls=[
                     {
                         "sample_id": "s1",
                         "session_id": 1,
-                        "teacher_id": "openai",
+                        "writer_id": "openai",
                         "model": "gpt-4o-mini",
                         "parse": "ok",
                         "n_entities": 1,
                         "n_relations": 1,
                         "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
-                    }
-                ],
-                fusion_rows=[
-                    {
-                        "sample_id": "s1",
-                        "session_id": 1,
-                        "teacher_ids": ["openai"],
-                        "relations": [
-                            {
-                                "source": "alice",
-                                "relationship": "started",
-                                "target": "painting",
-                                "proposed_by": ["openai"],
-                                "votes": 1,
-                                "kept": True,
-                            }
-                        ],
                     }
                 ],
                 session_texts=[
@@ -414,7 +377,7 @@ class TestClaimAuditDump(unittest.TestCase):
                 ],
             )
             memory = Memory(
-                memory_type="teacher_graph",
+                memory_type="graph",
                 text="alice -- started -- painting",
                 source_ids=["e0000"],
             )
@@ -437,14 +400,14 @@ class TestClaimAuditDump(unittest.TestCase):
                         "usage": {},
                     }
                 ],
-                teacher_calls=[
+                writer_calls=[
                     {
                         "sample_id": "s1",
                         "session_id": 1,
-                        "teacher_id": "openai",
+                        "writer_id": "openai",
                         "provider": "openai",
                         "model": "gpt-4o-mini",
-                        "role": "teacher_graph",
+                        "role": "graph",
                         "parse": "ok",
                         "n_entities": 1,
                         "n_relations": 1,
@@ -456,22 +419,6 @@ class TestClaimAuditDump(unittest.TestCase):
                             }
                         ],
                         "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
-                    }
-                ],
-                fusion_rows=[
-                    {
-                        "sample_id": "s1",
-                        "session_id": 1,
-                        "relations": [
-                            {
-                                "source": "alice",
-                                "relationship": "started",
-                                "target": "painting",
-                                "proposed_by": ["openai"],
-                                "votes": 1,
-                                "kept": True,
-                            }
-                        ],
                     }
                 ],
                 ingest_rows=[
@@ -491,28 +438,28 @@ class TestClaimAuditDump(unittest.TestCase):
                 ],
                 memories_by_sample={"s1": memory},
                 metrics={"metrics": {"locomo_f1": 0.5, "token_f1": 0.4, "exact_match": 0.0}},
-                meta={"run_id": "r1", "memory_type": "teacher_graph", "reader_model": "mock"},
+                meta={"run_id": "r1", "memory_type": "graph", "reader_model": "mock"},
             )
             paths = AuditPaths.from_run_dir(run)
-            self.assertEqual(AUDIT_LAYOUT_VERSION, "audit_pack.v2")
+            self.assertEqual(AUDIT_LAYOUT_VERSION, "audit_pack.v3")
             self.assertTrue(paths.summary.is_file())
             self.assertTrue(paths.cost.is_file())
             self.assertTrue(paths.lineage.is_file())
             self.assertTrue(paths.attribution.is_file())
             self.assertTrue(paths.attribution_md.is_file())
             self.assertTrue(paths.config_resolved.is_file())
-            self.assertTrue(paths.teacher_sessions_index.is_file())
-            session_txt = paths.teacher_session_text_path("s1", 1)
+            self.assertTrue(paths.writer_sessions_index.is_file())
+            session_txt = paths.writer_session_text_path("s1", 1)
             self.assertTrue(session_txt.is_file())
             self.assertIn("painting", session_txt.read_text(encoding="utf-8"))
             pack = load_sandwich_audit(run)
             lineage = pack.lineage_for(question_id="q0")
             self.assertEqual(len(lineage), 1)
             self.assertEqual(lineage[0]["proposed_by"], ["openai"])
-            teacher_attr = pack.attribution_for(role="teacher_graph")
-            self.assertEqual(len(teacher_attr), 1)
-            self.assertEqual(teacher_attr[0]["claims"][0]["claim_kind"], "graph_triple")
-            self.assertTrue(teacher_attr[0]["claims"][0]["kept"])
+            graph_attr = pack.attribution_for(role="graph")
+            self.assertEqual(len(graph_attr), 1)
+            self.assertEqual(graph_attr[0]["claims"][0]["claim_kind"], "graph_triple")
+            self.assertTrue(graph_attr[0]["claims"][0]["kept"])
             reader_attr = pack.attribution_for(role="reader", question_id="q0")
             self.assertEqual(len(reader_attr), 1)
             self.assertEqual(reader_attr[0]["used_memory_items"][0]["proposed_by"], ["openai"])
@@ -520,7 +467,7 @@ class TestClaimAuditDump(unittest.TestCase):
             self.assertIn("audit of claims", summary)
             self.assertIn("LLM roles", summary)
             attr_md = paths.attribution_md.read_text(encoding="utf-8")
-            self.assertIn("teacher_graph", attr_md)
+            self.assertIn("graph", attr_md)
             self.assertIn("predicted:", attr_md)
             cost = json.loads(paths.cost.read_text(encoding="utf-8"))
             self.assertIn("total", cost)
@@ -558,35 +505,9 @@ class TestGraphProvenanceDoesNotLeakAcrossSamples(unittest.TestCase):
                     ],
                 },
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "votes": 1,
-                            "kept": True,
-                        }
-                    ],
-                },
-                {
-                    "sample_id": "s2",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "bob",
-                            "relationship": "likes",
-                            "target": "pizza",
-                            "proposed_by": ["anthropic"],
-                            "votes": 1,
-                            "kept": True,
-                        }
-                    ],
-                },
+            writer_calls=[
+                {"sample_id": "s1", "session_id": 1, "writer_id": "openai"},
+                {"sample_id": "s2", "session_id": 1, "writer_id": "anthropic"},
             ],
         )
         self.assertNotIn("e0000", prov)
@@ -602,8 +523,8 @@ class TestGraphProvenanceDoesNotLeakAcrossSamples(unittest.TestCase):
                 {"question_id": "q1", "sample_id": "s2"},
             ],
             memories_by_sample={
-                "s1": Memory(memory_type="fused_teacher_graph", text="p", source_ids=["e0000"]),
-                "s2": Memory(memory_type="fused_teacher_graph", text="z", source_ids=["e0000"]),
+                "s1": Memory(memory_type="graph", text="p", source_ids=["e0000"]),
+                "s2": Memory(memory_type="graph", text="z", source_ids=["e0000"]),
             },
             ingest_rows=[
                 {
@@ -633,33 +554,9 @@ class TestGraphProvenanceDoesNotLeakAcrossSamples(unittest.TestCase):
                     ],
                 },
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "kept": True,
-                        }
-                    ],
-                },
-                {
-                    "sample_id": "s2",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "bob",
-                            "relationship": "likes",
-                            "target": "pizza",
-                            "proposed_by": ["anthropic"],
-                            "kept": True,
-                        }
-                    ],
-                },
+            writer_calls=[
+                {"sample_id": "s1", "session_id": 1, "writer_id": "openai"},
+                {"sample_id": "s2", "session_id": 1, "writer_id": "anthropic"},
             ],
         )
         by_q = {row["question_id"]: row for row in rows}
@@ -668,11 +565,11 @@ class TestGraphProvenanceDoesNotLeakAcrossSamples(unittest.TestCase):
         self.assertEqual(by_q["q0"]["sample_id"], "s1")
         self.assertEqual(by_q["q1"]["sample_id"], "s2")
 
-    def test_lineage_rows_joins_fusion_when_session_id_is_int_on_ingest_and_str_on_fusion(self):
+    def test_lineage_rows_joins_writer_when_session_id_is_int_on_ingest_and_str_on_the_call(self):
         rows = lineage_rows(
             prediction_rows=[{"question_id": "q0", "sample_id": "s1"}],
             memories_by_sample={
-                "s1": Memory(memory_type="teacher_graph", text="p", source_ids=["e0000"]),
+                "s1": Memory(memory_type="graph", text="p", source_ids=["e0000"]),
             },
             ingest_rows=[
                 {
@@ -689,22 +586,7 @@ class TestGraphProvenanceDoesNotLeakAcrossSamples(unittest.TestCase):
                     ],
                 }
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": "1",
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "votes": 1,
-                            "kept": True,
-                        }
-                    ],
-                }
-            ],
+            writer_calls=[{"sample_id": "s1", "session_id": "1", "writer_id": "openai"}],
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["proposed_by"], ["openai"])
@@ -788,15 +670,15 @@ class TestRetrieveLineageExcludesLosersAndSiblingQuestions(unittest.TestCase):
 
 
 class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
-    def test_teacher_graph_call_does_not_attach_another_teachers_triple(self):
+    def test_graph_call_does_not_attach_another_writers_triple(self):
         calls = attribution_call_rows(
             reader_traces=[],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher_graph",
+                    "writer_id": "openai",
+                    "role": "graph",
                     "relations": [
                         {"source": "alice", "relationship": "started", "target": "painting"}
                     ],
@@ -804,34 +686,12 @@ class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "anthropic",
-                    "role": "teacher_graph",
+                    "writer_id": "anthropic",
+                    "role": "graph",
                     "relations": [
                         {"source": "bob", "relationship": "likes", "target": "pizza"}
                     ],
                 },
-            ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "kept": True,
-                        },
-                        {
-                            "source": "bob",
-                            "relationship": "likes",
-                            "target": "pizza",
-                            "proposed_by": ["anthropic"],
-                            "kept": True,
-                        },
-                    ],
-                }
             ],
             lineage=[
                 {
@@ -854,97 +714,51 @@ class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
                 },
             ],
         )
-        openai = next(c for c in calls if c["teacher_id"] == "openai")
-        anthropic = next(c for c in calls if c["teacher_id"] == "anthropic")
+        openai = next(c for c in calls if c["writer_id"] == "openai")
+        anthropic = next(c for c in calls if c["writer_id"] == "anthropic")
         self.assertEqual([c["target"] for c in openai["claims"]], ["painting"])
         self.assertEqual([c["target"] for c in anthropic["claims"]], ["pizza"])
         self.assertEqual(openai["claims"][0]["injected_question_ids"], ["q0"])
         self.assertEqual(anthropic["claims"][0]["injected_question_ids"], ["q1"])
         self.assertNotIn("q1", openai["claims"][0]["injected_question_ids"])
 
-    def test_teacher_graph_call_does_not_attach_the_same_triple_from_another_session(self):
+    def test_graph_call_does_not_attach_the_same_triple_from_another_session(self):
         calls = attribution_call_rows(
             reader_traces=[],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher_graph",
+                    "writer_id": "openai",
+                    "role": "graph",
                     "relations": [
                         {"source": "alice", "relationship": "started", "target": "painting"}
                     ],
                 }
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "kept": True,
-                            "votes": 1,
-                        }
-                    ],
-                },
-                {
-                    "sample_id": "s1",
-                    "session_id": 2,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "kept": False,
-                            "votes": 0,
-                        }
-                    ],
-                },
-            ],
         )
         claim = calls[0]["claims"][0]
         self.assertTrue(claim["kept"])
-        self.assertEqual(claim["votes"], 1)
+        self.assertIsNone(claim["votes"])
 
-    def test_canonical_fusion_lookup_joins_despite_casing_and_does_not_use_a_raw_mismatch(self):
+    def test_graph_claim_canonicalizes_relation_text_from_the_writer_call(self):
         calls = attribution_call_rows(
             reader_traces=[],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher_graph",
+                    "writer_id": "openai",
+                    "role": "graph",
                     "relations": [
                         {"source": "Alice", "relationship": "Started", "target": "Painting"}
                     ],
                 }
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                            "kept": True,
-                            "votes": 2,
-                        }
-                    ],
-                }
-            ],
         )
         claim = calls[0]["claims"][0]
         self.assertTrue(claim["kept"])
-        self.assertEqual(claim["votes"], 2)
+        self.assertIsNone(claim["votes"])
         self.assertEqual(claim["source"], "alice")
 
     def test_reader_used_memory_items_do_not_include_another_questions_lineage(self):
@@ -957,7 +771,7 @@ class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
                     "predicted_answer": "painting",
                 }
             ],
-            teacher_calls=[],
+            writer_calls=[],
             lineage=[
                 {
                     "question_id": "q0",
@@ -987,7 +801,7 @@ class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
                     "predicted_answer": "painting",
                 }
             ],
-            teacher_calls=[],
+            writer_calls=[],
             lineage=[
                 {
                     "question_id": "q0",
@@ -1011,12 +825,12 @@ class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
             reader_traces=[
                 {"sample_id": "s1", "question_id": "q0", "role": "reader", "predicted_answer": "a"}
             ],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher_graph",
+                    "writer_id": "openai",
+                    "role": "graph",
                     "relations": [
                         {"source": "alice", "relationship": "started", "target": "painting"}
                     ],
@@ -1026,12 +840,12 @@ class TestAttributionDoesNotLeakTeachersSessionsOrQuestions(unittest.TestCase):
         first = attribution_call_rows(**kwargs)
         second = attribution_call_rows(**kwargs)
         self.assertEqual(first, second)
-        self.assertEqual(first[0]["call_id"], "teacher_graph:openai:s1:1:0")
+        self.assertEqual(first[0]["call_id"], "graph:openai:s1:1:0")
         self.assertEqual(first[1]["call_id"], "reader:q0:0")
 
 
 class TestCostAndQualityBucketsDoNotMixRoles(unittest.TestCase):
-    def test_cost_rollup_does_not_add_teacher_tokens_to_the_reader_bucket(self):
+    def test_cost_rollup_does_not_add_writer_tokens_to_the_reader_bucket(self):
         cost = cost_rollup(
             reader_traces=[
                 {
@@ -1039,7 +853,7 @@ class TestCostAndQualityBucketsDoNotMixRoles(unittest.TestCase):
                     "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110},
                 }
             ],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "model": "gpt-4o-mini",
                     "usage": {"prompt_tokens": 1000, "completion_tokens": 50, "total_tokens": 1050},
@@ -1047,30 +861,20 @@ class TestCostAndQualityBucketsDoNotMixRoles(unittest.TestCase):
             ],
         )
         self.assertEqual(cost["reader"]["total_tokens"], 110)
-        self.assertEqual(cost["teacher"]["total_tokens"], 1050)
+        self.assertEqual(cost["writer"]["total_tokens"], 1050)
         self.assertEqual(cost["total"]["total_tokens"], 1160)
-        self.assertNotEqual(cost["reader"]["usd"], cost["teacher"]["usd"])
+        self.assertNotEqual(cost["reader"]["usd"], cost["writer"]["usd"])
 
-    def test_quality_keep_counts_do_not_credit_a_teacher_who_did_not_propose_the_triple(self):
-        stats = teacher_quality_stats(
+    def test_quality_counts_each_writer_separately(self):
+        stats = writer_quality_stats(
             calls=[
-                {"teacher_id": "openai", "parse": "ok", "n_relations": 1},
-                {"teacher_id": "anthropic", "parse": "ok", "n_relations": 1},
-            ],
-            fusion_rows=[
-                {
-                    "teacher_ids": ["openai", "anthropic"],
-                    "relations": [
-                        {"proposed_by": ["openai"], "kept": True},
-                        {"proposed_by": ["anthropic"], "kept": False},
-                    ],
-                }
+                {"writer_id": "openai", "parse": "ok", "n_relations": 1},
+                {"writer_id": "anthropic", "parse": "ok", "n_relations": 1},
             ],
         )
-        self.assertEqual(stats["by_teacher"]["openai"]["n_proposed_kept"], 1)
-        self.assertEqual(stats["by_teacher"]["anthropic"]["n_proposed_kept"], 0)
-        self.assertEqual(stats["fusion"]["n_triples_kept"], 1)
-        self.assertEqual(stats["fusion"]["n_triples_discarded"], 1)
+        self.assertEqual(stats["by_writer"]["openai"]["n_relations"], 1)
+        self.assertEqual(stats["by_writer"]["anthropic"]["n_relations"], 1)
+        self.assertNotIn("fusion", stats)
 
 
 class TestOptionalLineageInputsDoNotInventOrLeak(unittest.TestCase):
@@ -1127,11 +931,11 @@ class TestOptionalLineageInputsDoNotInventOrLeak(unittest.TestCase):
         self.assertEqual(by_sample["s1"], "s1-win")
         self.assertEqual(by_sample["s2"], "unlabeled")
 
-    def test_lineage_rows_leaves_proposed_by_empty_when_optional_fusion_rows_are_omitted(self):
+    def test_lineage_rows_leaves_proposed_by_empty_when_writer_calls_are_omitted(self):
         rows = lineage_rows(
             prediction_rows=[{"question_id": "q0", "sample_id": "s1"}],
             memories_by_sample={
-                "s1": Memory(memory_type="teacher_graph", text="p", source_ids=["e0000"]),
+                "s1": Memory(memory_type="graph", text="p", source_ids=["e0000"]),
             },
             ingest_rows=[
                 {
@@ -1172,11 +976,10 @@ class TestOptionalLineageInputsDoNotInventOrLeak(unittest.TestCase):
                     ],
                 }
             ],
-            fusion_rows=[],
         )
         self.assertEqual(set(prov), {("s1", "e0001")})
 
-    def test_graph_edge_provenance_does_not_treat_omitted_kept_on_a_fusion_row_as_true(self):
+    def test_ingested_edge_is_kept_and_names_the_writer_call(self):
         prov = graph_edge_provenance(
             ingest_rows=[
                 {
@@ -1193,35 +996,22 @@ class TestOptionalLineageInputsDoNotInventOrLeak(unittest.TestCase):
                     ],
                 }
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai"],
-                        }
-                    ],
-                }
-            ],
+            writer_calls=[{"sample_id": "s1", "session_id": 1, "writer_id": "openai"}],
         )
-        self.assertIsNone(prov[("s1", "e0000")]["kept"])
+        self.assertTrue(prov[("s1", "e0000")]["kept"])
         self.assertEqual(prov[("s1", "e0000")]["proposed_by"], ["openai"])
 
 
 class TestOptionalAttributionFieldsDoNotCrashOrLeak(unittest.TestCase):
-    def test_attribution_call_rows_accepts_omitted_fusion_and_lineage(self):
+    def test_attribution_call_rows_accepts_omitted_lineage(self):
         calls = attribution_call_rows(
             reader_traces=[{"question_id": "q0", "predicted_answer": "a", "sample_id": "s1"}],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher_graph",
+                    "writer_id": "openai",
+                    "role": "graph",
                     "relations": [
                         {"source": "alice", "relationship": "started", "target": "painting"}
                     ],
@@ -1229,58 +1019,34 @@ class TestOptionalAttributionFieldsDoNotCrashOrLeak(unittest.TestCase):
             ],
         )
         self.assertEqual(len(calls), 2)
-        self.assertIsNone(calls[0]["claims"][0]["kept"])
+        self.assertTrue(calls[0]["claims"][0]["kept"])
         self.assertEqual(calls[0]["claims"][0]["injected_question_ids"], [])
         self.assertEqual(calls[1]["used_memory_items"], [])
 
-    def test_teacher_graph_call_falls_back_to_fusion_when_relations_list_is_omitted(self):
+    def test_graph_call_with_no_relations_makes_no_claims(self):
         calls = attribution_call_rows(
             reader_traces=[],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher_graph",
+                    "writer_id": "openai",
+                    "role": "graph",
                     "n_relations": 1,
                 }
             ],
-            fusion_rows=[
-                {
-                    "sample_id": "s1",
-                    "session_id": 1,
-                    "relations": [
-                        {
-                            "source": "alice",
-                            "relationship": "started",
-                            "target": "painting",
-                            "proposed_by": ["openai", "anthropic"],
-                            "kept": True,
-                        },
-                        {
-                            "source": "bob",
-                            "relationship": "likes",
-                            "target": "pizza",
-                            "proposed_by": ["anthropic"],
-                            "kept": True,
-                        },
-                    ],
-                }
-            ],
         )
-        self.assertEqual(len(calls[0]["claims"]), 1)
-        self.assertEqual(calls[0]["claims"][0]["target"], "painting")
-        self.assertNotIn("pizza", [c["target"] for c in calls[0]["claims"]])
+        self.assertEqual(calls[0]["claims"], [])
 
     def test_session_summary_call_omits_claim_when_output_text_is_empty(self):
         calls = attribution_call_rows(
             reader_traces=[],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "sample_id": "s1",
                     "session_id": 1,
-                    "teacher_id": "openai",
-                    "role": "teacher",
+                    "writer_id": "openai",
+                    "role": "writer",
                     "output_text": "  ",
                 }
             ],
@@ -1293,7 +1059,7 @@ class TestOptionalAttributionFieldsDoNotCrashOrLeak(unittest.TestCase):
             reader_traces=[
                 {"sample_id": "s1", "question_id": "q0", "role": "reader", "predicted_answer": "a"}
             ],
-            teacher_calls=[],
+            writer_calls=[],
             lineage=[
                 {"question_id": "q0", "item_id": "legacy", "proposed_by": ["openai"]},
             ],
@@ -1303,22 +1069,22 @@ class TestOptionalAttributionFieldsDoNotCrashOrLeak(unittest.TestCase):
     def test_infer_llm_role_prefers_logged_role_when_present(self):
         self.assertEqual(infer_llm_role({"role": "reader", "relations": [{}]}), "reader")
 
-    def test_infer_llm_role_treats_relations_as_teacher_graph_when_role_is_omitted(self):
+    def test_infer_llm_role_treats_relations_as_graph_when_role_is_omitted(self):
         self.assertEqual(
             infer_llm_role({"relations": [{"source": "a", "relationship": "r", "target": "b"}]}),
-            "teacher_graph",
+            "graph",
         )
 
     def test_infer_llm_role_treats_question_id_as_reader_when_role_is_omitted(self):
         self.assertEqual(infer_llm_role({"question_id": "q0"}), "reader")
 
-    def test_infer_llm_role_defaults_to_teacher_when_no_role_fields_are_present(self):
-        self.assertEqual(infer_llm_role({}), "teacher")
+    def test_infer_llm_role_defaults_to_writer_when_no_role_fields_are_present(self):
+        self.assertEqual(infer_llm_role({}), "writer")
 
     def test_cost_rollup_treats_omitted_usage_as_zero_and_unknown_model_tokens_as_unpriced(self):
         cost = cost_rollup(
             reader_traces=[{"model": "mock"}],
-            teacher_calls=[
+            writer_calls=[
                 {
                     "model": "claude-haiku-4-5",
                     "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11},
@@ -1327,8 +1093,8 @@ class TestOptionalAttributionFieldsDoNotCrashOrLeak(unittest.TestCase):
         )
         self.assertEqual(cost["reader"]["total_tokens"], 0)
         self.assertEqual(cost["reader"]["usd"], 0.0)
-        self.assertEqual(cost["teacher"]["total_tokens"], 11)
-        self.assertIsNone(cost["teacher"]["usd"])
+        self.assertEqual(cost["writer"]["total_tokens"], 11)
+        self.assertIsNone(cost["writer"]["usd"])
 
     def test_cost_rollup_reads_anthropic_token_keys_when_openai_keys_are_omitted(self):
         cost = cost_rollup(
@@ -1338,7 +1104,7 @@ class TestOptionalAttributionFieldsDoNotCrashOrLeak(unittest.TestCase):
                     "usage": {"input_tokens": 1_000_000, "output_tokens": 0},
                 }
             ],
-            teacher_calls=[],
+            writer_calls=[],
         )
         self.assertEqual(cost["reader"]["prompt_tokens"], 1_000_000)
         self.assertEqual(cost["reader"]["usd"], 0.15)

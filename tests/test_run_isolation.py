@@ -23,7 +23,7 @@ from src.locomo_eval.mem0.update import get_memory_updater
 from src.locomo_eval.readers import OpenAIChatCaller, get_reader
 from src.locomo_eval.report import write_predictions_csv
 from src.locomo_eval.schemas import Prediction
-from src.locomo_eval.teachers import get_teacher
+from src.locomo_eval.writer_model import get_writer
 from tests.test_regressions import _load_json, _load_jsonl, _run_one
 
 FORBIDDEN_CONFIG_TOKENS = (
@@ -35,7 +35,7 @@ FORBIDDEN_CONFIG_TOKENS = (
 FORBIDDEN_PARAM = "llm_response_hash"
 FACTORIES = (
     get_reader,
-    get_teacher,
+    get_writer,
     get_autorater,
     get_embedder,
     get_fact_extractor,
@@ -82,7 +82,7 @@ class TestCallSitesHaveNoCacheHooks(unittest.TestCase):
         self.assertNotIn(FORBIDDEN_PARAM, params)
         self.assertIn("create_extra", params)
 
-    def test_reader_teacher_autorater_and_mem0_factories_have_no_response_hash_parameter(self):
+    def test_reader_writer_autorater_and_mem0_factories_have_no_response_hash_parameter(self):
         for factory in FACTORIES:
             params = inspect.signature(factory).parameters
             self.assertNotIn(
@@ -116,7 +116,7 @@ class TestPredictionSchemaHasNoCacheFields(unittest.TestCase):
                         "locomo_f1": 1.0,
                         "memory_type": "session_summaries",
                         "reader_model": "mock",
-                        "teacher_model": None,
+                        "writer_model": None,
                         "prompt_version": "qa_v1",
                         "memory_text": "memory",
                     }

@@ -217,7 +217,7 @@ class CodexAgentRunner(AgentRunner):
             for event in events
             if event.kind == EVENT_RETRIEVE and bool((event.retrieved_text or "").strip())
         ]
-        if not successful_reads:
+        if request.require_workspace_read and not successful_reads:
             trajectory.harness_failed = True
             trajectory.harness_failure_reason = (
                 "no_successful_workspace_read_or_search_event"
