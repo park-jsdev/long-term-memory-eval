@@ -113,6 +113,26 @@ class TestGraphIngestAfterFusion(unittest.TestCase):
 
 
 class TestLineageJoinsQuestionToTeacher(unittest.TestCase):
+    def test_full_context_lineage_uses_one_payload_row_per_question(self):
+        memory = Memory(
+            memory_type="full_context",
+            text="long conversation",
+            source_ids=["d1", "d2", "d3"],
+        )
+
+        rows = lineage_rows(
+            prediction_rows=[
+                {"question_id": "q0", "sample_id": "s1"},
+                {"question_id": "q1", "sample_id": "s1"},
+            ],
+            memories_by_sample={"s1": memory},
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["item_kind"], "full_context_payload")
+        self.assertEqual(rows[0]["item_id"], "full_context:s1")
+        self.assertEqual(rows[0]["source_id_count"], 3)
+
     def test_graph_lineage_uses_ingest_edge_id_and_the_writer_call(self):
         memory = Memory(
             memory_type="graph",

@@ -578,6 +578,7 @@ FAILURE_MODE_LABELS = {
     "reasoning_failure": "wrong after retrieve",
     "retrieval_failure": "gold ids not retrieved",
     "harness_execution_failure": "no workspace read",
+    "prompt_injected": "evidence delivered in prompt",
     "unjudged": "unjudged (no J)",
 }
 FAILURE_MODE_ORDER = (
@@ -586,6 +587,7 @@ FAILURE_MODE_ORDER = (
     "reasoning_failure",
     "retrieval_failure",
     "harness_execution_failure",
+    "prompt_injected",
     "unjudged",
 )
 RECALL_BIN_LABELS = {

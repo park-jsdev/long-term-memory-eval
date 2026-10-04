@@ -17,6 +17,11 @@ $SA = if ($env:SA) { $env:SA } else { "memorybench-runner" }
 $BUCKET = if ($env:BUCKET) { $env:BUCKET } else { "$($env:PROJECT_ID)-memorybench" }
 $TAG = if ($env:TAG) { $env:TAG } else { (git rev-parse --short HEAD).Trim() }
 $JOB_MEMORY = if ($env:JOB_MEMORY) { $env:JOB_MEMORY } else { "4Gi" }
+$JOB_CPU = if ($env:JOB_CPU) { $env:JOB_CPU } else { "1" }
+# Aggregate does not need the QA worker's high-memory allocation. Keep its
+# default valid for 1 vCPU; allow an explicit paired override when necessary.
+$AGGREGATE_MEMORY = if ($env:AGGREGATE_MEMORY) { $env:AGGREGATE_MEMORY } else { "4Gi" }
+$AGGREGATE_CPU = if ($env:AGGREGATE_CPU) { $env:AGGREGATE_CPU } else { "1" }
 # collect-full is 1 task. Do not multiply this RAM/CPU by QA parallelism —
 # us-central1 default quota is 20 vCPU / 40Gi, and 8×32Gi is 256Gi.
 # 32Gi requires 8 vCPU. Override with $env:COLLECT_FULL_MEMORY / CPU.
@@ -60,7 +65,7 @@ function Set-MemorybenchJob {
         [string]$Name,
         [string]$ArgsCsv,
         [string]$Memory = $JOB_MEMORY,
-        [string]$Cpu = "1",
+        [string]$Cpu = $JOB_CPU,
         [string]$Parallelism = $JOB_PARALLELISM
     )
     # First deploy: job does not exist. gcloud writes ERROR to stderr; PowerShell
@@ -86,7 +91,7 @@ function Set-MemorybenchJob {
 
 Set-MemorybenchJob -Name "memorybench-qa" -ArgsCsv "execute-qa,$EXP_YAML"
 Set-MemorybenchJob -Name "memorybench-autorater" -ArgsCsv "execute-autorater,$EXP_YAML"
-Set-MemorybenchJob -Name "memorybench-aggregate" -ArgsCsv "aggregate,$EXP_YAML" -Parallelism "1"
+Set-MemorybenchJob -Name "memorybench-aggregate" -ArgsCsv "aggregate,$EXP_YAML" -Memory $AGGREGATE_MEMORY -Cpu $AGGREGATE_CPU -Parallelism "1"
 Set-MemorybenchJob -Name "memorybench-collect-full" -ArgsCsv "collect-full,$EXP_YAML" -Memory $COLLECT_FULL_MEMORY -Cpu $COLLECT_FULL_CPU -Parallelism "1"
 
 Write-Host "Image $IMAGE"

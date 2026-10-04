@@ -1,5 +1,5 @@
 includes:
-  - configs/experiments/openai_mini_codex_prompt_parity.yaml
+  - configs/experiments/openai_mini_codex_readers_analysis.yaml
 
 storage:
   backend: gcs

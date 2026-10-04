@@ -57,6 +57,22 @@ def render_qa_prompt(template: str, memory: str, question: str) -> str:
     return template.format(memory=memory, question=question)
 
 
+def render_persisted_agent_prompt(reader_payload: str) -> str:
+    """Add harness-only note controls after the frozen reader payload.
+
+    The payload remains separately hashed so analysis can distinguish shared
+    LoCoMo evidence from Codex-only persistent execution state.
+    """
+    return (
+        f"{reader_payload}\n\n"
+        "# HARNESS PERSISTENCE\n"
+        "Before answering, read `memory/notes.md` if it exists. Use it only "
+        "as a working index; the Memories above remain the source of truth. "
+        "After answering, append concise, evidence-grounded facts to "
+        "`memory/notes.md` without overwriting existing lines."
+    )
+
+
 def render_autorater_prompt(
     template: str,
     *,

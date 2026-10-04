@@ -154,6 +154,33 @@ $env:EXPERIMENT_YAML = "configs/experiments/your_matrix_gcs.yaml"
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
 ```
 
+Resource defaults are deployment-time environment overrides, not flags for
+`gcloud run jobs execute`:
+
+| Variable | Default | Applies to |
+|---|---:|---|
+| `JOB_MEMORY` | `4Gi` | QA and autorater |
+| `JOB_CPU` | `1` | QA and autorater |
+| `JOB_PARALLELISM` | `8` | QA and autorater |
+| `AGGREGATE_MEMORY` / `AGGREGATE_CPU` | `4Gi` / `1` | aggregate |
+| `COLLECT_FULL_MEMORY` / `COLLECT_FULL_CPU` | `32Gi` / `8` | collect-full |
+
+For a memory-heavy matrix, reduce concurrency when increasing task memory so
+the product stays within the regional allocation quota. For example, this
+deploys QA and autorater tasks with 8 GiB, 2 vCPU, and at most three concurrent
+tasks:
+
+```powershell
+$env:JOB_MEMORY = "8Gi"
+$env:JOB_CPU = "2"
+$env:JOB_PARALLELISM = "3"
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
+```
+
+Run `gcloud.cmd run jobs describe memorybench-qa --region=$env:REGION` after
+deployment to verify the effective resources. `--tasks=N` on execution selects
+cell indices `0` through `N - 1`; it does not set parallelism.
+
 ## 6. Check the console
 
 In project `$env:PROJECT_ID`, region `us-central1`:

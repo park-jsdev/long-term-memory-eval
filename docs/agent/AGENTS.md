@@ -40,7 +40,7 @@ visible; `openai_codex_persist_memory.yaml` is the 3-cell memory-method test
 writer twin of PoC Codex summaries/graph. Operator instructions:
 `docs/agent/RUNBOOK_OPENAI_AGENTS.md`, `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md`,
 and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`. The focused reader
-comparison uses `openai_mini_codex_prompt_parity.yaml`: six cells with the
+comparison uses `openai_mini_codex_readers_analysis.yaml`: six cells with the
 same rendered reader payload across model-only, Codex persist-off, and Codex
 persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 
@@ -104,7 +104,7 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `docs/agent/RUNBOOK_OPENAI_AGENTS.md` | OpenAI Chat Completions vs Codex campaign operator steps |
 | `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md` | 3-cell persist-as-memory GCS copy-paste |
 | `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md` | 2-cell mini Chat Completions vs Codex summary/graph writers |
-| `docs/runbook_mini_vs_codex_readers.md` | Six-cell prompt parity: model, Codex persist-off, and Codex persist-on for full context and dataset summaries |
+| `docs/runbook_mini_vs_codex_readers.md` | Six-cell GPT-4o-mini/Codex reader analysis: model, persist-off, and persist-on for full context and dataset summaries |
 | `configs/analysis/campaign_2025_live.yaml` | Three-family analysis plane (tables/plots, no LLM) |
 | `configs/analysis/campaign_2025_openai_deepseek.yaml` | OpenAI vs DeepSeek packs + thinking on/off recipes |
 | `configs/analysis/openai_deepseek_thinking_axis.yaml` | Within-family thinking on/off; separate token / generate / search / total plots |
@@ -113,9 +113,9 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `configs/analysis/campaign_openai_agents.yaml` | Chat Completions 2024–2026 vs Codex 2026 harness (notebook 17) |
 | `configs/analysis/campaign_openai_codex_persist_memory.yaml` | Persist-off / persist-on / notes_only vs summaries (notebook 17) |
 | `configs/analysis/campaign_openai_mini_vs_codex_writers.yaml` | Mini Chat Completions vs Codex summaries/graph writers plus full_context ceiling overlay (notebook 17) |
-| `configs/analysis/campaign_openai_mini_codex_prompt_parity.yaml` | Matched rendered reader payloads through GPT-4o-mini and Codex, with persist-off/on as separate conditions |
+| `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | GPT-4o-mini/Codex reader analysis with persist-off/on as separate conditions |
 | `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same recipes, 2026 Terra vs V4 packs |
-| `notebooks/` | Local notebooks — **gitignored**, except `17_openai_mini_codex_prompt_parity_analysis.ipynb` |
+| `notebooks/` | Local notebooks — **gitignored**, except `17_openai_mini_codex_readers_analysis.ipynb` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
 | `README.md` | Landing page: harness diagram, local quickstart, license, citation |
 | `docs/loop.md` | Teaching note: one question from config to notebook |
@@ -196,7 +196,7 @@ python -m src.experiment_runner report configs/analysis/campaign_openai_codex_po
 python -m src.experiment_runner report configs/analysis/campaign_openai_agents.yaml
 python -m src.experiment_runner report configs/analysis/campaign_openai_codex_persist_memory.yaml
 python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
-python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
 
 # Cloud Run PoC (GCS). Operator steps: docs/gcp.md
 # Live 2025 campaign, OpenAI vs DeepSeek (budget): docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md
@@ -356,7 +356,7 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B. Components live under `configs/{writers,readers,layouts,autoraters,teachers}/` and compose with `includes:` (later keys win). `pipeline.memory` is still a builder id, not a path to another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files. Traces stay local (gitignored); keep writing them anyway.
 8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiment_pack.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiment_pack.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
-9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them. The published notebook is `notebooks/17_openai_mini_codex_prompt_parity_analysis.ipynb`. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
+9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them. The published notebook is `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
 
 ---
 

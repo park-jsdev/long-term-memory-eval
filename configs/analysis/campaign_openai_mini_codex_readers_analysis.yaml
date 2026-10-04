@@ -1,0 +1,101 @@
+# Six-cell GPT-4o-mini/Codex reader analysis. All cells share the rendered
+# qa_mem0_v1 payload; Codex persist-on adds an audited harness note footer.
+campaign:
+  id: openai_mini_codex_readers_analysis
+  title: GPT-4o-mini and Codex reader analysis
+  notebook: notebooks/17_openai_mini_codex_readers_analysis.ipynb
+  freeze_note: >
+    All six cells render qa_mem0_v1 with the same memory text and question.
+    Model-only and Codex persist-off share that payload exactly. Codex
+    persist-on appends a harness-only note instruction and may reuse
+    evidence-grounded notes; payload and final-task hashes stay separate.
+    Prompt-delivered evidence is not workspace retrieval. Web search and user
+    MCP are disabled or ignored and must remain zero in audit metrics.
+
+defaults:
+  source: examples
+  metrics: [locomo_f1, judge_score]
+  output_subdir: analysis
+
+campaign_analyses:
+  - id: reader_conditions
+    title: Matched reader payload conditions
+    experiments: [readers]
+    group_by: [memory_method, prompt_parity_condition]
+    metrics: [judge_score, locomo_f1, token_f1, exact_match, answer_n_words]
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: judge_score}
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: locomo_f1}
+  - id: reader_by_category
+    title: Matched payload by LoCoMo category
+    experiments: [readers]
+    group_by: [question_category, memory_method, prompt_parity_condition]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: prompt_parity_condition, y: judge_score}
+      - {kind: grouped_bar, x: question_category, hue: prompt_parity_condition, y: locomo_f1}
+  - id: codex_audit
+    title: Codex tool and persistence audit
+    source: runs
+    experiments: [readers]
+    where:
+      agent: [codex]
+    group_by: [memory_method, agent_persist, agent_prompt_mode]
+    metrics:
+      - n_web_search
+      - n_mcp
+      - used_non_workspace_tools
+      - n_write_events
+      - notes_retrieved
+      - notes_bytes
+      - harness_failed_rate
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_web_search}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_mcp}
+      - {kind: grouped_bar, x: memory_method, hue: agent_persist, y: n_write_events}
+
+takeaways:
+  - id: full_context_model_vs_codex
+    title: Full context — model vs Codex
+    claim: full_context_harness_delta
+    from: reader_conditions
+    left: {memory_method: full_context, prompt_parity_condition: 4o-mini}
+    right: {memory_method: full_context, prompt_parity_condition: 4o-mini + Codex (persist off)}
+    left_label: model_full_context
+    right_label: codex_full_context_persist_off
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      The model and persist-off Codex receive the same rendered reader payload.
+      The remaining difference is Chat Completions versus Codex orchestration.
+  - id: summaries_model_vs_codex
+    title: Session summaries — model vs Codex
+    claim: summaries_harness_delta
+    from: reader_conditions
+    left: {memory_method: session_summaries, prompt_parity_condition: 4o-mini}
+    right: {memory_method: session_summaries, prompt_parity_condition: 4o-mini + Codex (persist off)}
+    left_label: model_session_summaries
+    right_label: codex_session_summaries_persist_off
+    metrics: [judge_score, locomo_f1]
+    finding: >
+      The LoCoMo summaries and question are identical reader payloads before
+      either system answers.
+  - id: persisted_codex_is_stateful
+    title: Persisted Codex is a stateful reader condition
+    claim: persisted_agent_state
+    finding: >
+      Persist-on adds an explicitly logged Codex note instruction after the
+      shared reader payload. It is an auditable stateful-agent condition, not
+      exact end-to-end request parity.
+
+experiments:
+  readers:
+    name: locomo-openai-mini-codex-readers-analysis-v2
+    pack: experiments/locomo-openai-mini-codex-readers-analysis-v2
+    role: model_and_agent_reader
+    family_from: reader
+    pretest:
+      n_cells: 6
+      scientific_claim: false
+      hypotheses:
+        - Two GPT-4o-mini one-shot reader cells use full context or dataset summaries.
+        - Persist-off Codex receives the matching rendered reader payload.
+        - Persist-on Codex uses the same payload plus an audited notes instruction.

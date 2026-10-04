@@ -144,10 +144,10 @@ class TestWriterMatricesStayOneModel(unittest.TestCase):
         self.assertTrue(all(spec.writer is not None for spec in specs))
         self.assertEqual({spec.writer.api_model_id for spec in specs}, {"gpt-4o-mini"})
 
-    def test_openai_mini_codex_prompt_parity_has_two_models_and_four_agents(self):
+    def test_openai_mini_codex_readers_analysis_has_two_models_and_four_agents(self):
         specs = expand_run_matrix(
             load_experiment_yaml(
-                ROOT / "configs" / "experiments" / "openai_mini_codex_prompt_parity.yaml"
+                ROOT / "configs" / "experiments" / "openai_mini_codex_readers_analysis.yaml"
             )
         )
 

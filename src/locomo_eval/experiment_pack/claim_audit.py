@@ -423,6 +423,25 @@ def lineage_rows(
             memories_by_sample=memories_by_sample,
         )
         source_ids = list(getattr(memory, "source_ids", None) or [])
+        if getattr(memory, "memory_type", None) == "full_context":
+            # The complete conversation is one injected payload. Expanding every
+            # turn for every question creates millions of duplicate audit rows.
+            rows.append(
+                {
+                    "question_id": qid,
+                    "sample_id": sample_id,
+                    "item_id": f"full_context:{sample_id}",
+                    "item_kind": "full_context_payload",
+                    "rank": 1,
+                    "score": None,
+                    "session_id": None,
+                    "text_preview": preview(str(getattr(memory, "text", "") or "")),
+                    "proposed_by": [],
+                    "votes": None,
+                    "source_id_count": len(source_ids),
+                }
+            )
+            continue
         rank_row = _rank_row_for(ranks_by, sample_id=sample_id, question_id=qid)
         if rank_row:
             for cand in rank_row.get("candidates") or []:

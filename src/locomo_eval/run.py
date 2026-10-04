@@ -60,7 +60,10 @@ from src.locomo_eval.agents.comparison import (
     validate_strict_contract,
     workspace_manifest_sha256,
 )
-from src.locomo_eval.agents.dump import write_agent_module
+from src.locomo_eval.agents.dump import (
+    append_agent_artifacts,
+    finalize_agent_module,
+)
 from src.locomo_eval.agents.metrics import score_agent_row, summarize_agent_rows
 from src.locomo_eval.agents.protocol import AgentRequest
 from src.locomo_eval.metrics import score_row, summarize_predictions
@@ -88,10 +91,11 @@ from src.locomo_eval.prompts import (
     QA_WORKSPACE_V1,
     load_prompt_template,
     locate_prompt_file,
+    render_persisted_agent_prompt,
     render_qa_prompt,
 )
 from src.locomo_eval.readers import get_reader
-from src.locomo_eval.report import write_jsonl, write_run_report
+from src.locomo_eval.report import append_jsonl, write_jsonl, write_run_report
 from src.locomo_eval.schemas import Memory, Prediction
 from src.locomo_eval.writer_callers import DEFAULT_WRITER_THINKING
 from src.locomo_eval.model_orchestrator import ModelOrchestrator
@@ -745,6 +749,19 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
             prompt_path=prompt_path,
             memory_type=memory_name,
         )
+        comparison_contract["context"]["evidence_delivery"] = (
+            "prompt_injected"
+            if agent_run.get("prompt_mode") == "reader_prompt"
+            else "workspace_retrieval"
+        )
+        comparison_contract["memory_write"] = {
+            "persist_notes": bool(agent_run.get("persist_memory")),
+            "reader_payload_shared": agent_run.get("prompt_mode") == "reader_prompt",
+            "harness_persistence_footer": bool(
+                agent_run.get("prompt_mode") == "reader_prompt"
+                and agent_run.get("persist_memory")
+            ),
+        }
     else:
         reader = get_reader(
             reader_name,
@@ -810,11 +827,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
 
     prediction_rows: list[dict] = []
     reader_traces: list[dict] = []
-    agent_traces: list[dict] = []
-    agent_trajectories: list[dict] = []
-    agent_events: list[dict] = []
     trajectories_by_qid: dict[str, Any] = {}
-    notes_ledger: list[dict[str, Any]] = []
+    evidence_delivery_by_qid: dict[str, str] = {}
     ingested_samples: set[str] = set()
     notes_sha_by_sample: dict[str, str] = {}
     n_api = 0
@@ -839,6 +853,7 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 example_question = q.question
 
             reader_payload_sha256 = None
+            agent_task_sha256 = None
             if agent_runner is not None:
                 prompt_parity = agent_run.get("prompt_mode") == "reader_prompt"
                 if prompt_parity:
@@ -877,13 +892,21 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         workspace_dir, snap_dir, question_id="_ingest"
                     )
                     rec["sample_id"] = conv.sample_id
-                    notes_ledger.append(rec)
+                    append_jsonl(
+                        run_dir / "agent" / "notes_ledger.jsonl",
+                        [rec],
+                    )
                     notes_sha_by_sample[conv.sample_id] = str(rec.get("notes_sha256") or "")
                     hide_session_files(workspace_dir)
                     ingested_samples.add(conv.sample_id)
                 if prompt_parity:
                     filled = render_qa_prompt(prompt_template, memory.text, q.question)
                     reader_payload_sha256 = hashlib.sha256(
+                        filled.encode("utf-8")
+                    ).hexdigest()
+                    if agent_run.get("persist_memory"):
+                        filled = render_persisted_agent_prompt(filled)
+                    agent_task_sha256 = hashlib.sha256(
                         filled.encode("utf-8")
                     ).hexdigest()
                 else:
@@ -911,31 +934,34 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                     "usage": result.usage,
                     "reasoning": (result.call_meta or {}).get("reasoning") or "",
                     "reader_payload_sha256": reader_payload_sha256,
+                    "agent_task_sha256": agent_task_sha256,
                 }
                 trajectories_by_qid[q.question_id] = result.trajectory
-                agent_trajectories.append(
-                    {
-                        "sample_id": conv.sample_id,
-                        "question_id": q.question_id,
-                        **result.trajectory.to_dict(),
-                    }
+                evidence_delivery_by_qid[q.question_id] = (
+                    "prompt_injected" if prompt_parity else "workspace_retrieval"
                 )
-                for raw in result.events_raw:
-                    agent_events.append(
-                        {
-                            "sample_id": conv.sample_id,
-                            "question_id": q.question_id,
-                            "event": raw,
-                        }
-                    )
-                agent_traces.append(
-                    result.to_trace_row(
+                append_agent_artifacts(
+                    run_dir,
+                    trace=result.to_trace_row(
                         sample_id=conv.sample_id,
                         question_id=q.question_id,
                         adapter=answer_provider,
                         model=answer_model_name,
                         prompt_version=prompt_version,
-                    )
+                    ),
+                    trajectory={
+                        "sample_id": conv.sample_id,
+                        "question_id": q.question_id,
+                        **result.trajectory.to_dict(),
+                    },
+                    events=[
+                        {
+                            "sample_id": conv.sample_id,
+                            "question_id": q.question_id,
+                            "event": raw,
+                        }
+                        for raw in result.events_raw
+                    ],
                 )
                 if agent_run.get("persist_memory"):
                     snap_dir = run_dir / "agent" / "notes_snapshots" / conv.sample_id
@@ -946,7 +972,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                         previous_sha256=notes_sha_by_sample.get(conv.sample_id),
                     )
                     rec["sample_id"] = conv.sample_id
-                    notes_ledger.append(rec)
+                    append_jsonl(
+                        run_dir / "agent" / "notes_ledger.jsonl",
+                        [rec],
+                    )
                     notes_sha_by_sample[conv.sample_id] = str(
                         rec.get("notes_sha256") or ""
                     )
@@ -989,11 +1018,14 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 row["agent_tools"] = agent_run.get("tools")
                 row["agent_sessions"] = agent_run.get("sessions")
                 row["agent_prompt_mode"] = agent_run.get("prompt_mode")
+                row["agent_task_sha256"] = meta.get("agent_task_sha256")
                 if last_notes_rec is not None:
                     row["notes_bytes"] = last_notes_rec.get("notes_bytes")
                     row["notes_words"] = last_notes_rec.get("notes_words")
                     row["notes_grew"] = last_notes_rec.get("notes_grew")
             prediction_rows.append(row)
+            # Keep a crash-auditable journal without rewriting every prior row.
+            append_jsonl(pred_path, [row])
             reader_traces.append(
                 {
                     "sample_id": q.sample_id,
@@ -1012,10 +1044,6 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                     "prompt_version": prompt_version,
                 }
             )
-
-            # Flush for audit after a crash. The next invocation clears this
-            # partial file and regenerates.
-            write_jsonl(pred_path, prediction_rows)
 
             if i % 10 == 0 or i == len(pairs):
                 print(
@@ -1042,12 +1070,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 traces=reader_traces,
             )
             if agent_runner is not None:
-                write_agent_module(
+                finalize_agent_module(
                     run_dir,
-                    traces=agent_traces,
-                    trajectories=agent_trajectories,
-                    events=agent_events,
                     metrics={},
+                    summary_rows=[],
                     comparison_contract=comparison_contract,
                 )
         print(
@@ -1116,6 +1142,10 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
                 locomo_f1=float(scores["locomo_f1"]),
                 exact_match=float(scores["exact_match"]),
                 trajectory=traj,
+                evidence_delivery=evidence_delivery_by_qid.get(
+                    str(row.get("question_id") or ""),
+                    "workspace_retrieval",
+                ),
             )
             row.update(extra)
             agent_metric_rows.append(extra)
@@ -1180,6 +1210,11 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         "agent_persist": agent_run.get("persist_memory") if agent_runner is not None else None,
         "agent_tools": agent_run.get("tools") if agent_runner is not None else None,
         "agent_prompt_mode": agent_run.get("prompt_mode") if agent_runner is not None else None,
+        "agent_persistence_footer": bool(
+            agent_runner is not None
+            and agent_run.get("prompt_mode") == "reader_prompt"
+            and agent_run.get("persist_memory")
+        ),
         "agent_sessions": agent_run.get("sessions") if agent_runner is not None else None,
         "agent_model": answer_model_name if agent_runner is not None else None,
         "agent_adapter": answer_provider if agent_runner is not None else None,
@@ -1197,11 +1232,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         summary=summary,
     )
     if agent_runner is not None:
-        agent_paths = write_agent_module(
+        agent_paths = finalize_agent_module(
             run_dir,
-            traces=agent_traces,
-            trajectories=agent_trajectories,
-            events=agent_events,
             metrics=summary.get("agent") or {},
             summary_rows=agent_metric_rows,
             comparison_contract=comparison_contract,
@@ -1209,9 +1241,8 @@ def run_locomo_pipeline_with_memory_config(cfg: dict, overrides: argparse.Namesp
         print("Agent audit:")
         for k, v in agent_paths.items():
             print(f"  {k}: {v}")
-        if notes_ledger:
-            ledger_path = run_dir / "agent" / "notes_ledger.jsonl"
-            write_jsonl(ledger_path, notes_ledger)
+        ledger_path = run_dir / "agent" / "notes_ledger.jsonl"
+        if ledger_path.is_file():
             print(f"  notes_ledger: {ledger_path}")
     claim_paths = write_claim_audit(
         run_dir,

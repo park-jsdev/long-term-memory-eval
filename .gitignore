@@ -61,11 +61,11 @@ docs/reports/
 
 # --- Notebooks ---
 # Executed notebooks carry local paths, cloud ids, and outputs.
-# The prompt-parity wrapper is the published analysis notebook.
+# The reader-analysis wrapper is the published analysis notebook.
 notebooks/*
 *.ipynb
 .ipynb_checkpoints/
-!notebooks/17_openai_mini_codex_prompt_parity_analysis.ipynb
+!notebooks/17_openai_mini_codex_readers_analysis.ipynb
 
 # Matrix YAML notes. The expander in src/experiment_runner is the contract.
 docs/schemas/experiment_matrix.md

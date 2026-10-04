@@ -1137,8 +1137,8 @@ class TestAnalysisNotebookContract(unittest.TestCase):
                 "17_openai_model_harness_gaps_analysis.ipynb",
             ),
             (
-                "campaign_openai_mini_codex_prompt_parity.yaml",
-                "17_openai_mini_codex_prompt_parity_analysis.ipynb",
+                "campaign_openai_mini_codex_readers_analysis.yaml",
+                "17_openai_mini_codex_readers_analysis.ipynb",
             ),
         )
         for yaml_name, notebook_name in pairs:
@@ -2214,26 +2214,26 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         )
         self.assertIn("methods_vs_full_context_ceiling", takeaway_ids)
 
-    def test_mini_codex_prompt_parity_campaign_has_six_cell_contract(self):
+    def test_mini_codex_readers_analysis_campaign_has_six_cell_contract(self):
         cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_prompt_parity.yaml"
+            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_readers_analysis.yaml"
         )
 
-        self.assertEqual(cfg.id, "openai_mini_codex_prompt_parity")
-        self.assertEqual(set(cfg.experiments), {"parity"})
+        self.assertEqual(cfg.id, "openai_mini_codex_readers_analysis")
+        self.assertEqual(set(cfg.experiments), {"readers"})
         conditions = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "prompt_parity_conditions"
+            spec for spec in cfg.campaign_analyses if spec.id == "reader_conditions"
         )
         self.assertEqual(conditions.group_by[0], "memory_method")
         self.assertIn("prompt_parity_condition", conditions.group_by)
         audit = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "codex_prompt_parity_audit"
+            spec for spec in cfg.campaign_analyses if spec.id == "codex_audit"
         )
         self.assertEqual(audit.source, "runs")
         self.assertIn("n_web_search", audit.metrics)
         self.assertIn("n_mcp", audit.metrics)
         self.assertIn(
-            "full_context_model_vs_codex_without_persistence",
+            "full_context_model_vs_codex",
             [item.id for item in cfg.takeaways],
         )
 

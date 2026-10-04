@@ -1,7 +1,7 @@
-# Six-cell prompt-parity plane: two one-shot GPT-4o-mini readers and the
-# identical rendered reader payload passed through Codex with persist off/on.
+# GPT-4o-mini and Codex reader analysis: two model cells plus matched-payload
+# Codex cells with persistence off/on.
 experiment:
-  name: locomo-openai-mini-codex-prompt-parity
+  name: locomo-openai-mini-codex-readers-analysis-v2
   type: agent
   freeze:
     prompt_path: prompts/readers/qa_mem0_v1.txt
@@ -19,7 +19,6 @@ matrix:
   agent_persist: [off, on]
   agent_sessions: [full]
   agent_tools: [native]
-  # Codex receives the same rendered qa_mem0_v1 payload, not workspace files.
   agent_prompt_mode: [reader_prompt]
   memory_method: [full_context, session_summaries]
   seed: [1]

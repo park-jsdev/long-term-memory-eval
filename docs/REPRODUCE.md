@@ -174,7 +174,7 @@ so that pair is a trajectory condition, not a byte-identical request.
 | `full_context` | 1 | 1 | 1 |
 | `session_summaries` | 1 | 1 | 1 |
 
-YAML: `configs/experiments/openai_mini_codex_prompt_parity.yaml`. Operator steps:
+YAML: `configs/experiments/openai_mini_codex_readers_analysis.yaml`. Operator steps:
 [`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md).
 
 A separate sandwich freezes the GPT-4o-mini reader and compares a GPT-4o-mini writer with a
@@ -189,10 +189,10 @@ Codex writer on `session_summaries` and `graph` (2 cells). Those prompts are
 stops if a cell has no QA `_SUCCESS`.
 
 ```bash
-python -m src.experiment_runner write-manifest configs/experiments/openai_mini_codex_prompt_parity.yaml
-python -m src.experiment_runner execute-qa        configs/experiments/openai_mini_codex_prompt_parity.yaml --run-index 0
-python -m src.experiment_runner execute-autorater configs/experiments/openai_mini_codex_prompt_parity.yaml --run-index 0
-python -m src.experiment_runner aggregate         configs/experiments/openai_mini_codex_prompt_parity.yaml
+python -m src.experiment_runner write-manifest configs/experiments/openai_mini_codex_readers_analysis.yaml
+python -m src.experiment_runner execute-qa        configs/experiments/openai_mini_codex_readers_analysis.yaml --run-index 0
+python -m src.experiment_runner execute-autorater configs/experiments/openai_mini_codex_readers_analysis.yaml --run-index 0
+python -m src.experiment_runner aggregate         configs/experiments/openai_mini_codex_readers_analysis.yaml
 ```
 
 Repeat `--run-index` for `1` through `5` on both QA and the autorater.
@@ -204,11 +204,11 @@ file. One-time bootstrap is in [`docs/gcp.md`](gcp.md). The `_gcs.yaml` overlay 
 storage. Line-by-line steps are in the reader runbook.
 
 ```powershell
-$env:EXPERIMENT_YAML = "configs/experiments/openai_mini_codex_prompt_parity_gcs.yaml"
+$env:EXPERIMENT_YAML = "configs/experiments/openai_mini_codex_readers_analysis_gcs.yaml"
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
 
 gcloud.cmd run jobs execute memorybench-qa         --region=$env:REGION --tasks=6 --async
-# wait for 6 _SUCCESS under experiments/locomo-openai-mini-codex-prompt-parity/runs/**/_SUCCESS
+# wait for 6 _SUCCESS under experiments/locomo-openai-mini-codex-readers-analysis-v2/runs/**/_SUCCESS
 gcloud.cmd run jobs execute memorybench-autorater  --region=$env:REGION --tasks=6 --async
 # wait for 6 autorater/_SUCCESS
 gcloud.cmd run jobs execute memorybench-aggregate  --region=$env:REGION --tasks=1 --async
@@ -227,8 +227,8 @@ Three rules that cause most operator errors:
 Pull the aggregate when the collector finishes:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path experiments\locomo-openai-mini-codex-prompt-parity | Out-Null
-gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-openai-mini-codex-prompt-parity/aggregate" experiments/locomo-openai-mini-codex-prompt-parity/
+New-Item -ItemType Directory -Force -Path experiments\locomo-openai-mini-codex-readers-analysis-v2 | Out-Null
+gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/locomo-openai-mini-codex-readers-analysis-v2/aggregate" experiments/locomo-openai-mini-codex-readers-analysis-v2/
 ```
 
 For the full `memory/`, `reader/`, and `agent/` dumps, copy the `collected/` prefix as well.
@@ -241,15 +241,15 @@ One command regenerates every table and figure from the analysis recipe. It read
 and never calls an API.
 
 ```bash
-python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_prompt_parity.yaml
+python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
 ```
 
 Outputs:
 
 ```text
-experiments/_campaign/openai_mini_codex_prompt_parity/analysis/tables/*.csv
-experiments/_campaign/openai_mini_codex_prompt_parity/analysis/plots/*.png
-experiments/_campaign/openai_mini_codex_prompt_parity/analysis/SUMMARY.md
+experiments/_campaign/openai_mini_codex_readers_analysis/analysis/tables/*.csv
+experiments/_campaign/openai_mini_codex_readers_analysis/analysis/plots/*.png
+experiments/_campaign/openai_mini_codex_readers_analysis/analysis/SUMMARY.md
 ```
 
 Missing packs are listed and skipped, so this works before every experiment has landed.
@@ -260,7 +260,7 @@ so you never need a notebook to reproduce a published number.
 Notebooks are an optional local review layer. They are gitignored. `report` is the
 reproduction step.
 
-To add a comparison, edit `configs/analysis/campaign_openai_mini_codex_prompt_parity.yaml` and re-run `report`. Do not fork
+To add a comparison, edit `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` and re-run `report`. Do not fork
 the plotting code; the engine is shared on purpose, which is why category axes read
 `1 multi-hop` / `2 temporal` / `3 open-domain` and legends sit outside the bars everywhere without
 per-campaign styling.
