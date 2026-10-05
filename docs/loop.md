@@ -707,7 +707,7 @@ contract is "What each stage receives" above.
 
 1. `configs/experiments/openai_mini_codex_readers_analysis.yaml` expands to six run specs.
 2. `experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the collected pack, including `collected/examples.parquet` and each run's predictions, autorater, and agent traces.
-3. `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` names the tables and figures.
+3. `configs/analysis/design_openai_mini_codex_readers_analysis.yaml` names the tables and figures.
 4. `notebooks/17_openai_mini_codex_readers_analysis.ipynb` loads that YAML, runs `report`, and reads the result.
 
 On the three full-context cells, repeated memory text and the shared Codex task-prompt prefix are stored once. `REFERENCE_PIN.json` in the pack says how to put those strings back. The session-summary cells are stored in full.

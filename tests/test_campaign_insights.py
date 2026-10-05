@@ -29,8 +29,8 @@ from scripts.analysis.campaign_insights import (
     thinking_deltas,
     year_deltas,
 )
-from src.experiment_runner.analysis.load_campaign import load_campaign_yaml
-from src.experiment_runner.analysis.report import render_campaign
+from src.experiment_runner.analysis.load_design import load_design_yaml
+from src.experiment_runner.analysis.report import render_design
 
 
 class TestClassifyDelta(unittest.TestCase):

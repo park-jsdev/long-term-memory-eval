@@ -34,7 +34,7 @@ from src.locomo_eval.experiment_pack.verify_pack import (
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Verify sandwich run packs from on-disk audit logs (no API)."
+        description="Verify experiment packs from on-disk audit logs (no API)."
     )
     p.add_argument(
         "paths",

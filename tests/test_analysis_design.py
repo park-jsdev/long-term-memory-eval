@@ -15,11 +15,11 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.experiment_runner.analysis.load_campaign import (
+from src.experiment_runner.analysis.load_design import (
     AnalysisSpec,
     ExperimentAnalysisRef,
     PlotSpec,
-    load_campaign_yaml,
+    load_design_yaml,
 )
 from src.experiment_runner.analysis.plots import _place_legend_outside
 from src.experiment_runner.analysis.notebook_protocol import (
@@ -41,7 +41,7 @@ from src.experiment_runner.analysis.report import (
     mean_table,
     notebook_show,
     render_analysis,
-    render_campaign,
+    render_design,
     render_experiment,
     run_report,
 )
@@ -95,14 +95,14 @@ def _write_synthetic_campaign(root: Path) -> Path:
     path = config_dir / "synthetic.yaml"
     path.write_text(
         """
-campaign:
+design:
   id: synthetic
-  title: Synthetic campaign
+  title: Synthetic design
 defaults:
   source: examples
   metrics: [locomo_f1]
   output_subdir: analysis
-campaign_analyses:
+design_analyses:
   - id: family_by_category
     experiments: [alpha]
     group_by: [model_family, question_category]
@@ -372,7 +372,7 @@ class TestJudgeScorePlotDoesNotReuseLocomoF1(unittest.TestCase):
                 name="pack",
                 pack=Path("experiments/pack"),
                 notebook=None,
-                role="sandwich",
+                role="frozen_reader",
                 family_from="writer",
                 subset=None,
                 analyses=(),
@@ -999,16 +999,16 @@ class TestAnalysisYamlContract(unittest.TestCase):
     def test_every_campaign_analysis_references_configured_experiments(self):
         for path in sorted((ROOT / "configs" / "analysis").glob("*.yaml")):
             with self.subTest(path=path.name):
-                cfg = load_campaign_yaml(path)
+                cfg = load_design_yaml(path)
                 configured = set(cfg.experiments)
-                for spec in cfg.campaign_analyses:
+                for spec in cfg.design_analyses:
                     self.assertTrue(spec.experiments)
                     self.assertLessEqual(set(spec.experiments), configured)
 
     def test_every_analysis_uses_valid_sources_and_plot_columns(self):
         for path in sorted((ROOT / "configs" / "analysis").glob("*.yaml")):
-            cfg = load_campaign_yaml(path)
-            specs = list(cfg.campaign_analyses)
+            cfg = load_design_yaml(path)
+            specs = list(cfg.design_analyses)
             for ref in cfg.experiments.values():
                 specs.extend(ref.analyses)
             for spec in specs:
@@ -1028,14 +1028,14 @@ class TestAnalysisYamlContract(unittest.TestCase):
 
     def test_analysis_ids_are_unique_within_each_output_scope(self):
         for path in sorted((ROOT / "configs" / "analysis").glob("*.yaml")):
-            cfg = load_campaign_yaml(path)
-            campaign_ids = [spec.id for spec in cfg.campaign_analyses]
+            cfg = load_design_yaml(path)
+            campaign_ids = [spec.id for spec in cfg.design_analyses]
             self.assertEqual(len(campaign_ids), len(set(campaign_ids)), path.name)
             for ref in cfg.experiments.values():
                 ids = [spec.id for spec in ref.analyses]
                 ids.extend(
                     spec.id
-                    for spec in cfg.campaign_analyses
+                    for spec in cfg.design_analyses
                     if ref.id in spec.experiments
                 )
                 with self.subTest(path=path.name, experiment=ref.id):
@@ -1125,27 +1125,27 @@ class TestAnalysisNotebookContract(unittest.TestCase):
     def test_openai_agent_notebooks_are_thin_yaml_wrappers(self):
         pairs = (
             (
-                "campaign_openai_codex_poc.yaml",
+                "design_openai_codex_poc.yaml",
                 "17_openai_codex_poc_analysis.ipynb",
             ),
             (
-                "campaign_openai_agents.yaml",
+                "design_openai_agents.yaml",
                 "17_openai_agent_reader_writer_analysis.ipynb",
             ),
             (
-                "campaign_openai_codex_persist_memory.yaml",
+                "design_openai_codex_persist_memory.yaml",
                 "17_openai_codex_persist_memory_analysis.ipynb",
             ),
             (
-                "campaign_openai_mini_vs_codex_writers.yaml",
+                "design_openai_mini_vs_codex_writers.yaml",
                 "17_openai_mini_vs_codex_writers_analysis.ipynb",
             ),
             (
-                "campaign_openai_model_harness_gaps.yaml",
+                "design_openai_model_harness_gaps.yaml",
                 "17_openai_model_harness_gaps_analysis.ipynb",
             ),
             (
-                "campaign_openai_mini_codex_readers_analysis.yaml",
+                "design_openai_mini_codex_readers_analysis.yaml",
                 "17_openai_mini_codex_readers_analysis.ipynb",
             ),
         )
@@ -1153,8 +1153,8 @@ class TestAnalysisNotebookContract(unittest.TestCase):
             with self.subTest(notebook=notebook_name):
                 code = _notebook_code(ROOT / "notebooks" / notebook_name)
                 self.assertIn(yaml_name, code)
-                self.assertIn("notebook_pretest(camp, root=ROOT)", code)
-                self.assertIn("notebook_posttest(camp,", code)
+                self.assertIn("notebook_pretest(design, root=ROOT)", code)
+                self.assertIn("notebook_posttest(design,", code)
                 self.assertIn("report=", code)
                 self.assertIn("run_report(YAML, root=ROOT)", code)
                 self.assertNotIn("matplotlib", code)
@@ -1595,7 +1595,7 @@ class TestDeterministicAnalysisReports(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_experiment_report_is_identical_after_input_row_reordering(self):
-        cfg = load_campaign_yaml(self.yaml_path)
+        cfg = load_design_yaml(self.yaml_path)
         first = render_experiment(cfg, "alpha", root=self.root)
         first_result = first.results[0]
         self.assertIsNone(first_result.skipped)
@@ -1623,8 +1623,8 @@ class TestDeterministicAnalysisReports(unittest.TestCase):
         pd.testing.assert_frame_equal(first_result.table, second_result.table)
 
     def test_campaign_report_uses_only_recipe_selected_experiments(self):
-        cfg = load_campaign_yaml(self.yaml_path)
-        report = render_campaign(cfg, root=self.root)
+        cfg = load_design_yaml(self.yaml_path)
+        report = render_design(cfg, root=self.root)
         result = report.results[0]
 
         self.assertEqual(result.spec.id, "family_by_category")
@@ -2234,7 +2234,7 @@ class TestYearFamilyCampaign(unittest.TestCase):
 
 class TestOpenAIAgentCampaigns(unittest.TestCase):
     def test_poc_campaign_has_audit_metrics_and_paper_pins(self):
-        cfg = load_campaign_yaml(ROOT / "configs" / "analysis" / "campaign_openai_codex_poc.yaml")
+        cfg = load_design_yaml(ROOT / "configs" / "analysis" / "design_openai_codex_poc.yaml")
         self.assertEqual(cfg.id, "openai_codex_poc")
         self.assertGreaterEqual(len(cfg.pins), 8)
         sources = {str(row.get("result_source")) for row in cfg.pins}
@@ -2249,7 +2249,7 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIsNone(summary_pin.get("judge_score"))
         self.assertAlmostEqual(float(summary_pin["locomo_f1"]), LOCOMO_2024_SUMMARY_RAG_F1)
         self.assertEqual(int(summary_pin["n"]), LOCOMO_2024_SUMMARY_RAG_N)
-        ids = [spec.id for spec in cfg.campaign_analyses]
+        ids = [spec.id for spec in cfg.design_analyses]
         self.assertIn("reader_audit", ids)
         self.assertIn("reader_failure_modes", ids)
         self.assertIn("reader_j_vs_f1", ids)
@@ -2257,34 +2257,34 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIn("reader_failure_modes_judge", ids)
         self.assertIn("reader_hop_to_evidence", ids)
         self.assertIn("reader_qidx_by_category", ids)
-        hop = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_hop_to_evidence")
+        hop = next(spec for spec in cfg.design_analyses if spec.id == "reader_hop_to_evidence")
         self.assertIn("hop_bin", hop.group_by)
         self.assertIn("reader_vs_paper_j", ids)
         self.assertIn("methods_vs_paper_j", ids)
         self.assertIn("reader_stack_vs_paper_j", ids)
-        vs_paper = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_vs_paper_j")
+        vs_paper = next(spec for spec in cfg.design_analyses if spec.id == "reader_vs_paper_j")
         self.assertEqual(vs_paper.source, "examples")
         self.assertEqual(set(vs_paper.experiments), {"readers", "year_2025", "year_2026"})
         self.assertIn("compare_source", vs_paper.group_by)
         self.assertEqual(vs_paper.plots[0].x, "compare_source")
-        methods = next(spec for spec in cfg.campaign_analyses if spec.id == "methods_vs_paper_j")
+        methods = next(spec for spec in cfg.design_analyses if spec.id == "methods_vs_paper_j")
         self.assertEqual(set(methods.experiments), {"readers", "writers"})
         self.assertIn("live_source", methods.group_by)
         self.assertIn("locomo_f1", methods.metrics)
         self.assertTrue(any(p.split_by == "paper_method" for p in methods.plots))
         self.assertTrue(any(p.y == "locomo_f1" for p in methods.plots))
-        stack = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_stack_vs_paper_j")
+        stack = next(spec for spec in cfg.design_analyses if spec.id == "reader_stack_vs_paper_j")
         self.assertEqual(set(stack.experiments), {"readers", "year_2025", "year_2026"})
         self.assertIn("reader_stack", stack.group_by)
         self.assertTrue(stack.include_pins)
-        audit = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_audit")
+        audit = next(spec for spec in cfg.design_analyses if spec.id == "reader_audit")
         self.assertIn("n_web_search", audit.metrics)
         self.assertIn("n_mcp", audit.metrics)
         self.assertIn("harness_failed_rate", audit.metrics)
         self.assertNotIn("comparison_status", audit.group_by)
-        controls = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_controls")
+        controls = next(spec for spec in cfg.design_analyses if spec.id == "reader_controls")
         self.assertNotIn("comparison_status", controls.group_by)
-        modes = next(spec for spec in cfg.campaign_analyses if spec.id == "reader_failure_modes")
+        modes = next(spec for spec in cfg.design_analyses if spec.id == "reader_failure_modes")
         self.assertEqual(modes.source, "examples")
         self.assertIn("failure_mode", modes.group_by)
         self.assertEqual(set(cfg.experiments), {"readers", "writers", "year_2025", "year_2026"})
@@ -2299,16 +2299,16 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIn("layers_are_different_claims", takeaway_ids)
 
     def test_agents_campaign_has_year_axis_audit_and_chat_writers(self):
-        cfg = load_campaign_yaml(ROOT / "configs" / "analysis" / "campaign_openai_agents.yaml")
+        cfg = load_design_yaml(ROOT / "configs" / "analysis" / "design_openai_agents.yaml")
         self.assertEqual(cfg.id, "openai_agents")
         self.assertEqual(
             set(cfg.experiments),
             {"readers", "writers", "codex_readers", "codex_writers", "codex_end_to_end"},
         )
-        ids = [spec.id for spec in cfg.campaign_analyses]
+        ids = [spec.id for spec in cfg.design_analyses]
         self.assertIn("chat_readers_vs_paper_j", ids)
         self.assertIn("chat_readers_year", ids)
-        self.assertIn("sandwich_writers_year", ids)
+        self.assertIn("frozen_reader_writers_year", ids)
         self.assertIn("codex_readers_audit", ids)
         self.assertIn("codex_readers_failure_modes", ids)
         self.assertIn("codex_readers_j_vs_f1", ids)
@@ -2317,40 +2317,40 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIn("codex_end_to_end_failure_modes", ids)
         self.assertIn("codex_end_to_end_hop", ids)
         self.assertIn("codex_end_to_end_qidx", ids)
-        year = next(spec for spec in cfg.campaign_analyses if spec.id == "codex_readers_year")
+        year = next(spec for spec in cfg.design_analyses if spec.id == "codex_readers_year")
         self.assertIn("generation", year.group_by)
-        audit = next(spec for spec in cfg.campaign_analyses if spec.id == "codex_readers_audit")
+        audit = next(spec for spec in cfg.design_analyses if spec.id == "codex_readers_audit")
         self.assertNotIn("comparison_status", audit.group_by)
         self.assertIn("harness_failed_rate", audit.metrics)
         insight_gens = {item.live_generation for item in cfg.insights if item.kind == "pin_gaps"}
         self.assertEqual(insight_gens, {"2024", "2025", "2026"})
 
     def test_persist_memory_campaign_has_notes_only_vs_summaries_takeaway(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_codex_persist_memory.yaml"
+        cfg = load_design_yaml(
+            ROOT / "configs" / "analysis" / "design_openai_codex_persist_memory.yaml"
         )
         self.assertEqual(cfg.id, "openai_codex_persist_memory")
         self.assertEqual(set(cfg.experiments), {"persist", "summaries"})
-        ids = [spec.id for spec in cfg.campaign_analyses]
+        ids = [spec.id for spec in cfg.design_analyses]
         self.assertIn("persist_hop_to_evidence", ids)
         self.assertIn("persist_qidx_by_category", ids)
         self.assertIn("persist_notes_size", ids)
         takeaway_ids = [item.id for item in cfg.takeaways]
         self.assertIn("notes_only_is_the_memory_method", takeaway_ids)
         self.assertIn("notes_only_vs_summaries", takeaway_ids)
-        hop = next(spec for spec in cfg.campaign_analyses if spec.id == "persist_hop_to_evidence")
+        hop = next(spec for spec in cfg.design_analyses if spec.id == "persist_hop_to_evidence")
         self.assertIn("hop_bin", hop.group_by)
         self.assertIn("hop_to_evidence", next(
-            spec for spec in cfg.campaign_analyses if spec.id == "persist_audit"
+            spec for spec in cfg.design_analyses if spec.id == "persist_audit"
         ).metrics)
 
     def test_mini_vs_codex_writers_campaign_groups_by_writer_harness(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_mini_vs_codex_writers.yaml"
+        cfg = load_design_yaml(
+            ROOT / "configs" / "analysis" / "design_openai_mini_vs_codex_writers.yaml"
         )
         self.assertEqual(cfg.id, "openai_mini_vs_codex_writers")
         self.assertEqual(set(cfg.experiments), {"readers", "chat", "codex"})
-        writers = next(spec for spec in cfg.campaign_analyses if spec.id == "structured_writers")
+        writers = next(spec for spec in cfg.design_analyses if spec.id == "structured_writers")
         self.assertEqual(set(writers.experiments), {"chat", "codex"})
         self.assertIn("writer_harness", writers.group_by)
         self.assertIn("memory_method", writers.group_by)
@@ -2361,7 +2361,7 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIn("summaries_chat_vs_codex", takeaway_ids)
         self.assertIn("graph_chat_vs_codex", takeaway_ids)
         ceiling = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "methods_vs_full_context"
+            spec for spec in cfg.design_analyses if spec.id == "methods_vs_full_context"
         )
         self.assertEqual(set(ceiling.experiments), {"readers", "chat", "codex"})
         self.assertEqual(ceiling.group_by, ("memory_lane", "system_harness"))
@@ -2371,19 +2371,19 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertIn("methods_vs_full_context_ceiling", takeaway_ids)
 
     def test_mini_codex_readers_analysis_campaign_has_six_cell_contract(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_readers_analysis.yaml"
+        cfg = load_design_yaml(
+            ROOT / "configs" / "analysis" / "design_openai_mini_codex_readers_analysis.yaml"
         )
 
         self.assertEqual(cfg.id, "openai_mini_codex_readers_analysis")
         self.assertEqual(set(cfg.experiments), {"readers"})
         conditions = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "reader_conditions"
+            spec for spec in cfg.design_analyses if spec.id == "reader_conditions"
         )
         self.assertEqual(conditions.group_by[0], "memory_method")
         self.assertIn("prompt_parity_condition", conditions.group_by)
         audit = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "codex_audit"
+            spec for spec in cfg.design_analyses if spec.id == "codex_audit"
         )
         self.assertEqual(audit.source, "runs")
         self.assertIn("n_web_search", audit.metrics)
@@ -2393,7 +2393,7 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
             [item.id for item in cfg.takeaways],
         )
         coverage = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "gold_token_stages"
+            spec for spec in cfg.design_analyses if spec.id == "gold_token_stages"
         )
         self.assertIn("gold_memory_recall", coverage.metrics)
         self.assertIn("gold_dropped_given_memory", coverage.metrics)
@@ -2404,17 +2404,17 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
             any(plot.y == "gold_dropped_given_memory" for plot in coverage.plots)
         )
         performance = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "reader_performance"
+            spec for spec in cfg.design_analyses if spec.id == "reader_performance"
         )
         self.assertIn("total_latency_seconds_p50", performance.metrics)
         self.assertIn("reader_usd", performance.metrics)
         self.assertEqual(performance.plots[0].y, "total_latency_seconds_p50")
         by_category = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "gold_token_by_category"
+            spec for spec in cfg.design_analyses if spec.id == "gold_token_by_category"
         )
         self.assertEqual(by_category.exclude_question_categories, (5,))
         refusal = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "adversarial_refusal"
+            spec for spec in cfg.design_analyses if spec.id == "adversarial_refusal"
         )
         self.assertEqual(
             refusal.metrics,
@@ -2431,15 +2431,15 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         )
 
     def test_model_harness_gaps_campaign_has_category_j_charts(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_model_harness_gaps.yaml"
+        cfg = load_design_yaml(
+            ROOT / "configs" / "analysis" / "design_openai_model_harness_gaps.yaml"
         )
         self.assertEqual(cfg.id, "openai_model_harness_gaps")
-        fc = next(spec for spec in cfg.campaign_analyses if spec.id == "fc_category_j")
+        fc = next(spec for spec in cfg.design_analyses if spec.id == "fc_category_j")
         summaries = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "summaries_category_j"
+            spec for spec in cfg.design_analyses if spec.id == "summaries_category_j"
         )
-        year = next(spec for spec in cfg.campaign_analyses if spec.id == "year_fc_category_j")
+        year = next(spec for spec in cfg.design_analyses if spec.id == "year_fc_category_j")
         self.assertEqual(fc.plots[0].x, "question_category")
         self.assertEqual(fc.plots[0].hue, "mini_side")
         self.assertEqual(fc.plots[0].y, "judge_score")
@@ -2447,7 +2447,7 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertEqual(year.plots[0].hue, "gap_stack")
         self.assertIn("question_category", year.group_by)
         adversarial = next(
-            spec for spec in cfg.campaign_analyses if spec.id == "year_fc_adversarial"
+            spec for spec in cfg.design_analyses if spec.id == "year_fc_adversarial"
         )
         self.assertEqual(adversarial.group_by, ("gap_stack",))
         self.assertEqual(adversarial.exclude_question_categories, (1, 2, 3, 4))
@@ -2458,12 +2458,12 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         self.assertEqual(kinds, {"series_gaps"})
 
     def test_notebook_posttest_accepts_run_report_list_without_using_it_as_id(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_codex_persist_memory.yaml"
+        cfg = load_design_yaml(
+            ROOT / "configs" / "analysis" / "design_openai_codex_persist_memory.yaml"
         )
         fake = ReportResult(
-            scope="campaign",
-            out_dir=ROOT / "experiments" / "_campaign" / "openai_codex_persist_memory",
+            scope="design",
+            out_dir=ROOT / "experiments" / "_design" / "openai_codex_persist_memory",
             results=[],
             missing_packs=["locomo-openai-codex-persist-memory"],
         )
@@ -2483,17 +2483,17 @@ class TestPinnedReaderNotebook(unittest.TestCase):
             "pinned reader pack is missing aggregate/examples.parquet",
         )
         yaml_path = (
-            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_readers_analysis.yaml"
+            ROOT / "configs" / "analysis" / "design_openai_mini_codex_readers_analysis.yaml"
         )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dest = root / "experiments" / pinned.name / "aggregate"
             shutil.copytree(aggregate, dest)
-            camp = load_campaign_yaml(yaml_path)
-            notebook_pretest(camp, root=root)
+            design = load_design_yaml(yaml_path)
+            notebook_pretest(design, root=root)
             reports = run_report(yaml_path, root=root)
             report = reports[-1]
-            checks = notebook_posttest(camp, report=reports, root=root)
+            checks = notebook_posttest(design, report=reports, root=root)
 
             self.assertEqual(report.missing_packs, [])
             failed = checks[checks["result"] == "FAIL"]

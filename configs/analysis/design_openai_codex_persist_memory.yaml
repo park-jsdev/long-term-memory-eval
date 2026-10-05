@@ -1,11 +1,11 @@
-# Codex persist as memory method vs session-summary sandwich writer.
+# Codex persist as memory method vs a session-summary frozen-reader writer.
 # Native Codex is audit-only unless comparison_status=comparable.
 # notes_only (sessions hidden after ingest) is the memory-method cell.
 #
-#   python -m src.experiment_runner report configs/analysis/campaign_openai_codex_persist_memory.yaml
+#   python -m src.experiment_runner report configs/analysis/design_openai_codex_persist_memory.yaml
 # Notebook: notebooks/17_openai_codex_persist_memory_analysis.ipynb
 
-campaign:
+design:
   id: openai_codex_persist_memory
   title: Codex persist-as-memory (notes_only vs summaries)
   notebook: notebooks/17_openai_codex_persist_memory_analysis.ipynb
@@ -24,7 +24,7 @@ defaults:
   metrics: [locomo_f1, judge_score]
   output_subdir: analysis
 
-campaign_analyses:
+design_analyses:
   - id: persist_cells
     title: Persist-off / persist-on / notes_only
     experiments: [persist]
@@ -106,7 +106,7 @@ campaign_analyses:
       - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: locomo_f1}
       - {kind: grouped_bar, x: agent_sessions, hue: agent_persist, y: answer_n_words}
   - id: summaries_writer
-    title: Codex session-summary sandwich writer (frozen mini reader)
+    title: Codex session-summary writer (frozen mini reader)
     experiments: [summaries]
     where:
       memory_method: [session_summaries, session_summaries]
@@ -140,7 +140,7 @@ takeaways:
       hides the haystack after ingest and is the memory-method cell.
   - id: notes_only_vs_summaries
     title: notes_only harness memory vs Codex session summaries
-    claim: harness_memory_vs_sandwich_writer
+    claim: harness_memory_vs_frozen_reader_writer
     from: persist_j_vs_f1
     from_right: summaries_writer
     left:
@@ -152,7 +152,7 @@ takeaways:
     metrics: [judge_score, locomo_f1]
     finding: >
       notes_only is an end-to-end harness memory method. Session summaries
-      are a sandwich writer with a frozen Chat Completions reader. Do not
+      are a frozen-reader writer with a frozen Chat Completions reader. Do not
       rank them as one stuffed-context table. Native Codex stays
       incomparable until comparison_status is comparable.
 
@@ -173,7 +173,7 @@ experiments:
   summaries:
     name: locomo-openai-codex-poc-writers
     pack: experiments/locomo-openai-codex-poc-writers
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 3

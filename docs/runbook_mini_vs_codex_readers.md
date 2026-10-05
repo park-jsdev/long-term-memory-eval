@@ -21,7 +21,7 @@ separately, so persist-on is an auditable stateful-agent condition.
 |---|---|
 | `configs/experiments/openai_mini_codex_readers_analysis.yaml` | Six-run-spec local matrix. |
 | `configs/experiments/openai_mini_codex_readers_analysis_gcs.yaml` | GCS storage overlay. |
-| `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | Tables, plots, and paired takeaways. |
+| `configs/analysis/design_openai_mini_codex_readers_analysis.yaml` | Tables, plots, and paired takeaways. |
 | `experiments/locomo-openai-mini-codex-readers-analysis-v2/` | Pinned reference pack for this six-cell run. |
 | `notebooks/17_openai_mini_codex_readers_analysis.ipynb` | Published walkthrough. It loads the analysis YAML, which reads the pinned pack. |
 
@@ -82,10 +82,10 @@ New-Item -ItemType Directory -Force -Path "experiments/$name" | Out-Null
 gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/$name/aggregate" "experiments/$name/"
 gcloud.cmd storage cp -r "gs://$env:BUCKET/experiments/$name/collected" "experiments/$name/"
 
-python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
+python -m src.experiment_runner report configs/analysis/design_openai_mini_codex_readers_analysis.yaml
 ```
 
-The pack above is already in the repository, so this pull is only for a new cloud run. After `report`, open `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. It loads `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml`, which reads `experiments/locomo-openai-mini-codex-readers-analysis-v2`.
+The pack above is already in the repository, so this pull is only for a new cloud run. After `report`, open `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. It loads `configs/analysis/design_openai_mini_codex_readers_analysis.yaml`, which reads `experiments/locomo-openai-mini-codex-readers-analysis-v2`.
 
 ## Audit gate
 

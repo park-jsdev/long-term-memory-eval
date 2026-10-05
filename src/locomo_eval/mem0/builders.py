@@ -18,7 +18,7 @@ from .retrieve import (
 
 
 class Mem0IndexMemoryBuilder(MemoryBuilder):
-    """Sandwich middle: load vector dump, cosine top-k for both speakers."""
+    """Memory stage: load vector dump, cosine top-k for both speakers."""
 
     name = "mem0"
 

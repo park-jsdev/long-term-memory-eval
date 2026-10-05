@@ -51,7 +51,7 @@ def build_reader_messages(prompt: str, message_layout: str) -> list[dict[str, st
 
 
 class Reader(ABC):
-    """Sandwich bottom: Memory.text + question → predicted answer.
+    """Reader: Memory.text + question → predicted answer.
 
     Called once per question in run_locomo_pipeline_with_memory_config.
     Must not see gold.

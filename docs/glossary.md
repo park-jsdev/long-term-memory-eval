@@ -40,7 +40,6 @@ released JSON to a score, is in [loop.md](loop.md).
   - [Evaluation harness](#evaluation-harness)
   - [Agent harness](#agent-harness)
   - [Experiment runner](#experiment-runner)
-- [Older notes](#older-notes)
 
 ## Configuration composition
 
@@ -82,8 +81,8 @@ the reader is no longer frozen.
 
 The answer model and the answer prompt, held constant while the memory
 system changes. Two packs that share this reader and differ only in the
-memory system can be compared. Some experiment files label this constraint
-`sandwich`. In this documentation the name is frozen reader.
+memory system can be compared. Experiment files label this
+`type: frozen_reader`.
 
 ### Controlled-comparison contract
 
@@ -141,7 +140,7 @@ call the answerer again. An aggregate is a table collected from many packs.
 ### Design
 
 The analysis plan over finished experiments: which packs, which groupings,
-which metrics. Analysis files still use the YAML key `campaign:`.
+which metrics. Analysis files name that block `design:`.
 
 ## The measurement
 
@@ -247,21 +246,3 @@ run spec per task. It does not answer or score questions.
 
 This repository is a research pipeline: the harness measures, and the
 runner schedules.
-
-## Older notes
-
-Bowman et al. 2022 use "sandwich" for a scalable-oversight protocol. This
-repository does not use that word for the frozen reader. A few filenames
-and the YAML key `campaign:` still carry an older name. The meaning is the
-term in this glossary.
-
-| If an older note says | It means |
-|---|---|
-| sandwich, sandwich contract | frozen reader; controlled-comparison contract |
-| memory middle | memory system, memory representation, or memory stage |
-| fixed top, variable middle, fixed bottom | fixed inputs, experimental variable, fixed evaluation |
-| frozen bottom | base stack (merged first) |
-| recipe | configuration |
-| engine | core |
-| campaign | design, design matrix, or design point |
-| cell | condition, design point, or run spec |

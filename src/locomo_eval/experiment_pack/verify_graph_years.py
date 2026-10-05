@@ -211,9 +211,9 @@ def diagnose_graph_year_stagnation(
                 )
                 if note not in scientific:
                     scientific.append(note)
-            if check.id == "config.sandwich_reader" and check.status == "pass":
+            if check.id == "config.frozen_reader" and check.status == "pass":
                 note = (
-                    "Sandwich reader is frozen gpt-4o-mini. A better 2026 writer "
+                    "The frozen reader is gpt-4o-mini. A better 2026 writer "
                     "only helps if {memory} changes in a way that mini can use."
                 )
                 if note not in scientific:

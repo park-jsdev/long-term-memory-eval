@@ -3,7 +3,7 @@
 Offline. Does not launch QA jobs.
 
     python -m scripts.analysis.context_window
-    python -m scripts.analysis.context_window --out experiments/_campaign/context_window
+    python -m scripts.analysis.context_window --out experiments/_design/context_window
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         "--out",
         type=Path,
         default=None,
-        help="Report directory (default experiments/_campaign/context_window).",
+        help="Report directory (default experiments/_design/context_window).",
     )
     parser.add_argument(
         "--packs",

@@ -23,7 +23,7 @@ QA_MEM0_V1 = "prompts/readers/qa_mem0_v1.txt"
 QA_MEM0_V1_SHA256 = "85c626a7eaf0631e17d3fcdaa020e47afb2d85802f1d4543d6363f812fbfe31c"
 GRAPH_PROMPT = "prompts/writers/graph_v1.txt"
 GRAPH_METHODS = frozenset({"graph"})
-SANDWICH_READER = "gpt-4o-mini"
+FROZEN_READER_MODEL = "gpt-4o-mini"
 PARSE_FALLBACK_MAX = 0.20
 GOLD_MIN_CHARS = 12
 DATE_TOKEN_RE = re.compile(
@@ -331,14 +331,14 @@ def _config_checks(
         out.append(
             _fail("config.memory_type", "config", "run_meta missing memory_type")
         )
-    sandwichish = "mem0-reader" in paths.run_dir.name or str(
+    checks_frozen_reader = "mem0-reader" in paths.run_dir.name or str(
         meta.get("run_id") or ""
     ).startswith("locomo-mem0-reader")
-    if sandwichish:
-        if reader == SANDWICH_READER:
+    if checks_frozen_reader:
+        if reader == FROZEN_READER_MODEL:
             out.append(
                 _ok(
-                    "config.sandwich_reader",
+                    "config.frozen_reader",
                     "config",
                     f"frozen reader {reader}",
                     evidence={"reader_model": reader},
@@ -347,16 +347,16 @@ def _config_checks(
         else:
             out.append(
                 _fail(
-                    "config.sandwich_reader",
+                    "config.frozen_reader",
                     "config",
-                    f"frozen-reader pack reader={reader!r}, expected {SANDWICH_READER}",
+                    f"frozen-reader pack reader={reader!r}, expected {FROZEN_READER_MODEL}",
                     evidence={"reader_model": reader},
                 )
             )
     else:
         out.append(
             _skip(
-                "config.sandwich_reader",
+                "config.frozen_reader",
                 "config",
                 "not a mem0-reader frozen-reader pack",
                 evidence={"reader_model": reader},

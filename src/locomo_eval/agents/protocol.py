@@ -156,7 +156,7 @@ class AgentResult:
 
 
 class AgentRunner(ABC):
-    """Sandwich bottom for harness eval: workspace + question → answer.
+    """Answer path for harness eval: workspace + question → answer.
 
     One fresh invocation per question. Must not see gold.
     """

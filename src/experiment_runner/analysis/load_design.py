@@ -1,4 +1,4 @@
-"""Load ``configs/analysis/*.yaml``. The YAML key is ``campaign:``."""
+"""Load ``configs/analysis/*.yaml``. The YAML key is ``design:``."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class PretestSpec:
 
 @dataclass(frozen=True)
 class CostConfig:
-    """How to price a campaign: pins, prior volumes, parked counterfactuals."""
+    """How to price a design: pins, prior volumes, parked counterfactuals."""
 
     pricing: str = "configs/models/pricing.yaml"
     scenario: str = "off_peak"
@@ -74,7 +74,7 @@ class CostConfig:
 
 @dataclass(frozen=True)
 class ExperimentAnalysisRef:
-    """Pack location + which analyses to run for one campaign member."""
+    """Pack location + which analyses to run for one design member."""
 
     id: str
     name: str
@@ -130,7 +130,7 @@ class TakeawaySpec:
 
 
 @dataclass(frozen=True)
-class CampaignConfig:
+class DesignConfig:
     """What it is: parsed analysis YAML. Who consumes it: report + notebooks."""
 
     id: str
@@ -138,7 +138,7 @@ class CampaignConfig:
     freeze_note: str
     defaults_metrics: tuple[str, ...]
     output_subdir: str
-    campaign_analyses: tuple[AnalysisSpec, ...]
+    design_analyses: tuple[AnalysisSpec, ...]
     experiments: dict[str, ExperimentAnalysisRef]
     pins: tuple[dict[str, Any], ...]
     source_path: Path
@@ -148,12 +148,12 @@ class CampaignConfig:
     takeaways: tuple[TakeawaySpec, ...] = ()
 
 
-def load_campaign_yaml(path: str | Path) -> CampaignConfig:
+def load_design_yaml(path: str | Path) -> DesignConfig:
     raw = load_config(path) if Path(path).suffix in {".yaml", ".yml"} else {}
     if not raw:
         with Path(path).open("r", encoding="utf-8") as handle:
             raw = yaml.safe_load(handle) or {}
-    campaign = raw.get("campaign") or {}
+    design = raw.get("design") or {}
     defaults = raw.get("defaults") or {}
     default_metrics = tuple(
         str(m) for m in (defaults.get("metrics") or ["locomo_f1"])
@@ -166,23 +166,23 @@ def load_campaign_yaml(path: str | Path) -> CampaignConfig:
         )
     analyses = tuple(
         _parse_analysis(item, default_metrics, default_source)
-        for item in (raw.get("campaign_analyses") or [])
+        for item in (raw.get("design_analyses") or [])
     )
     insights = tuple(
         _parse_insight(item, default_metrics) for item in (raw.get("insights") or [])
     )
     takeaways = tuple(_parse_takeaway(item) for item in (raw.get("takeaways") or []))
-    return CampaignConfig(
-        id=str(campaign.get("id") or "campaign"),
-        title=str(campaign.get("title") or campaign.get("id") or "campaign"),
-        freeze_note=str(campaign.get("freeze_note") or "").strip(),
+    return DesignConfig(
+        id=str(design.get("id") or "design"),
+        title=str(design.get("title") or design.get("id") or "design"),
+        freeze_note=str(design.get("freeze_note") or "").strip(),
         defaults_metrics=default_metrics,
         output_subdir=str(defaults.get("output_subdir") or "analysis"),
-        campaign_analyses=analyses,
+        design_analyses=analyses,
         experiments=experiments,
         pins=_parse_pins(raw.get("pins")),
         source_path=Path(path).resolve(),
-        notebook=_as_str(campaign.get("notebook")),
+        notebook=_as_str(design.get("notebook")),
         cost=_parse_cost(raw.get("cost")),
         insights=insights,
         takeaways=takeaways,
