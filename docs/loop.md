@@ -30,14 +30,14 @@ judge run, an OSS clone, or an agent run must not be called a paper result.
 ```mermaid
 flowchart LR
   source["LoCoMo locomo10.json"] --> load["dataset.py: Conversation and Question"]
-  load --> middle["memory middle"]
-  middle --> answer["reader completion or Codex answer"]
+  load --> memory["memory stage"]
+  memory --> answer["reader completion or Codex answer"]
   answer --> prediction["predicted_answer"]
   prediction --> locomo["LoCoMo F1: local deterministic scorer"]
   prediction --> judge["Mem0 judge: separate online job"]
   load -.->|"gold and evidence stay scorer-side"| locomo
   load -.->|"question, gold, prediction"| judge
-  middle --> pack["experiment pack"]
+  memory --> pack["experiment pack"]
   answer --> pack
   locomo --> pack
   judge --> pack
@@ -228,18 +228,18 @@ There is no hidden request fan-out or in-process concurrency. A reader's
 `min_request_interval_s` is a spacing floor between its sequential live calls,
 rate-limit retries remain attached to that one call.
 
-The experiment runner can run **independent cells** in parallel. Locally,
-`execute-qa` executes one matrix cell. On Cloud Run, one task executes one
-cell, the deployment default permits up to eight concurrent tasks, while the
-operator's `--tasks=N` sets how many cells are launched. Thus simultaneous
+The experiment runner can run **independent run specs** in parallel. Locally,
+`execute-qa` executes one run spec. On Cloud Run, one task executes one
+run spec, the deployment default permits up to eight concurrent tasks, while the
+operator's `--tasks=N` sets how many run specs are launched. Thus simultaneous
 provider calls can reach `min(N, configured Cloud Run parallelism)`, but only
-across independent cells - not within a cell.
+across independent run specs, not within a run spec.
 
 This scheduling is an implementation control, not a LoCoMo or Mem0 scoring
 rule. LoCoMo and the Mem0-style judge define data/scoring protocols, not API
 batch size or worker count. Full benchmark scores are valid under this
 execution because every condition evaluates the complete frozen dataset with
-the same per-cell order. For persisted agents, serial execution is required:
+the same per-run-spec order. For persisted agents, serial execution is required:
 parallel questions would create an undefined notes-write order and change the
 condition.
 
@@ -253,20 +253,20 @@ than treating these defaults as an immutable hardware claim.
 
 | Job | Work unit | Default resources | Task timeout / retries | Parallelism |
 |---|---|---:|---:|---:|
-| `memorybench-qa` | One matrix cell per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
-| `memorybench-autorater` | One finished QA cell per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
-| `memorybench-aggregate` | One campaign aggregation | 1 vCPU, 4 GiB RAM | 12 h / 2 | 1 |
+| `memorybench-qa` | One run spec per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
+| `memorybench-autorater` | One finished QA run spec per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
+| `memorybench-aggregate` | One design aggregation | 1 vCPU, 4 GiB RAM | 12 h / 2 | 1 |
 | `memorybench-collect-full` | One full-pack collection | 8 vCPU, 32 GiB RAM | 12 h / 2 | 1 |
 
 `JOB_MEMORY`, `JOB_CPU`, and `JOB_PARALLELISM` are deployment-time overrides
 for QA and autorater. Aggregate separately defaults to `AGGREGATE_MEMORY=4Gi`
 and `AGGREGATE_CPU=1`, because Cloud Run limits a 1-vCPU container to 4 GiB.
-For a memory-heavy cell, deploy QA and autorater with `8Gi`, `2`, and `3`,
+For a memory-heavy run spec, deploy QA and autorater with `8Gi`, `2`, and `3`,
 respectively: that permits at most three 8-GiB tasks while preserving the
-sequential question loop inside each task. `--tasks=N` selects cell indices
+sequential question loop inside each task. `--tasks=N` selects run-spec indices
 `0` through `N - 1`; it does not alter the job's deployed parallelism.
 
-At execution, `--tasks=N` selects the number of matrix cells in that wave.
+At execution, `--tasks=N` selects the number of run specs in that wave.
 The concurrent-task upper bound is `min(N, job parallelism)`. Each task owns
 one `experiments/<experiment>/runs/<run_id>/` GCS prefix. Workers never append
 to a shared Parquet file. QA must finish before the autorater wave, aggregation
@@ -480,10 +480,10 @@ When `CODEX_API_KEY` is absent, this harness passes `OPENAI_API_KEY` to Codex.
 An API-key-backed Codex run can therefore be checked in the OpenAI
 account/project usage dashboard by model and time window, subject to the
 account's dashboard permissions and aggregation. The dashboard is useful for
-reconciling an isolated single-task test or a whole campaign window. It cannot
+reconciling an isolated single-task test or a whole design window. It cannot
 automatically join usage to this repository's `run_id` or `question_id`; with
 parallel tasks using the same key, it cannot assign a dashboard total to one
-cell without an additional correlation mechanism. A saved Codex/ChatGPT login
+run spec without an additional correlation mechanism. A saved Codex/ChatGPT login
 may follow a different accounting path and should be recorded separately.
 
 Codex is open source, so a stronger future audit is feasible: pin a Codex

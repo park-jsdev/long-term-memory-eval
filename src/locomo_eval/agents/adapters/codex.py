@@ -131,7 +131,7 @@ def _codex_in_dir(directory: Path) -> Path | None:
 def _codex_subprocess_env() -> dict[str, str]:
     """Copy the process env; fill ``CODEX_API_KEY`` from ``OPENAI_API_KEY``.
 
-    Live sandwich runs already load repo-root ``.env``. Codex prefers
+    Live runs already load repo-root ``.env``. Codex prefers
     ``CODEX_API_KEY`` (or ChatGPT login). Stale login tokens 401 after the
     schema file is found; reuse the OpenAI key the rest of the pipeline uses.
     """

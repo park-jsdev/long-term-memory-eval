@@ -1,4 +1,6 @@
-"""Load a finished sandwich audit from ``experiments/<run_id>/``.
+"""Load a finished experiment pack from ``experiments/<run_id>/``.
+
+The function name ``load_sandwich_audit`` is unchanged.
 
 No LLM, no teachers, no ``run.py``. Compare scripts and eval branches should
 import this module (and ``audit_layout``) rather than ``audit_writer``,
@@ -131,7 +133,7 @@ def load_qa_pack(run_dir: str | Path) -> dict[str, Any]:
 
 @dataclass
 class SandwichAudit:
-    """One sandwich run on disk: reader, optional teachers/graph, optional judge.
+    """One experiment pack on disk: reader, optional writer/graph, optional judge.
 
     Optional writer/judge files are empty lists when that layer was not run.
     """
@@ -236,7 +238,7 @@ class SandwichAudit:
 
 
 def load_sandwich_audit(run_dir: str | Path) -> SandwichAudit:
-    """Load the full sandwich pack for analysis (no LLM).
+    """Load the full experiment pack for analysis (no LLM).
 
     Missing optional layers (writer, graph, autorater, attribution) load
     as empty lists. Writer calls fall back to the compat path.

@@ -1,8 +1,8 @@
 # Cloud Run
 
-How to run one experiment matrix on Google Cloud. Each matrix cell is one Cloud Run task. A cell still answers questions one at a time. The parallel work is independent cells.
+How to run one experiment matrix on Google Cloud. Each run spec is one Cloud Run task. A run spec still answers questions one at a time. The parallel work is independent run specs.
 
-Local install and a mock cell are in [runbook.md](runbook.md). The resource list, without the click-path, is in [infra/gcp/README.md](../infra/gcp/README.md).
+Local install and a mock run spec are in [runbook.md](runbook.md). The resource list, without the click-path, is in [infra/gcp/README.md](../infra/gcp/README.md).
 
 Do not put an API key, a project id, or a bucket name in a tracked file. Keys live in Secret Manager. On a laptop they live in `.env`.
 
@@ -30,7 +30,7 @@ $env:SA = "memorybench-runner"
 | PoC experiment | `locomo-poc` |
 | PoC YAML | `configs/experiments/poc_gcs.yaml` |
 
-`poc_gcs.yaml` is a mock reader and a mock judge, one cell. It writes to the bucket. The same cell with local files is `configs/experiments/poc.yaml`.
+`poc_gcs.yaml` is a mock reader and a mock judge, one run spec. It writes to the bucket. The same run spec with local files is `configs/experiments/poc.yaml`.
 
 ## 1. Install gcloud and enable APIs
 
@@ -134,12 +134,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
 gcloud.cmd run jobs list --region=$env:REGION
 ```
 
-The script builds `us-central1-docker.pkg.dev/$env:PROJECT_ID/memorybench/memorybench:<git-sha>`, pushes it, and creates or updates four jobs. It sets `MEMORYBENCH_BUCKET` on the jobs. The runner also accepts `EXPERIMENT_RUNNER_BUCKET`.
+The script builds `us-central1-docker.pkg.dev/$env:PROJECT_ID/memorybench/memorybench:<git-sha>`, pushes it, and creates or updates the Cloud Run jobs. It sets `MEMORYBENCH_BUCKET` on the jobs. The runner also accepts `EXPERIMENT_RUNNER_BUCKET`.
 
 | Job | What it runs | Tasks | Parallelism | CPU / memory |
 |---|---|---|---|---|
-| `memorybench-qa` | `execute-qa` on the experiment YAML | one per cell; the PoC is 1 | 8 | 1 / 4Gi |
-| `memorybench-autorater` | `execute-autorater`, after that cell's QA `_SUCCESS` | same count | 8 | 1 / 4Gi |
+| `memorybench-qa` | `execute-qa` on the experiment YAML | one per run spec; the PoC is 1 | 8 | 1 / 4Gi |
+| `memorybench-autorater` | `execute-autorater`, after that run spec's QA `_SUCCESS` | same count | 8 | 1 / 4Gi |
 | `memorybench-aggregate` | `aggregate` | 1 | 1 | 1 / 4Gi |
 | `memorybench-collect-full` | `collect-full` | 1 | 1 | 8 / 32Gi |
 
@@ -179,7 +179,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy_gcp.ps1
 
 Run `gcloud.cmd run jobs describe memorybench-qa --region=$env:REGION` after
 deployment to verify the effective resources. `--tasks=N` on execution selects
-cell indices `0` through `N - 1`; it does not set parallelism.
+run-spec indices `0` through `N - 1`; it does not set parallelism.
 
 ## 6. Check the console
 
@@ -190,13 +190,13 @@ In project `$env:PROJECT_ID`, region `us-central1`:
 3. Secret Manager has four secrets, each with a version.
 4. The bucket is empty of experiment output until the first QA task finishes. After that, look under `experiments/locomo-poc/runs/`.
 
-## 7. Run the four waves
+## 7. Run the waves
 
-Finish every QA task before any autorater task. The autorater stops immediately if that cell has no QA `_SUCCESS`. It does not wait. Aggregate and collect-full are single tasks. Collect-full is optional: it copies the full packs, including `memory/`. Aggregate writes the thin catalog that analysis reads.
+Finish every QA task before any autorater task. The autorater stops immediately if that run spec has no QA `_SUCCESS`. It does not wait. Aggregate and collect-full are single tasks. Collect-full is optional: it copies the full packs, including `memory/`. Aggregate writes the thin catalog that analysis reads.
 
 `--async` returns while the job runs. `--wait` holds the shell until that execution ends.
 
-PoC, one mock cell:
+PoC, one mock run spec:
 
 ```powershell
 gcloud.cmd run jobs execute memorybench-qa --region=$env:REGION --tasks=1 --async
@@ -207,7 +207,7 @@ gcloud.cmd run jobs execute memorybench-collect-full --region=$env:REGION --task
 
 Run the autorater line only after QA has written `_SUCCESS`. Run collect-full only when you want the full dumps.
 
-A larger matrix uses `--tasks` equal to the cell count on QA and on the autorater. Aggregate and collect-full stay at `--tasks=1`. The cell index inside the container is `CLOUD_RUN_TASK_INDEX`.
+A larger matrix uses `--tasks` equal to the run-spec count on QA and on the autorater. Aggregate and collect-full stay at `--tasks=1`. The run-spec index inside the container is `CLOUD_RUN_TASK_INDEX`.
 
 A successful QA log line looks like `qa complete locomo-poc-… uploaded=N blobs`. The usual failures are a missing `data/locomo10.json` or a runner account without `storage.objectAdmin`.
 
@@ -232,7 +232,7 @@ gs://$env:BUCKET/
 | `memorybench-aggregate` | `experiments/locomo-poc/aggregate/` |
 | `memorybench-collect-full` | `experiments/locomo-poc/collected/` |
 
-`<run_id>` is the hashed id for that cell. The same YAML cell keeps the same id. Read it from the QA log or from `manifest/runs.jsonl`.
+`<run_id>` is the hashed id for that run spec. The same YAML run spec keeps the same id. Read it from the QA log or from `manifest/runs.jsonl`.
 
 ## 9. Copy results back
 
@@ -251,16 +251,16 @@ Full packs, after collect-full:
 gcloud.cmd storage cp -r gs://$env:BUCKET/experiments/locomo-poc/collected experiments/locomo-poc/
 ```
 
-One cell, including its autorater directory if the judge has already run:
+One run spec, including its autorater directory if the judge has already run:
 
 ```powershell
 gcloud.cmd storage cp -r gs://$env:BUCKET/experiments/locomo-poc/runs/RUN_ID experiments/
 ```
 
-Every cell:
+Every run spec:
 
 ```powershell
 gcloud.cmd storage cp -r gs://$env:BUCKET/experiments/locomo-poc/runs experiments/locomo-poc/
 ```
 
-Staged reproduction of a full campaign, including when to spend API credits, is in [REPRODUCE.md](REPRODUCE.md).
+Staged reproduction of a full design, including when to spend API credits, is in [REPRODUCE.md](REPRODUCE.md).

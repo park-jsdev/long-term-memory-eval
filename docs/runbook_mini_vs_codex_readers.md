@@ -1,7 +1,7 @@
 # GPT-4o-mini and Codex reader analysis
 
-This six-cell run compares the same GPT-4o-mini reader payload through Chat
-Completions and Codex. Each representation has a model-only cell, Codex with
+This six-run-spec comparison uses the same GPT-4o-mini reader payload through Chat
+Completions and Codex. Each representation has a model-only run spec, Codex with
 persistence off, and Codex with persistence on.
 
 | Representation | Model | Codex, persist off | Codex, persist on |
@@ -9,7 +9,7 @@ persistence off, and Codex with persistence on.
 | `full_context` | ✓ | ✓ | ✓ |
 | LoCoMo `session_summaries` | ✓ | ✓ | ✓ |
 
-All cells render the released `qa_mem0_v1` prompt with the same `{memory}` and
+All six run specs render the released `qa_mem0_v1` prompt with the same `{memory}` and
 `{question}`. Codex receives that reader payload directly; it does not retrieve
 raw session files. Persist-on adds a short Codex-only, append-only notes
 instruction after the shared payload. Payload and final-task hashes are stored
@@ -19,7 +19,7 @@ separately, so persist-on is an auditable stateful-agent condition.
 
 | File | Purpose |
 |---|---|
-| `configs/experiments/openai_mini_codex_readers_analysis.yaml` | Six-cell local matrix. |
+| `configs/experiments/openai_mini_codex_readers_analysis.yaml` | Six-run-spec local matrix. |
 | `configs/experiments/openai_mini_codex_readers_analysis_gcs.yaml` | GCS storage overlay. |
 | `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | Tables, plots, and paired takeaways. |
 | `notebooks/17_openai_mini_codex_readers_analysis.ipynb` | Thin report wrapper. |
@@ -68,10 +68,10 @@ python -m src.experiment_runner report configs/analysis/campaign_openai_mini_cod
 
 ## Audit gate
 
-For each Codex cell, inspect `agent/events.jsonl`, `agent/traces.jsonl`,
+For each Codex run spec, inspect `agent/events.jsonl`, `agent/traces.jsonl`,
 `agent/trajectory.jsonl`, `agent/metrics.json`, `agent/COMPARISON.md`, and
 `agent/workspaces/`. Require `n_web_search=0`, `n_mcp=0`, and
 `used_non_workspace_tools=0`. Persist-on notes snapshots show any state that
 could affect later questions. `prompt_injected` is expected for reader-prompt
-cells and is not a workspace retrieval failure. The pack preserves
+run specs and is not a workspace retrieval failure. The pack preserves
 CLI-emitted reasoning and usage only; it cannot expose hidden chain-of-thought.

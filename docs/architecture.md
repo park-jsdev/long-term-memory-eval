@@ -2,9 +2,10 @@
 
 This file is how the evaluation harness and experiment runner fit together.
 The landing page introduces the harness; [loop.md](loop.md) is the
-source-to-output protocol and contamination walkthrough. The runner is
-described here because it schedules run specs; it does not answer questions
-or score them.
+source-to-output protocol and contamination walkthrough. Names for the two
+drawings below are in [glossary.md](glossary.md). The runner is described
+here because it schedules run specs; it does not answer questions or score
+them.
 
 `src/locomo_eval` is the harness. A **model** answers through Chat
 Completions, or writes memory before a frozen reader answers. An **agent**
@@ -21,44 +22,52 @@ not make an individual reader or agent faster. Install and run steps are in
 
 ## Framework
 
-The repo is deliberately split so that **what you want to measure** is data, and
-**how it gets measured** is code that never changes per experiment.
+Four subsystems connect a comparison to a result. Configuration names
+the comparison. The core measures it. The runner schedules one run spec at
+a time. The experiment pack stores what happened. Tests lock those
+contracts.
 
-| Layer | Contract | Lives in |
-|---|---|---|
-| **Recipe** | Declarative YAML. Names models, memory methods, groupings, metrics, plot kinds. Carries no logic. | `configs/` |
-| **Engine** | The shared harness and offline analysis. Live model calls are variable; string scoring and reporting are reproducible from stored artifacts. | `src/locomo_eval/`, `src/metrics/`, `scripts/analysis/` |
-| **Experiment** | Fixed data and scorer, one varying memory method. | `configs/experiments/*.yaml` |
-| **Campaign** | An ordered set of experiments sharing a freeze note and cross-experiment analyses. | `configs/analysis/*.yaml` |
-| **Job** | The experiment runner. One matrix entry/run spec, or one collector pass. Idempotent and hash-identified. | `src/experiment_runner/` |
-| **Experiment pack** | Per-run observability snapshot: inputs, prompts, memory, traces, lineage, cost, and git hash. | `experiments/<run_id>/`, `src/locomo_eval/experiment_pack/` |
-| **Test** | Deterministic verifier. Locks the contracts above so a refactor cannot silently change a claim. | `tests/` |
+Configuration, experiment, and design are the same kind of object: YAML
+(and, for the answer text, prompt files). An experiment file is a design
+matrix. A design file is the plan for reading finished packs. Neither one
+is a separate program.
 
-The load-bearing rule: **a new experiment or campaign is a new YAML file, never new plotting code.**
 
----
+| Layer               | What it is                                                                                                                                                                                                  | Where it lives                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Configuration**   | Names the dataset pin, memory system, models, prompts, and report settings. No scoring logic.                                                                                                               | `configs/`, `prompts/`                                  |
+| **Core**            | The harness and the report code. A run may call a live model. String scores and reports are recomputed from stored artifacts.                                                                               | `src/locomo_eval/`, `src/metrics/`, `scripts/analysis/` |
+| **Experiment**      | One design matrix. The factor depends on the type: the memory system when the reader is frozen; the reader on a sweep; persist or tools when the answerer is an agent.                                      | `configs/experiments/`                                  |
+| **Design**          | Which finished packs, which groupings, which metrics. The file key is `campaign:`.                                                                                                                          | `configs/analysis/`                                     |
+| **Job**             | One runner task: expand a matrix, answer or judge one run spec, collect packs, or write a report. A finished answer or judge task is skipped on retry unless forced. The run id is a hash of the QA fields. | `src/experiment_runner/`                                |
+| **Experiment pack** | The directory for one run spec: inputs, prompts, memory, traces, lineage, cost, and git hash. The harness writes it; reports read it.                                                                       | `experiments/<run_id>/`                                 |
+| **Test**            | Checks the contracts above so a refactor cannot change a claim quietly.                                                                                                                                     | `tests/`                                                |
 
-## Architecture
+
+A new comparison or a new report is a new YAML file. A new memory system
+or a new plot kind is a change to the core.
+
+## How the layers connect
 
 ```mermaid
 flowchart TB
-  subgraph RECIPE["RECIPE — declarative"]
+  subgraph RECIPE["CONFIGURATION — declarative"]
     XC["configs/experiments/*.yaml<br/>matrix, freeze, storage"]
-    AC["configs/analysis/*.yaml<br/>campaign + analyses"]
+    AC["configs/analysis/*.yaml<br/>design + analyses"]
     CC["configs/{readers,writers,agents,layouts,stacks,models}/"]
     PR["prompts/{readers,writers,agents,autoraters}/"]
   end
 
   subgraph CONTROL["CONTROL PLANE — src/experiment_runner"]
     EXP["expand_run_matrix<br/>hashed_run_id"]
-    CLI["experiment_cli<br/>7 subcommands"]
+    CLI["experiment_cli<br/>one subcommand per task"]
     SKIP["completed_run_skip<br/>_SUCCESS markers"]
   end
 
-  subgraph ENGINE["ENGINE — deterministic"]
+  subgraph ENGINE["CORE — harness and reports"]
     LE["src/locomo_eval<br/>memory, readers, writer model, autorater"]
     MET["src/metrics/locomo_qa.py<br/>official LoCoMo F1"]
-    AN["scripts/analysis<br/>campaign tables + plots"]
+    AN["scripts/analysis<br/>report tables + plots"]
   end
 
   subgraph DATA["I/O PLANE"]
@@ -68,8 +77,8 @@ flowchart TB
   end
 
   subgraph AUDIT["OBSERVABILITY PLANE"]
-    PACK["experiments/[run_id]/<br/>audit_pack.v3"]
-    AGG["experiments/[name]/aggregate/<br/>runs + examples parquet"]
+    PACK["experiments/(run_id)/<br/>audit_pack.v3"]
+    AGG["experiments/(name)/aggregate/<br/>runs + examples parquet"]
     REP["analysis/<br/>tables, plots, SUMMARY.md"]
   end
 
@@ -94,29 +103,57 @@ flowchart TB
   TESTS -.->|lock| AN
 ```
 
+
+
 ---
+
+
 
 ## Layer detail
 
-### 1. Recipe layer — `configs/`
+Configuration composition is the merge order: included files first, and
+the later file wins. Evaluation flow is the path of one question: dataset,
+memory system, then reader and scorers. The base stack pins the dataset
+and the reader in one file, so it is not one stage of that path. Terms
+are in [glossary.md](glossary.md).
 
-Every config file is standalone and composed with `includes:` (deep-merge, later keys win,
-**lists replace rather than concatenate**). Implementation: `src/config.py`.
+### 1. Configuration layer — `configs/`
+
+This figure is configuration composition. Read it from left to right.
+It is not the evaluation flow in the next section.
+
+`load_config` merges each `includes:` list first, depth-first, then applies
+the entry file. The same field in a later file wins. Lists replace; they
+are not appended. Implementation: `src/config.py`.
+
+The base stack is the bundle merged first: the dataset pin, the answer
+prompt, the reader request, and the output directory. Base means first in
+that order. The stack file contains both the dataset pin and the reader,
+so it is not one stage of the evaluation flow. A memory-method file
+includes the stack and then sets the memory system. A preset or an
+experiment file can include that memory-method file and replace one field,
+including the reader.
+
+An include graph for one command-line file has that file as the root and
+the included files as children. Children merge first; the root wins. That
+graph is an audit of one configuration. It is not a name for this layer,
+and it is not dependency inversion: the memory-method file depends on a
+concrete stack file.
 
 ```mermaid
 flowchart LR
-  subgraph Pieces["interchangeable pieces"]
+  subgraph Pieces["merged first"]
     D["data/locomo10.yaml<br/>dataset + pinned commit"]
     L["layouts/<br/>answer prompt + message shape"]
     R["readers/<br/>answer LLM controls"]
     RUN["run/<br/>output dir"]
   end
 
-  S["stacks/qa_mem0_parity.yaml<br/>FROZEN BOTTOM"]
-  W["writers/[method].yaml<br/>VARIABLE MIDDLE"]
-  P["presets/<br/>one-axis overlay"]
-  X["experiments/<br/>multi-run matrix"]
-  A["analysis/<br/>campaign recipes"]
+  S["stacks/qa_mem0_parity.yaml<br/>BASE STACK<br/>merged first"]
+  W["writers/(method).yaml<br/>sets the memory system"]
+  P["presets/<br/>may replace one field"]
+  X["experiments/<br/>design matrix"]
+  A["analysis/<br/>design over finished packs"]
 
   D --> S
   L --> S
@@ -128,20 +165,27 @@ flowchart LR
   X --> A
 ```
 
-| Directory | What it is for | How to use it |
-|---|---|---|
-| `configs/data/` | Pin the LoCoMo file and commit | Include it from a stack. Do not point a run at a different JSON without changing this pin. |
-| `configs/layouts/` | Answer prompt and Chat Completions message shape | Swap the reader prompt by including another layout after the stack. |
-| `configs/readers/` | Answer LLM request controls | `reader.provider`, `reader.model`, `reader.temperature`. The default reader is `gpt-4o-mini`. |
-| `configs/writers/` | Memory method and, when set, the one write-path model | A writer file includes `stacks/qa_default.yaml`. `pipeline.memory` is `session_summaries`, `graph`, or a retrieval clone. |
-| `configs/agents/` | Codex harness: persist, tools, comparison profile | Use with `answer_mode: agent`. Comparison profiles live in `configs/agents/comparison/`. |
-| `configs/autoraters/` | Judge, separate from QA | Not included by a QA run. The autorater job loads it. |
-| `configs/stacks/` | Frozen bottom: data + layout + reader + run | Start here. Later includes override one piece. |
-| `configs/run/` | Where packs are written | `run.output_dir` (default `experiments`). Kept so a later run can change the output root. |
-| `configs/presets/` | One runnable overlay for `locomo_eval.run` | CLI default: `configs/presets/mem0_baseline.yaml`. |
-| `configs/models/` | Catalog ids, list prices, context windows | `generation_catalog.yaml` fills `api_model_id` and `model_snapshot`. |
-| `configs/experiments/` | Matrices the harness expands into run specs | `python -m src.experiment_runner write-manifest configs/experiments/<name>.yaml` |
-| `configs/analysis/` | Tables and plots over finished packs | `python -m src.experiment_runner report configs/analysis/<name>.yaml` |
+
+
+Left is merged earlier. Right wins on a shared field. The analysis file is
+not part of the QA merge; it is the design that reads finished packs.
+
+
+| Directory              | What it is for                                                          | How to use it                                                                                                             |
+| ---------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `configs/data/`        | Pin the LoCoMo file and commit                                          | Include it from a stack. Do not point a run at a different JSON without changing this pin.                                |
+| `configs/layouts/`     | Answer prompt and Chat Completions message shape                        | Swap the reader prompt by including another layout after the stack.                                                       |
+| `configs/readers/`     | Answer LLM request controls                                             | `reader.provider`, `reader.model`, `reader.temperature`. The default reader is `gpt-4o-mini`.                             |
+| `configs/writers/`     | Memory method and, when set, the one write-path model                   | A writer file includes `stacks/qa_default.yaml`. `pipeline.memory` is `session_summaries`, `graph`, or a retrieval clone. |
+| `configs/agents/`      | Codex harness: persist, tools, comparison profile                       | Use with `answer_mode: agent`. Comparison profiles live in `configs/agents/comparison/`.                                  |
+| `configs/autoraters/`  | Judge, separate from QA                                                 | Not included by a QA run. The autorater job loads it.                                                                     |
+| `configs/stacks/`      | Base stack: dataset pin, layout, reader, output directory, merged first | Include it, then override one piece in a later file.                                                                      |
+| `configs/run/`         | Where packs are written                                                 | `run.output_dir` (default `experiments`). Kept so a later run can change the output root.                                 |
+| `configs/presets/`     | One runnable overlay for `locomo_eval.run`                              | CLI default: `configs/presets/mem0_baseline.yaml`.                                                                        |
+| `configs/models/`      | Catalog ids, list prices, context windows                               | `generation_catalog.yaml` fills `api_model_id` and `model_snapshot`.                                                      |
+| `configs/experiments/` | Matrices the harness expands into run specs                             | `python -m src.experiment_runner write-manifest configs/experiments/<name>.yaml`                                          |
+| `configs/analysis/`    | Design: tables and plots over finished packs. YAML key `campaign:`      | `python -m src.experiment_runner report configs/analysis/<name>.yaml`                                                     |
+
 
 Compose with `includes:` (deep-merge; later keys win; lists replace). A writer file is runnable because it includes a stack. Swap one piece by including another file after it:
 
@@ -158,7 +202,7 @@ includes:
 `status: to_confirm` marks its run specs `to_confirm`, and `execute-qa` refuses them unless you pass
 `--allow-unconfirmed`.
 
-### 2. Engine layer — live calls plus deterministic artifact processing
+### 2. Core — live calls plus deterministic artifact processing
 
 The harness makes live reader, writer, embedder, and judge calls when a
 configured path requires one. Once a prediction pack exists, string rescoring,
@@ -167,18 +211,18 @@ stored artifacts.
 
 ```mermaid
 flowchart LR
-  subgraph Read["read path engine — src/locomo_eval"]
-    MEM["memory.py<br/>10 memory method ids"]
+  subgraph Read["read path — src/locomo_eval"]
+    MEM["memory.py<br/>memory method ids"]
     RD["readers.py + models.py<br/>API kwargs pinning"]
     SC["metrics.py + src/metrics/locomo_qa.py"]
   end
 
-  subgraph Write["write path engine"]
+  subgraph Write["write path"]
     MO["model_orchestrator.py"]
     GM["mem0/graph_memory.py<br/>locked Mem0g schema"]
   end
 
-  subgraph Analyse["analysis engine — scripts/analysis"]
+  subgraph Analyse["reports — scripts/analysis"]
     CT["campaign_tables.py<br/>mean_table, model_family, category names"]
     CP["campaign_plots.py<br/>bar, grouped_bar, metrics_grouped_bar, line"]
   end
@@ -188,36 +232,50 @@ flowchart LR
   SC --> CT --> CP
 ```
 
-Invariants the engine layer owns, so no recipe has to restate them:
+
+
+Invariants the core owns, so no configuration has to restate them:
 
 - **Legend placement.** Always outside the axes; it cannot cover bars.
 - **Category naming.** `question_category` renders as `1 multi-hop`, `2 temporal`, `3 open-domain`,
-  `4 single-hop`, `5 adversarial` — the official LoCoMo JSON ids from `CATEGORY_NAMES`, *not* the
-  paper §4.1 prose numbering.
+`4 single-hop`, `5 adversarial` — the official LoCoMo JSON ids from `CATEGORY_NAMES`, *not* the
+paper §4.1 prose numbering.
 - **Family colors.** OpenAI, Anthropic, DeepSeek get stable colors derived from `reader_provider`
-  or `writer_model`.
+or `writer_model`.
 - **Deterministic ordering.** Categories sort by numeric id; row order in the source Parquet does
-  not change a CSV or a PNG.
+not change a CSV or a PNG.
+
+
 
 ### 3. Experiment layer
 
-Each experiment is one claim. The LoCoMo data and the scorer stay fixed. Exactly one memory method changes.
+This figure is the evaluation flow. Read it from top to bottom: fixed
+inputs, then the memory system, then fixed evaluation. It is not the
+left-to-right merge in the previous section.
+
+The base stack contributes to both ends of this drawing, because one stack
+file pins the dataset and the reader. The memory-method file contributes
+the experimental variable. Those are different questions: which file wins a
+field, and which stage of a question that field belongs to.
+
+Each frozen-reader experiment is one claim. The dataset and the evaluation
+stay fixed. Exactly one memory system changes.
 
 ```mermaid
 flowchart TB
-  subgraph TOP["FIXED TOP — inputs"]
+  subgraph TOP["FIXED INPUTS — dataset"]
     T1["LoCoMo conversations + questions"]
     T2["question subset / sample filter"]
   end
 
-  subgraph MID["VARIABLE MIDDLE — one axis per claim"]
+  subgraph MID["EXPERIMENTAL VARIABLE — memory system"]
     direction LR
     M1["deterministic<br/>raw_chunks, session_summaries, full_context"]
     M2["retrieval clones<br/>rag, openai_memory, mem0, mem0g"]
     M3["one writer model<br/>session_summaries or graph"]
   end
 
-  subgraph BOT["FIXED BOTTOM — measurement"]
+  subgraph BOT["FIXED EVALUATION — reader and scorers"]
     B1["answer LLM gpt-4o-mini + qa_mem0_v1"]
     B2["string metrics EM, token F1, LoCoMo F1"]
     B3["judge gpt-4o-mini, category 5 excluded"]
@@ -235,21 +293,25 @@ flowchart TB
   B3 --> VAL
 ```
 
-| `experiment.type` | Meaning |
-|---|---|
-| `sweep` | Cartesian matrix; readers may vary |
-| `sandwich` | YAML type name for a frozen reader. Requires `experiment.freeze.reader` and rejects a multi-entry reader axis. |
-| `ablation` | Remove or degrade one write-path component |
-| `calibration` | Plumbing and cost-calibration run specs |
-| `agent` | Workspace-file harness matrix; reader-like model calls happen inside the configured adapter |
+
+
+
+| `experiment.type` | Meaning                                                                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sweep`           | Cartesian matrix; readers may vary                                                                                                                                               |
+| `sandwich`        | YAML type token for a frozen-reader experiment. Requires `experiment.freeze.reader` and rejects a multi-entry reader axis. Prose says frozen reader; the token stays `sandwich`. |
+| `ablation`        | Remove or degrade one write-path component                                                                                                                                       |
+| `calibration`     | Plumbing and cost-calibration run specs                                                                                                                                          |
+| `agent`           | Workspace-file harness matrix; reader-like model calls happen inside the configured adapter                                                                                      |
+
 
 Matrix axes expand in fixed order `reader → memory_method → writer → seed`. A writer is attached
 only when the memory method is `session_summaries`, `graph`, or `agent_codex_mem0_facts`.
 Retrieval clones and dataset-only methods do not take a writer.
 
-### 4. Campaign layer
+### 4. Design layer
 
-A campaign is an ordered set of experiments plus the analyses that span them.
+A design is an ordered set of finished experiments plus the analyses that span them. The YAML key and the cross-experiment output directory still use `campaign`.
 
 ```mermaid
 flowchart LR
@@ -267,8 +329,8 @@ flowchart LR
   end
 
   subgraph OUT["outputs"]
-    O1["experiments/[name]/analysis/"]
-    O2["experiments/_campaign/[id]/analysis/"]
+    O1["experiments/(name)/analysis/"]
+    O2["experiments/_campaign/(id)/analysis/"]
   end
 
   EX --> P1 --> O1
@@ -281,6 +343,8 @@ flowchart LR
   DEF -.-> O1
   CID -.-> O2
 ```
+
+
 
 Each analysis entry names a table and its figures:
 
@@ -296,14 +360,16 @@ Each analysis entry names a table and its figures:
       y: locomo_f1
 ```
 
-Missing packs are **skipped and reported**, never fatal, so a campaign notebook runs before every
+Missing packs are **skipped and reported**, never fatal, so a design notebook runs before every
 experiment has landed. `family_from: reader | writer` decides whether `model_family` is derived from
 the answer model or the write model — a reader sweep and a writer sweep must not be mixed into one
 family analysis.
 
 ---
 
-## Campaign and experiment lifecycle
+
+
+## Design and experiment lifecycle
 
 ```mermaid
 stateDiagram-v2
@@ -330,17 +396,21 @@ stateDiagram-v2
   Judged --> Judged: retry skips on autorater/_SUCCESS
 ```
 
+
+
 Two properties make this safe to interrupt:
 
 1. **Hashed identity.** A `run_id` is `<experiment-slug>-<8 hex>`, hashed over the QA identity
-   (benchmark, experiment name, memory method, reader provider and model, writer model, prompt path,
+  (benchmark, experiment name, memory method, reader provider and model, writer model, prompt path,
    subset caps, sample id, seed, shared index ids). Change a knob that matters and you get a new
    directory; change the judge model and you do not.
 2. **Idempotent stages.** Each stage writes `_SUCCESS` last. A retry skips completed run specs unless
-   `--force`. Within a stage a run is *replace-not-append*: it clears its own generated output and
+  `--force`. Within a stage a run is *replace-not-append*: it clears its own generated output and
    regenerates from question one. `predictions.jsonl` is an audit artifact, not a checkpoint.
 
 ---
+
+
 
 ## Staged job pipeline
 
@@ -352,7 +422,7 @@ flowchart TB
   WM --> M["manifest/runs.jsonl"]
 
   M --> QA["wave 1 — execute-qa<br/>N parallel run specs<br/>ONLINE: reader, writer, embedder"]
-  QA --> RP["experiments/[run_id]/<br/>predictions, memory, reader, cost, _SUCCESS"]
+  QA --> RP["experiments/(run_id)/<br/>predictions, memory, reader, cost, _SUCCESS"]
 
   RP --> AU["wave 2 — execute-autorater<br/>N parallel run specs<br/>ONLINE: judge"]
   AU --> AP["autorater/ verdicts, traces, tables, plots, _SUCCESS"]
@@ -364,14 +434,18 @@ flowchart TB
   RE --> AN["analysis/ tables, plots, SUMMARY.md"]
 ```
 
-| Wave | Command | API? | Writes | Parallelism |
-|---|---|---|---|---|
-| 0 | `write-manifest <exp.yaml>` | No | `manifest/runs.jsonl` | single |
-| 1 | `execute-qa <exp.yaml> --run-index i` | **Yes** — reader, plus the writer and embedder when the method needs them | run pack + `_SUCCESS` | one task per run spec |
-| 2 | `execute-autorater <exp.yaml> --run-index i` | **Yes** — judge only | `autorater/` + `autorater/_SUCCESS` | one task per run spec |
-| 3 | `aggregate` / `collect-full <exp.yaml>` | No | `aggregate/` or `collected/` | single collector |
-| — | `report <analysis.yaml>` | No | `analysis/` | single |
-| — | `status <exp.yaml>` | No | stdout counts | single |
+
+
+
+| Wave | Command                                      | API?                                                                      | Writes                              | Parallelism           |
+| ---- | -------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------- | --------------------- |
+| 0    | `write-manifest <exp.yaml>`                  | No                                                                        | `manifest/runs.jsonl`               | single                |
+| 1    | `execute-qa <exp.yaml> --run-index i`        | **Yes** — reader, plus the writer and embedder when the method needs them | run pack + `_SUCCESS`               | one task per run spec |
+| 2    | `execute-autorater <exp.yaml> --run-index i` | **Yes** — judge only                                                      | `autorater/` + `autorater/_SUCCESS` | one task per run spec |
+| 3    | `aggregate` / `collect-full <exp.yaml>`      | No                                                                        | `aggregate/` or `collected/`        | single collector      |
+| —    | `report <analysis.yaml>`                     | No                                                                        | `analysis/`                         | single                |
+| —    | `status <exp.yaml>`                          | No                                                                        | stdout counts                       | single                |
+
 
 On Cloud Run the run-spec index comes from `CLOUD_RUN_TASK_INDEX`; locally it comes from `--run-index`.
 Wave 2 **fail-fasts** if a run spec has no QA `_SUCCESS`, so a judge can never score a partial answer set.
@@ -414,6 +488,8 @@ sequenceDiagram
   AW->>AW: write pack, lineage, cost, _SUCCESS
 ```
 
+
+
 For the agent branch, the harness does not choose a next retrieval step. The
 adapter drives its own model/tool loop. Evidence IDs are joined to normalized
 trajectory events only after the answer returns. Native Codex is recorded as
@@ -422,25 +498,29 @@ requested shared control; see [loop.md](loop.md).
 
 ---
 
+
+
 ## LLM call inventory
 
 Every external call, and the role it plays. The **write path** builds memory; the **read path**
 answers; the **judge** scores. Only the read path and judge are frozen for a memory claim.
 
-| Role | Path | Module | Prompt | Providers |
-|---|---|---|---|---|
-| Answer / reader | read | `readers.py` | `prompts/readers/qa_mem0_v1.txt` | openai, deepseek, anthropic, mock |
-| Writer session summary | write | `writer_model.py` | `prompts/writers/session_summary_v1.txt` | openai, anthropic, deepseek, mock |
-| Writer graph extraction | write | `writer_model.py` | `prompts/writers/graph_v1.txt` | openai, anthropic, deepseek, mock |
-| Harness answer | agent read | `agents/adapters/codex.py` | `prompts/agents/qa_workspace_*.txt` | Codex CLI, mock |
-| Mem0 fact extract | write index | `mem0/extract.py` | `prompts/writers/mem0_extract_v1.txt` | openai, mock |
-| Mem0 update ADD/UPDATE/DELETE/NONE | write index | `mem0/update.py` | `prompts/writers/mem0_update_v1.txt` | openai, mock |
-| Mem0g entities | write index | `mem0/graph_memory.py` | `prompts/writers/mem0g_entities_v1.txt` | openai, mock |
-| Mem0g relations | write index | `mem0/graph_memory.py` | `prompts/writers/mem0g_relations_v1.txt` | openai, mock |
-| Mem0g conflict | write index | `mem0/graph_memory.py` | `prompts/writers/mem0g_conflict_v1.txt` | openai, mock |
-| OpenAI-memory extract-all | write index | `openai_memory/extract.py` | `prompts/writers/openai_memory_extract_v1.txt` | openai, mock |
-| Embedding, index and query | both | `mem0/embeddings.py` | none | openai `text-embedding-3-small`, mock |
-| Autorater / judge | score | `autorater.py` | `prompts/autoraters/autorater_mem0_v1.txt` | openai, mock |
+
+| Role                               | Path        | Module                     | Prompt                                         | Providers                             |
+| ---------------------------------- | ----------- | -------------------------- | ---------------------------------------------- | ------------------------------------- |
+| Answer / reader                    | read        | `readers.py`               | `prompts/readers/qa_mem0_v1.txt`               | openai, deepseek, anthropic, mock     |
+| Writer session summary             | write       | `writer_model.py`          | `prompts/writers/session_summary_v1.txt`       | openai, anthropic, deepseek, mock     |
+| Writer graph extraction            | write       | `writer_model.py`          | `prompts/writers/graph_v1.txt`                 | openai, anthropic, deepseek, mock     |
+| Harness answer                     | agent read  | `agents/adapters/codex.py` | `prompts/agents/qa_workspace_*.txt`            | Codex CLI, mock                       |
+| Mem0 fact extract                  | write index | `mem0/extract.py`          | `prompts/writers/mem0_extract_v1.txt`          | openai, mock                          |
+| Mem0 update ADD/UPDATE/DELETE/NONE | write index | `mem0/update.py`           | `prompts/writers/mem0_update_v1.txt`           | openai, mock                          |
+| Mem0g entities                     | write index | `mem0/graph_memory.py`     | `prompts/writers/mem0g_entities_v1.txt`        | openai, mock                          |
+| Mem0g relations                    | write index | `mem0/graph_memory.py`     | `prompts/writers/mem0g_relations_v1.txt`       | openai, mock                          |
+| Mem0g conflict                     | write index | `mem0/graph_memory.py`     | `prompts/writers/mem0g_conflict_v1.txt`        | openai, mock                          |
+| OpenAI-memory extract-all          | write index | `openai_memory/extract.py` | `prompts/writers/openai_memory_extract_v1.txt` | openai, mock                          |
+| Embedding, index and query         | both        | `mem0/embeddings.py`       | none                                           | openai `text-embedding-3-small`, mock |
+| Autorater / judge                  | score       | `autorater.py`             | `prompts/autoraters/autorater_mem0_v1.txt`     | openai, mock                          |
+
 
 **Not LLM calls:** the model orchestrator, preprocessing, the
 deterministic builders, every metric, and every analysis script.
@@ -453,20 +533,24 @@ deterministic builders, every metric, and every analysis script.
 
 Every memory method, and whether it spends tokens at QA time:
 
-| Memory method | Write-path LLM | Retrieval work before answer | Answer path |
-|---|---|---|---|
-| `raw_chunks` | none | none | stuffed reader; chronological dialog |
-| `session_summaries` | none, unless `writer.model` is set | none | stuffed reader; dataset or writer summaries |
-| `graph` | writer per session | format locked graph text | stuffed reader; not Mem0g |
-| `full_context` | none | none | stuffed reader; entire timestamped transcript |
-| `rag` | index built earlier | query embedding + top-k chunks | stuffed reader; local RAG clone |
-| `openai_memory` | index built earlier | retrieve all extracted facts | stuffed reader; privileged extract-all clone |
-| `mem0` | index built earlier | query embedding + facts | stuffed reader; local vector-store clone |
-| `mem0g` | index built earlier | query embedding + graph facts | stuffed reader; local graph-store clone |
-| `workspace_files` | none | agent-chosen file reads | Codex or mock harness; no stuffed transcript |
-| `agent_codex_mem0_facts` | Codex writer | read local facts | frozen Chat Completions reader, not the agent harness |
+
+| Memory method            | Write-path LLM                     | Retrieval work before answer   | Answer path                                           |
+| ------------------------ | ---------------------------------- | ------------------------------ | ----------------------------------------------------- |
+| `raw_chunks`             | none                               | none                           | stuffed reader; chronological dialog                  |
+| `session_summaries`      | none, unless `writer.model` is set | none                           | stuffed reader; dataset or writer summaries           |
+| `graph`                  | writer per session                 | format locked graph text       | stuffed reader; not Mem0g                             |
+| `full_context`           | none                               | none                           | stuffed reader; entire timestamped transcript         |
+| `rag`                    | index built earlier                | query embedding + top-k chunks | stuffed reader; local RAG clone                       |
+| `openai_memory`          | index built earlier                | retrieve all extracted facts   | stuffed reader; privileged extract-all clone          |
+| `mem0`                   | index built earlier                | query embedding + facts        | stuffed reader; local vector-store clone              |
+| `mem0g`                  | index built earlier                | query embedding + graph facts  | stuffed reader; local graph-store clone               |
+| `workspace_files`        | none                               | agent-chosen file reads        | Codex or mock harness; no stuffed transcript          |
+| `agent_codex_mem0_facts` | Codex writer                       | read local facts               | frozen Chat Completions reader, not the agent harness |
+
 
 ---
+
+
 
 ## Analysis: online vs offline
 
@@ -485,6 +569,8 @@ flowchart LR
   AGG --> CMP["compare_full_runs<br/>compare_cross_model<br/>compare_to_paper<br/>OFFLINE"]
 ```
 
+
+
 **Exactly one analysis step costs money:** `scripts/analysis/run_benchmark.py` with a live judge.
 Everything else — rescoring, aggregation, campaign reports, paired comparisons, paper comparisons,
 seed aggregation — reads finished artifacts and never touches an API.
@@ -497,6 +583,8 @@ Autorater packs are **snapshots**: every invocation clears the generated verdict
 metadata, then regenerates from one prediction file. Analyses are never appended.
 
 ---
+
+
 
 ## Verification: deterministic tests
 
@@ -525,7 +613,7 @@ flowchart TB
     I1["reader and writer family swap"]
     I2["LoCoMo vs SPEC scorer"]
   end
-  subgraph C["Recipe and harness"]
+  subgraph C["Configuration and harness"]
     C1["YAML include deep-merge + cycles"]
     C2["matrix expansion + hashed run_id"]
     C3["execute-qa / aggregate / GCS workspace"]
@@ -534,16 +622,20 @@ flowchart TB
   U --> S --> RG --> I --> C
 ```
 
-| Group | Files | Locks |
-|---|---|---|
-| Unit | `test_preprocessing_pipeline`, `test_session_documents`, `test_preprocess_index`, `test_stats`, `test_evaluation_pipeline`, `test_mem0_index`, `test_rag_index`, `test_openai_memory`, `test_model_orchestrator`, `test_compare_to_paper` | Scoring and indexing behave as specified |
-| Sanity | `test_autorater_sanity`, `test_claim_audit`, `test_experiment_pack`, `test_prompt_bundle` | Judge protocol, lineage and cost audit, pack round-trip |
-| Regression | `test_regressions`, `test_run_isolation` | One YAML to one pack, no hidden caching, gold never in a prompt |
-| Integration | `test_integration_sanity` | Model-swap seams stay pluggable |
-| Recipe / harness | `test_config_includes`, `test_experiment_runner_matrix`, `test_experiment_runner_execute_qa`, `test_experiment_runner_aggregate`, `test_gcs_run_workspace`, `test_analysis_campaign` | Merge semantics, hashed ids, staged pipeline, deterministic reports |
 
-The analysis verifiers are worth calling out, because they are what keep the recipe/engine split
-honest: every campaign analysis must reference a configured experiment; every plot `x`, `hue` and `y`
+
+
+| Group                   | Files                                                                                                                                                                                                                                     | Locks                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Unit                    | `test_preprocessing_pipeline`, `test_session_documents`, `test_preprocess_index`, `test_stats`, `test_evaluation_pipeline`, `test_mem0_index`, `test_rag_index`, `test_openai_memory`, `test_model_orchestrator`, `test_compare_to_paper` | Scoring and indexing behave as specified                            |
+| Sanity                  | `test_autorater_sanity`, `test_claim_audit`, `test_experiment_pack`, `test_prompt_bundle`                                                                                                                                                 | Judge protocol, lineage and cost audit, pack round-trip             |
+| Regression              | `test_regressions`, `test_run_isolation`                                                                                                                                                                                                  | One YAML to one pack, no hidden caching, gold never in a prompt     |
+| Integration             | `test_integration_sanity`                                                                                                                                                                                                                 | Model-swap seams stay pluggable                                     |
+| Configuration / harness | `test_config_includes`, `test_experiment_runner_matrix`, `test_experiment_runner_execute_qa`, `test_experiment_runner_aggregate`, `test_gcs_run_workspace`, `test_analysis_campaign`                                                      | Merge semantics, hashed ids, staged pipeline, deterministic reports |
+
+
+The analysis verifiers are worth calling out, because they are what keep the configuration/core split
+honest: every design analysis must reference a configured experiment; every plot `x`, `hue` and `y`
 must exist in that analysis's `group_by` or `metrics`; analysis ids must be unique per output
 directory; notebooks must stay thin YAML wrappers with no plotting code; and re-running a report over
 reordered input rows must produce **byte-identical** CSV and PNG files.
@@ -565,6 +657,8 @@ python -m pytest tests/ -q
 folder.
 
 ---
+
+
 
 ## Control, data, and observability planes
 
@@ -601,6 +695,10 @@ flowchart TB
   CP --> IO --> OP
 ```
 
+
+
+
+
 ### Snapshot trail for one answer
 
 Any number in a published table can be walked back to the bytes that produced it.
@@ -608,8 +706,8 @@ Any number in a published table can be walked back to the bytes that produced it
 ```mermaid
 flowchart LR
   A["published result<br/>analysis/tables/*.csv"] --> B["examples.parquet<br/>one row per question"]
-  B --> C["aggregate/by_run/[run_id]/"]
-  C --> D["run pack<br/>experiments/[run_id]/"]
+  B --> C["aggregate/by_run/(run_id)/"]
+  C --> D["run pack<br/>experiments/(run_id)/"]
   D --> E["reader/traces.jsonl<br/>exact request and response"]
   D --> F["memory/by_question or by_sample<br/>exact memory text"]
   F --> G["memory/lineage.jsonl<br/>question to item to writer"]
@@ -618,6 +716,8 @@ flowchart LR
   D --> J["config.resolved.yaml<br/>YAML merge + CLI overrides"]
   A --> K["autorater/traces.jsonl<br/>judge reasoning"]
 ```
+
+
 
 Each run pack (`audit_pack.v3`) contains predictions in JSONL and CSV,
 `metrics.json` and `metrics_by_category.csv`, `run_meta.json`, both frozen
@@ -633,10 +733,10 @@ auditable rather than asserted.
 ## Repository layout
 
 ```text
-configs/            recipes: data, layouts, readers, writers, agents,
+configs/            configurations: data, layouts, readers, writers, agents,
                     autoraters, stacks, run, presets, models, experiments, analysis
 prompts/            readers/, writers/, agents/, autoraters/
-src/locomo_eval/    read + write path engine, experiment-pack writer/loader
+src/locomo_eval/    read + write path core, experiment-pack writer/loader
 src/experiment_runner/  experiment runner: matrix, hashed IDs, one run spec per task
 src/metrics/        official LoCoMo category F1
 scripts/            fetch, prepare, deploy, compare
@@ -648,3 +748,4 @@ docs/               schemas, runbooks, methodology reports
 experiments/        run packs, aggregates, reports (gitignored)
 data/raw/           locomo10.json (fetched, gitignored)
 ```
+

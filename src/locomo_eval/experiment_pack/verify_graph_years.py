@@ -1,4 +1,4 @@
-"""Year-stagnation diagnosis for graph sandwich cells.
+"""Year-stagnation diagnosis for graph frozen-reader run specs.
 
 Uses finished audit packs plus optional campaign Parquet. No LLM.
 Separates technical invalidity (parse fallback, empty graphs, gold leak)
@@ -398,7 +398,7 @@ def _headline(
 
 
 def _session_summary_gap(experiment_dirs: list[str | Path]) -> str | None:
-    """Same sandwich reader and writer year: narrative summaries vs timeless graph."""
+    """Same frozen reader and writer year: narrative summaries vs timeless graph."""
     graph: list[float] = []
     summaries: list[float] = []
     for directory in experiment_dirs:

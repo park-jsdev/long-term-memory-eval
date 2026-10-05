@@ -1,4 +1,4 @@
-"""Load ``configs/analysis/*.yaml`` (campaign vs experiment report plane)."""
+"""Load ``configs/analysis/*.yaml``. The YAML key is ``campaign:``."""
 
 from __future__ import annotations
 

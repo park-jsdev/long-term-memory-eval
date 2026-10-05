@@ -93,7 +93,7 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
         if writer_axis and _memory_uses_writer(memory_method) != (
             writer is not None
         ):
-            # full_context × a writer model is not a sandwich claim.
+            # full_context × a writer model is not a frozen-reader claim.
             continue
         seed = int(cell.get("seed") or 1)
         thinking_flag = cell.get("thinking")
@@ -181,12 +181,12 @@ def _apply_sandwich_freeze(
     out = dict(matrix)
     if "reader" in out and _len_axis(out["reader"]) > 1:
         raise ValueError(
-            "sandwich experiments freeze the reader; put one reader in "
+            "frozen-reader experiments (type sandwich) freeze the reader; put one reader in "
             "experiment.freeze.reader, not a list under matrix.reader"
         )
     frozen = freeze.get("reader")
     if frozen is None:
-        raise ValueError("sandwich experiments require experiment.freeze.reader")
+        raise ValueError("frozen-reader experiments (type sandwich) require experiment.freeze.reader")
     out["reader"] = [frozen]
     return out
 
@@ -195,7 +195,7 @@ def _apply_agent_freeze(
     matrix: dict[str, Any],
     freeze: dict[str, Any],
 ) -> dict[str, Any]:
-    """Agent experiments freeze the model inside the harness (like sandwich reader)."""
+    """Agent experiments freeze the model inside the harness, as a frozen reader does."""
     out = dict(matrix)
     if "reader" in out and _len_axis(out["reader"]) > 1:
         raise ValueError(
@@ -373,7 +373,7 @@ def _parse_reader(item: Any, catalog: dict[str, Any]) -> ReaderModelRef:
     if isinstance(item, str):
         item = {"catalog": item}
     if not isinstance(item, dict):
-        raise ValueError(f"reader cell must be a mapping or catalog id, got {item!r}")
+        raise ValueError(f"reader assignment must be a mapping or catalog id, got {item!r}")
     data = dict(item)
     if "catalog" in data:
         data = _merge_catalog(str(data["catalog"]), catalog, data)

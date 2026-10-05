@@ -1,4 +1,4 @@
-"""Execute one matrix cell: wrap ``locomo_eval.run``, then write Parquet + ``_SUCCESS``.
+"""Execute one run spec: wrap ``locomo_eval.run``, then write Parquet + ``_SUCCESS``.
 
 Does not run the autorater. Judge is a later ``execute_autorater_run`` job.
 """

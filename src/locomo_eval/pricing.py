@@ -1,4 +1,4 @@
-"""Pinned list prices for cost rollups (campaign analysis + per-run cost.json).
+"""Pinned list prices for cost rollups (design analysis + per-run cost.json).
 
 USD per 1M tokens from ``configs/models/pricing.yaml``. Unknown models stay
 token-only. This is not an invoice.

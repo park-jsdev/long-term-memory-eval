@@ -1,11 +1,12 @@
-# Sandwich audit (`audit_pack.v3`)
+# Experiment pack (`audit_pack.v3`)
 
-On-disk contract for one LoCoMo sandwich run: `experiments/<run_id>/`.
+On-disk contract for one LoCoMo run: `experiments/<run_id>/`.
 
-The sandwich **design** freezes data + reader/eval and varies memory. These
-modules dump and reload the **audit of those layers** so a condition maps to
-results without re-running LLMs. Schema id is `audit_pack.v3`
-(`run_meta.json` → `audit_layout.version`).
+A frozen-reader comparison holds the dataset and the evaluation fixed and
+varies the memory system. These modules dump and reload that audit so a
+condition maps to results without re-running LLMs. Schema id is
+`audit_pack.v3` (`run_meta.json` → `audit_layout.version`). The loader
+function is still named `load_sandwich_audit`.
 
 Call traces (`reader/traces.jsonl`, `memory/writer/calls.jsonl`) record that
 an LLM ran. **Claim audit** files record what entered `{memory}` and who is
@@ -22,10 +23,10 @@ per YAML / `--method`**, then analysis scripts read that directory.
 LoCoMo JSON
     │
     ▼
-MemoryBuilder / ModelOrchestrator        variable middle (memory method)
+MemoryBuilder / ModelOrchestrator        experimental variable (memory system)
         │
         ▼
-frozen Reader (gpt-4o-mini)            {memory} + question → predicted answer
+frozen reader (gpt-4o-mini)           {memory} + question → predicted answer
         │
         ├─ string metrics (EM, token F1, LoCoMo F1)
         └─ optional autorater (LLM judge, separate CLI)
@@ -43,7 +44,7 @@ audit_loader  →  compare / autorater / paper-vs-local
 | `experiment_pack/claim_audit.py` | Lineage, ranks, writer quality, cost, attribution (call → role → claims), SUMMARY text | `audit_writer` |
 | `experiment_pack/prompt_bundle.py` | Snapshot `prompts/` + `TRACE.md` (config → prompt → jsonl) | `run.py`, autorater CLI |
 | `experiment_pack/audit_writer.py` | Create reader / writer / graph / claim files | `run.py`, `memory_log.py`, autorater CLI |
-| `experiment_pack/audit_loader.py` | Read a finished sandwich audit. No LLM. | `scripts/compare_full_runs.py`, `scripts/analysis/` |
+| `experiment_pack/audit_loader.py` | Read a finished experiment pack. No LLM. | `scripts/compare_full_runs.py`, `scripts/analysis/` |
 
 Eval / analysis code should import only:
 
@@ -82,7 +83,7 @@ experiments/<run_id>/
   predictions.jsonl             QA rows (compat copy at run root)
   predictions.csv
   plots/
-  reader/                       frozen sandwich bottom (answer LLM)
+  reader/                       fixed evaluation (answer LLM)
     predictions.jsonl
     traces.jsonl
     metrics.json
@@ -94,7 +95,7 @@ experiments/<run_id>/
     metrics.json                recall/precision + failure modes + comparison status
     COMPARISON.md               human view of the eight requested controls
     workspaces/<sample_id>/     conversation files the harness saw
-  memory/                       sandwich middle ({memory} payload)
+  memory/                       memory representation ({memory} payload)
     schema.json
     lineage.jsonl               question → injected item → writer
     retrieve_ranks.jsonl        full ranked candidates (losers included)
@@ -109,7 +110,7 @@ experiments/<run_id>/
       index.jsonl
       ingest.jsonl              MERGE / invalidate / skip_dup
       by_sample/<sample_id>.json
-  autorater/                    sandwich eval; written by run_benchmark, not run.py
+  autorater/                    Mem0 judge; written by run_benchmark, not run.py
     autorater_verdicts.jsonl
     traces.jsonl
 ```
@@ -117,7 +118,7 @@ experiments/<run_id>/
 | Slice | Load entry | Typical files |
 |-------|------------|----------------|
 | QA / reader | `load_qa_pack(run_dir)` | `predictions.jsonl`, `metrics.json`, `run_meta.json` |
-| Full sandwich | `load_sandwich_audit(run_dir)` | plus traces, writer calls, lineage, ranks, ingest, cost, attribution |
+| Full pack | `load_sandwich_audit(run_dir)` | plus traces, writer calls, lineage, ranks, ingest, cost, attribution |
 | Paths only | `AuditPaths.from_run_dir(run_dir)` | no I/O |
 
 `load_qa_pack` return keys match `scripts.compare_full_runs.load_pack`
@@ -128,7 +129,7 @@ no writer calls). `SUMMARY.md` and `cost.json` are written for every QA run.
 
 ## How to audit one claim
 
-1. `SUMMARY.md` — sandwich pins, cost, writer quality, pointers.
+1. `SUMMARY.md` — frozen-reader pins, cost, writer quality, pointers.
 2. `TRACE.md` / `prompts/` — config include chain and snapshot prompts used.
 3. `ATTRIBUTION.md` / `attribution.jsonl` — each LLM call, its role, and claims it made.
 4. `memory/lineage.jsonl` — for a `question_id`, which items were injected and

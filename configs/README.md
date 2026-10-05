@@ -10,12 +10,12 @@ configs/
   agents/        coding-agent harness (adapters / persist / tools / comparison profiles)
   writers/       memory methods and the one write-path model
   autoraters/    LLM-as-a-Judge (separate from QA)
-  stacks/        frozen combinations of data+layout+reader+run
+  stacks/        base stack: dataset pin, layout, reader, output directory
   run/           output_dir
   presets/       one-axis overlays (Mem0-parity reader, Luna reader, Codex GPT-5, …)
   models/        generation catalog (snapshots), list prices, context windows
   experiments/   experiment-runner matrices
-  analysis/      campaign vs experiment recipes (tables/plots); engines in scripts/analysis/
+  analysis/      design over finished packs (tables/plots); report code in scripts/analysis/
 ```
 
 A **writer** file is runnable: it includes `stacks/qa_default.yaml` (frozen gpt-4o-mini + `qa_mem0_v1`). Swap one piece by including another file after it:

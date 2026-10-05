@@ -1,6 +1,6 @@
 # Installing, building, and running
 
-Local steps for the evaluation harness. Campaign reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The matched-prompt reader comparison is in [runbook_mini_vs_codex_readers.md](runbook_mini_vs_codex_readers.md). The writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
+Local steps for the evaluation harness. Staged reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The matched-prompt reader comparison is in [runbook_mini_vs_codex_readers.md](runbook_mini_vs_codex_readers.md). The writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
 
 Never commit `.env` or an API key.
 
@@ -19,7 +19,7 @@ For a live model, copy `.env.example` to `.env` and set the keys you need: `OPEN
 
 ## Build
 
-The image runs the experiment runner. It also installs the Codex CLI, which a live agent cell needs.
+The image runs the experiment runner. It also installs the Codex CLI, which a live agent run spec needs.
 
 ```bash
 make image
@@ -31,7 +31,7 @@ A laptop does not need the image. Use the conda environment above.
 
 ## Run
 
-One cell, no API key. The reader is a mock. Five file-order questions:
+One run, no API key. The reader is a mock. Five file-order questions:
 
 ```bash
 python -m src.locomo_eval.run \
@@ -62,9 +62,9 @@ python -m src.locomo_eval.run \
   --run-id smoke_agent_codex
 ```
 
-### A matrix of cells
+### A matrix of run specs
 
-The experiment runner expands one YAML into hashed run ids and runs one cell per task. Questions inside a cell are still answered one at a time.
+The experiment runner expands one YAML into hashed run ids and runs one run spec per task. Questions inside a run spec are still answered one at a time.
 
 ```bash
 python -m src.experiment_runner write-manifest configs/experiments/poc.yaml
@@ -74,7 +74,7 @@ python -m src.experiment_runner aggregate configs/experiments/poc.yaml
 python -m src.experiment_runner status configs/experiments/poc.yaml
 ```
 
-`execute-qa` skips a cell that already has `_SUCCESS`. Pass `--force` to regenerate it. `make poc` is the manifest step plus cell 0.
+`execute-qa` skips a run spec that already has `_SUCCESS`. Pass `--force` to regenerate it. `make poc` is the manifest step plus run-spec index 0.
 
 `make test` runs the experiment-runner unit tests. The full suite is mock-only:
 

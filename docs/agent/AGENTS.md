@@ -8,9 +8,9 @@
 
 ## Mission
 
-LoCoMo eval: model-only Chat Completions versus a Codex agent, plus string scores and a separate Mem0 judge. Sandwich runs freeze the reader and vary the memory method. One interchangeable writer model. Layout: `docs/LAYOUT.md`.
+LoCoMo eval: model-only Chat Completions versus a Codex agent, plus string scores and a separate Mem0 judge. Frozen-reader runs (`experiment.type: sandwich`) hold the reader fixed and vary the memory system. One interchangeable writer model. Terms: `docs/glossary.md`. Layout: `docs/LAYOUT.md`.
 
-**Current phase:** `experiment_runner` expands a YAML matrix to hashed run ids and one Cloud Run task per cell. Scientific code stays in `locomo_eval`. Do **not** claim paper Table 1–2 J from the OSS clones.
+**Current phase:** `experiment_runner` expands a YAML matrix to hashed run ids and one Cloud Run task per run spec. Scientific code stays in `locomo_eval`. Do **not** claim paper Table 1–2 J from the OSS clones.
 
 `Mem0GraphMemory` is the locked graph schema when a condition uses a graph. The writer is one model (`writer.model` / `--writer-model`). Packs store `writer_model`.
 
@@ -27,20 +27,20 @@ Condition ids: `raw_chunks`, `session_summaries`, `session_summaries`, `graph`, 
 
 **Now:** Default **reader** is Mem0-parity (`gpt-4o-mini` + `prompts/readers/qa_mem0_v1.txt`). Paper methods: `python -m src.locomo_eval.eval_pipeline --method …` (`rag`, `full_context`, `openai_memory`, `mem0` / `mem0g`). Writer graphs use `graph` (`pool: single`, `configs/writers/openai_mini.yaml`). `session_summaries` is the same one-model writer emitting summaries. Matrices that name `pooled_teacher_*` or `fused_teacher_*` fail. Reader-model or `qa_v1` swaps remain a **separate** robustness axis.
 
-**Agent-level (new):** `workspace_files` + `configs/agents/` (Codex first). Model-only remains one-shot `full_context`. Isolate persist on/off and tools native/controlled. Codex exec always passes `-c web_search="disabled"`, `-c sandbox_permissions=["disk-full-read-access"]`, `--ignore-user-config`, and `--ignore-rules` (no user MCP/execpolicy; workspace `cat`/`read` allowed). Trajectory kinds `web_search` / `mcp` are outside-workspace audit, not retrieve; `agent/metrics.json` rolls up `n_web_search_sum` / `n_mcp_sum` / `used_non_workspace_tools_rate` / `n_harness_failed` / `harness_failed_rate`. Every harness run writes `agent_comparison.v1` to `run_meta.json` and `agent/COMPARISON.md`. Only `status=comparable` supports strict cross-agent claims; native Codex is audit-only until it can enforce shared tool/retrieval limits. A question with no workspace read is `harness_execution_failure`, not `retrieval_failure`. Run `comparison_status` is `harness_failed` only when every question failed; a partial miss is `harness_failed_rate` (report load relabels stored any-failed cells). Mock smoke does not need the Codex binary. Live GPT-5 + Codex is `configs/presets/agent_codex_gpt5.yaml` after mock+GCP smokes. See `docs/schemas/agent_runtime.md`.
+**Agent-level (new):** `workspace_files` + `configs/agents/` (Codex first). Model-only remains one-shot `full_context`. Isolate persist on/off and tools native/controlled. Codex exec always passes `-c web_search="disabled"`, `-c sandbox_permissions=["disk-full-read-access"]`, `--ignore-user-config`, and `--ignore-rules` (no user MCP/execpolicy; workspace `cat`/`read` allowed). Trajectory kinds `web_search` / `mcp` are outside-workspace audit, not retrieve; `agent/metrics.json` rolls up `n_web_search_sum` / `n_mcp_sum` / `used_non_workspace_tools_rate` / `n_harness_failed` / `harness_failed_rate`. Every harness run writes `agent_comparison.v1` to `run_meta.json` and `agent/COMPARISON.md`. Only `status=comparable` supports strict cross-agent claims; native Codex is audit-only until it can enforce shared tool/retrieval limits. A question with no workspace read is `harness_execution_failure`, not `retrieval_failure`. Run `comparison_status` is `harness_failed` only when every question failed; a partial miss is `harness_failed_rate` (report load relabels stored any-failed run specs). Mock smoke does not need the Codex binary. Live GPT-5 + Codex is `configs/presets/agent_codex_gpt5.yaml` after mock+GCP smokes. See `docs/schemas/agent_runtime.md`.
 
-**OpenAI agent campaign:** `openai_agent_{readers,writers}.yaml` is the
+**OpenAI agent designs:** `openai_agent_{readers,writers}.yaml` is the
 thinking-off 2024/2025/2026 all-condition plane; `openai_codex_readers.yaml`
 is no-memory workspace answering; `openai_codex_writers.yaml` uses Codex as a
 summary/fact/graph writer with frozen GPT-4o-mini reader;
 `openai_codex_end_to_end.yaml` permits persistent notes with sessions still
-visible; `openai_codex_persist_memory.yaml` is the 3-cell memory-method test
+visible; `openai_codex_persist_memory.yaml` is the 3-condition memory-method test
 (persist-off / persist-on+full / persist-on+notes_only);
-`openai_mini_writers_structured.yaml` is the 2-cell GPT-4o-mini Chat Completions
+`openai_mini_writers_structured.yaml` is the 2-condition GPT-4o-mini Chat Completions
 writer twin of PoC Codex summaries/graph. Operator instructions:
 `docs/agent/RUNBOOK_OPENAI_AGENTS.md`, `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md`,
 and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`. The focused reader
-comparison uses `openai_mini_codex_readers_analysis.yaml`: six cells with the
+comparison uses `openai_mini_codex_readers_analysis.yaml`: six run specs with the
 same rendered reader payload across model-only, Codex persist-off, and Codex
 persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 
@@ -74,12 +74,12 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `docs/reports/` | Local writeups — **gitignored** |
 | `docs/schemas/memory_runtime.md` | Runtime `{memory}` audit |
 | `docs/schemas/preprocess_runtime.md` | Session-block preprocess schema (`preprocess_io.v1`) |
-| `docs/schemas/experiment_pack.md` | Dump/load contract for one sandwich run (`audit_pack.v3` claim audit) |
+| `docs/schemas/experiment_pack.md` | Dump/load contract for one experiment pack (`audit_pack.v3` claim audit) |
 | `docs/schemas/mem0_index.md` | Write-index dump schema (`mem0_index.v1`) |
 | `docs/schemas/rag_index.md` | RAG chunk dump (`rag_index.v1`) |
 | `docs/schemas/openai_memory_index.md` | Privileged extract-all dump |
 | `src/locomo_eval/` | Baseline package |
-| `scripts/compare_full_runs.py` | Sandwich report for finished run packs; infers frozen prompt from run metadata |
+| `scripts/compare_full_runs.py` | Comparison report for finished run packs; infers frozen prompt from run metadata |
 | `scripts/analysis/` | Reusable analyses + plots (`run_benchmark` calls the autorater API unless mock) |
 | `scripts/analysis/campaign_tables.py` / `campaign_plots.py` | YAML-driven campaign/experiment means + bars and year-on-x lines (legend outside; category names) |
 | `scripts/analysis/campaign_insights.py` | Year-family labels: deltas, family gaps, rank flips, thinking, category holes |
@@ -92,21 +92,21 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
 | `experiments/<run_id>/` | Human-auditable run pack |
-| `configs/experiments/*.yaml` | Harness matrices (`poc`, `mem0_reader_2024_writers`, sandwich, longitudinal, ablation) |
+| `configs/experiments/*.yaml` | Harness matrices (`poc`, `mem0_reader_2024_writers`, frozen-reader `sandwich`, longitudinal, ablation) |
 | `src/experiment_runner/` | Thin orchestrator: expand matrix, hashed ids, QA then autorater, Parquet |
 | `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements — **local only** |
 | `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate — **local only** |
 | `infra/gcp/README.md` | Exact GCP resources to create |
-| `docs/gcp.md` | Cloud Run: infra, deploy, four-wave execute, pull from GCS |
+| `docs/gcp.md` | Cloud Run: infra, deploy, execute, pull from GCS |
 | `docs/agent/RUNBOOK_2025_LIVE.md` | Parked three-family 2025 campaign (includes Claude) |
 | `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md` | Budget 2025 campaign: GPT-5 vs DeepSeek-V3 |
 | `docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md` | 2026 campaign: GPT-5.6 Terra vs DeepSeek-V4 |
 | `docs/agent/RUNBOOK_OPENAI_AGENTS.md` | OpenAI Chat Completions vs Codex campaign operator steps |
-| `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md` | 3-cell persist-as-memory GCS copy-paste |
-| `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md` | 2-cell mini Chat Completions vs Codex summary/graph writers |
-| `docs/runbook_mini_vs_codex_readers.md` | Six-cell GPT-4o-mini/Codex reader analysis: model, persist-off, and persist-on for full context and dataset summaries |
+| `docs/agent/RUNBOOK_OPENAI_CODEX_PERSIST.md` | 3-condition persist-as-memory GCS copy-paste |
+| `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md` | 2-condition mini Chat Completions vs Codex summary/graph writers |
+| `docs/runbook_mini_vs_codex_readers.md` | Six-run-spec GPT-4o-mini/Codex reader analysis: model, persist-off, and persist-on for full context and dataset summaries |
 | `configs/analysis/campaign_2025_live.yaml` | Three-family analysis plane (tables/plots, no LLM) |
-| `configs/analysis/campaign_2025_openai_deepseek.yaml` | OpenAI vs DeepSeek packs + thinking on/off recipes |
+| `configs/analysis/campaign_2025_openai_deepseek.yaml` | OpenAI vs DeepSeek packs + thinking on/off designs |
 | `configs/analysis/openai_deepseek_thinking_axis.yaml` | Within-family thinking on/off; separate token / generate / search / total plots |
 | `configs/analysis/campaign_year_family.yaml` | 2024–2026 robustness + year-move story (pins + live; notebook 15) |
 | `configs/analysis/campaign_openai_codex_poc.yaml` | Mini Codex PoC: tool audit + Table 2 pins + 2024 mini vs Codex vs 2025/2026 model-only J (notebook 17) |
@@ -114,7 +114,7 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `configs/analysis/campaign_openai_codex_persist_memory.yaml` | Persist-off / persist-on / notes_only vs summaries (notebook 17) |
 | `configs/analysis/campaign_openai_mini_vs_codex_writers.yaml` | Mini Chat Completions vs Codex summaries/graph writers plus full_context ceiling overlay (notebook 17) |
 | `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | GPT-4o-mini/Codex reader analysis with persist-off/on as separate conditions |
-| `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same recipes, 2026 Terra vs V4 packs |
+| `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same designs, 2026 Terra vs V4 packs |
 | `notebooks/` | Local notebooks — **gitignored**, except `17_openai_mini_codex_readers_analysis.ipynb` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |
 | `README.md` | Landing page: harness diagram, local quickstart, license, citation |
@@ -154,7 +154,7 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `metrics.py` | EM, token F1, LoCoMo F1 |
 | `report.py` | JSONL/CSV/plots |
 | `run.py` | CLI: one memory YAML → one audit pack (`run_locomo_pipeline_with_memory_config`; compare is a separate script) |
-| `experiment_pack/` | Sandwich-run I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) + `verify_pack` / `verify_graph_years` (offline log verifier). Output stays `experiments/<run_id>/` |
+| `experiment_pack/` | Experiment-pack I/O: `audit_layout` + `claim_audit` (lineage/cost/SUMMARY) + `audit_writer` vs `audit_loader` + `prompt_bundle` (`TRACE.md`) + `verify_pack` / `verify_graph_years` (offline log verifier). Output stays `experiments/<run_id>/` |
 | `audit_pack.py` | Compat shim re-exporting `audit_writer` / `audit_layout` |
 | `offline_evaluate.py` | CLI: rescore stored predictions with string metrics only (no API, not an LLM autorater) |
 
@@ -166,10 +166,10 @@ Purpose-named files (no generic `run.py` / `config.py`). Wraps locomo_eval; does
 |------|----------------|
 | `expand_run_matrix.py` | YAML → ordered `ExperimentRunSpec` list |
 | `hashed_run_id.py` | Deterministic `<experiment>-<8 hex>` |
-| `execute_qa_run.py` | One cell → locomo_eval QA + Parquet + `_SUCCESS` |
+| `execute_qa_run.py` | One run spec → locomo_eval QA + Parquet + `_SUCCESS` |
 | `execute_autorater_run.py` | Separate judge job on stored predictions |
 | `analysis/` | Load analysis YAML + write report dirs; tables/plots come from `scripts/analysis/campaign_*`; cost from `analysis/cost.py`; `context_window.py` is a standalone coverage/window report (not a job) |
-| `aggregate_successful_runs.py` | Third wave: collect all cells → `experiments/<name>/aggregate/` |
+| `aggregate_successful_runs.py` | Third wave: collect all run specs → `experiments/<name>/aggregate/` |
 | `completed_run_skip.py` | Skip if `_SUCCESS` unless `--force` |
 | `open_configured_store.py` / `local_object_store.py` / `gcs_object_store.py` / `gcs_run_workspace.py` | Portable storage; GCS download/upload for Cloud Run (dataset + `shared/<index_run_id>/`) |
 | `experiment_cli.py` | `write-manifest`, `execute-qa`, `execute-autorater`, `aggregate`, `collect-full`, `report`, `status` |
@@ -183,7 +183,7 @@ conda activate <your-env-name>
 pip install -r requirements.txt
 python scripts/fetch_locomo.py
 
-# Experiment harness (matrix → one cell). Mock PoC, no API:
+# Experiment harness (matrix → one run spec). Mock PoC, no API:
 python -m src.experiment_runner write-manifest configs/experiments/poc.yaml
 python -m src.experiment_runner execute-qa configs/experiments/poc.yaml --run-index 0
 python -m src.experiment_runner execute-autorater configs/experiments/poc.yaml --run-index 0
@@ -264,7 +264,7 @@ python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess
 python -m src.locomo_eval.preprocess.run_index --run-id locomo_preprocess --eval-questions 10
 python -m src.locomo_eval.preprocess.run_index --eval-questions 10 --eval-reader mock --run-id smoke_preprocess
 
-# Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + sandwich regression locks
+# Unit tests — preprocess (HLD i) + Mem0 index + evaluation (HLD iv) + controlled-comparison regression locks
 # pytest.ini disables pytest-asyncio (not used; old plugin + pytest 9 fails collection).
 python -m pytest tests/test_preprocessing_pipeline.py tests/test_session_documents.py tests/test_preprocess_index.py tests/test_mem0_index.py tests/test_rag_index.py tests/test_openai_memory.py tests/test_stats.py tests/test_eval_pipeline.py tests/test_evaluation_pipeline.py tests/test_regressions.py tests/test_autorater_sanity.py tests/test_compare_to_paper.py tests/test_integration_sanity.py tests/test_run_isolation.py tests/test_model_orchestrator.py tests/test_memory_writer.py tests/test_experiment_pack.py tests/test_claim_audit.py tests/test_experiment_runner_matrix.py tests/test_experiment_runner_execute_qa.py tests/test_experiment_runner_aggregate.py tests/test_config_includes.py tests/test_prompt_bundle.py tests/test_gcs_run_workspace.py tests/test_analysis_campaign.py tests/test_campaign_cost.py tests/test_campaign_insights.py tests/test_context_window.py tests/test_verify_experiments.py tests/test_agent_harness.py -q
 # or (file path avoids a site-packages module named `tests` shadowing this folder)
@@ -291,7 +291,7 @@ python -m src.locomo_eval.ping_writers --providers openai,anthropic,deepseek
 # Mock writer graph (no API). One model. --writer-model swaps it.
 python -m src.locomo_eval.run --config configs/writers/graph.yaml --reader mock --writer mock --max-questions 3 --run-id smoke_graph
 python -m src.locomo_eval.run --config configs/writers/session_summaries.yaml --reader mock --writer mock --writer-model gpt-4o-mini --max-questions 3 --run-id smoke_writer_summaries
-# Writer thinking on by default except GPT-5.x / GPT-6 catalog overlays (off + 8192) when matrix.thinking is absent. OpenAI vs DeepSeek campaigns set matrix.thinking on/off. Frozen GPT-5.6 sandwich reader stays reasoning_effort=none unless --reader-thinking on; gpt-5 off-cells use minimal.
+# Writer thinking on by default except GPT-5.x / GPT-6 catalog overlays (off + 8192) when matrix.thinking is absent. OpenAI vs DeepSeek designs set matrix.thinking on/off. Frozen GPT-5.6 reader stays reasoning_effort=none unless --reader-thinking on; gpt-5 off-settings use minimal.
 python -m src.locomo_eval.run --config configs/writers/graph.yaml --thinking off --reader mock --writer mock --max-questions 3 --run-id smoke_thinking_off
 
 # Live writer (needs the provider key for writer.model). Do not pass --writer mock.
@@ -314,7 +314,7 @@ Each run under `experiments/<run_id>/` must include:
 - `agent/` — harness traces, retrieval trajectory, conversation workspaces (when `answer_mode: agent`)
 - `cost.json` — reader/teacher token totals and pinned-USD rollup
 - `SUMMARY.md` — human claim-audit report (lineage pointers, teacher quality, ingest)
-- `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → sandwich role → claims made
+- `ATTRIBUTION.md` / `attribution.jsonl` — LLM call → pipeline role → claims made
 - `plots/` — overall + category bars
 - `reader/` — answer-LLM traces (`traces.jsonl`) + LoCoMo predictions
 - `memory/` — `{memory}` payload; `lineage.jsonl` (question → item → writer); `retrieve_ranks.jsonl` (losers included); `memory/writer/` when a writer ran (calls, session text, quality.json); `memory/graph/` when graph memory was built (`ingest.jsonl`)
@@ -343,16 +343,16 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 
 ## Design rules for agents
 
-1. **Sandwich vs other designs:** sandwich YAMLs freeze reader+prompt and vary memory. Default sandwich reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). **Agent eval** (`type: agent`) freezes the harness model and varies adapter / persist / tools; `workspace_files` is not a stuffed-context memory claim. Do not mix a reader sweep into a sandwich claim. One writer model per cell (`tests/test_memory_writer.py`). GPT-5.6 frozen sandwich readers stay `reasoning_effort=none`; hosted `gpt-5` off-cells use `minimal` (API rejects `none`). OpenAI vs DeepSeek campaigns set `matrix.thinking: [off, on]` for **both** families as readers (sweep) and writers (sandwich). DeepSeek on/off always sends `extra_body.thinking` `{type: enabled|disabled}` (`deepseek-chat` defaults off; `deepseek-v4-flash` defaults on). Headroom: reader 256/8192, teacher 8192/32768 (overrides catalog `teacher:`). `--reader-thinking` is the reader-sweep flag; `--thinking` remains write-path. Parked three-family YAML omits the axis; catalog GPT-5/5.6/6 `teacher:` stays off + 8192 there. Overall analysis F1/J drop LoCoMo category 5 (Mem0); category plots keep it. Reasoning tokens (`agent_reasoning_tokens` / `teacher_reasoning_tokens`) are first-class campaign metrics next to latency. Each figure title is its `y` metric (tokens ≠ generate ≠ search p50 ≠ total p95). If YAML `y` is missing from the table, skip that figure — do not draw locomo_f1 under a judge_score filename. If YAML plot `x` or `hue` is missing from the grouped table, skip the figure — do not fall back to `model_family`. `mean_table` re-annotates `paper_method` / `live_source` / `compare_source` rather than dropping them from `group_by` (that drop averaged every memory method into one OpenAI bar). `runs.parquet` stores pack F1 including category 5 and has no J; `load_pack` copies cat-5-excluded mean `judge_score` / `locomo_f1` / `token_f1` / `exact_match` from examples, and mean tool-audit columns (`n_web_search`, `n_mcp`, `used_non_workspace_tools`, `n_retrieval_calls`, `memory_recall`) over all questions (audit keeps category 5). Count metrics autoscale. Workspace J vs LoCoMo F1 is the same predicted string (F1 = token overlap on short gold; J = Mem0 paraphrase judge). Notebook `notebook_show` / takeaways render GitHub-flavored markdown tables (Cursor does not reliably display pandas HTML). Gold-id `recall_bin` is union over retrieve events; `evidence_retrieved` is all-or-nothing. `hop_bin` is the first retrieve step that hit a gold `dia_id` (writes do not count). Persist-off workspace prompts never mention notes; persist-on appends structured `- (dia_id) speaker: fact` lines; `notes_only` hides `sessions/` after ingest and is the harness memory-method cell (not persist-on with the haystack still on disk). Campaign YAML `takeaways:` contrast harness reader vs Chat Completions reader vs sandwich writer (`delta` = left − right). Notebooks 17 pin Mem0 Table 2 / local_clone J and plot catalog **model year** separately from the 2026 Codex CLI harness. PoC `reader_vs_paper_j` is paper / local clone / gpt-4o-mini + Codex on `full_context` (persist-off workspace, not a second Chat Completions live clone); `methods_vs_paper_j` repeats that 3-bar for each Table 2 method and also reports LoCoMo F1 (session-summaries paper F1 is Maharana et al. 2024 Table 3 Summary RAG top-5, not Mem0 J). Mini-vs-Codex `methods_vs_full_context` is a ceiling overlay (`memory_lane` x `system_harness`): stuffed Chat Completions `full_context`, persist-off Codex workspace, and sandwich summaries/graph writers. It is not a sandwich ranking. Missing RAG search stays empty, not 0; `full_context` search is 0.
-2. **Orchestrator is software**, not one giant LLM call (`ModelOrchestrator`). The **experiment runner** (`src/experiment_runner`) only expands matrices and launches one locomo_eval cell per task.
+1. **Frozen reader vs other designs:** frozen-reader YAMLs (`experiment.type: sandwich`) freeze reader+prompt and vary the memory system. Default frozen reader remains `gpt-4o-mini` + `qa_mem0_v1`; mem0 writer stays `gpt-4o-mini` extract for shared indexes. Sweeps/ablations are separate YAMLs (`experiment.type`). **Agent eval** (`type: agent`) freezes the harness model and varies adapter / persist / tools; `workspace_files` is not a stuffed-context memory claim. Do not mix a reader sweep into a frozen-reader claim. One writer model per run spec (`tests/test_memory_writer.py`). GPT-5.6 frozen readers stay `reasoning_effort=none`; hosted `gpt-5` off-settings use `minimal` (API rejects `none`). OpenAI vs DeepSeek designs set `matrix.thinking: [off, on]` for **both** families as readers (sweep) and writers (frozen-reader experiments). DeepSeek on/off always sends `extra_body.thinking` `{type: enabled|disabled}` (`deepseek-chat` defaults off; `deepseek-v4-flash` defaults on). Headroom: reader 256/8192, teacher 8192/32768 (overrides catalog `teacher:`). `--reader-thinking` is the reader-sweep flag; `--thinking` remains write-path. Parked three-family YAML omits the axis; catalog GPT-5/5.6/6 `teacher:` stays off + 8192 there. Overall analysis F1/J drop LoCoMo category 5 (Mem0); category plots keep it. Reasoning tokens (`agent_reasoning_tokens` / `teacher_reasoning_tokens`) are first-class campaign metrics next to latency. Each figure title is its `y` metric (tokens ≠ generate ≠ search p50 ≠ total p95). If YAML `y` is missing from the table, skip that figure — do not draw locomo_f1 under a judge_score filename. If YAML plot `x` or `hue` is missing from the grouped table, skip the figure — do not fall back to `model_family`. `mean_table` re-annotates `paper_method` / `live_source` / `compare_source` rather than dropping them from `group_by` (that drop averaged every memory method into one OpenAI bar). `runs.parquet` stores pack F1 including category 5 and has no J; `load_pack` copies cat-5-excluded mean `judge_score` / `locomo_f1` / `token_f1` / `exact_match` from examples, and mean tool-audit columns (`n_web_search`, `n_mcp`, `used_non_workspace_tools`, `n_retrieval_calls`, `memory_recall`) over all questions (audit keeps category 5). Count metrics autoscale. Workspace J vs LoCoMo F1 is the same predicted string (F1 = token overlap on short gold; J = Mem0 paraphrase judge). Notebook `notebook_show` / takeaways render GitHub-flavored markdown tables (Cursor does not reliably display pandas HTML). Gold-id `recall_bin` is union over retrieve events; `evidence_retrieved` is all-or-nothing. `hop_bin` is the first retrieve step that hit a gold `dia_id` (writes do not count). Persist-off workspace prompts never mention notes; persist-on appends structured `- (dia_id) speaker: fact` lines; `notes_only` hides `sessions/` after ingest and is the harness memory-method condition (not persist-on with the haystack still on disk). Campaign YAML `takeaways:` contrast harness reader vs Chat Completions reader vs frozen-reader writer (`delta` = left − right). Notebooks 17 pin Mem0 Table 2 / local_clone J and plot catalog **model year** separately from the 2026 Codex CLI harness. PoC `reader_vs_paper_j` is paper / local clone / gpt-4o-mini + Codex on `full_context` (persist-off workspace, not a second Chat Completions live clone); `methods_vs_paper_j` repeats that 3-bar for each Table 2 method and also reports LoCoMo F1 (session-summaries paper F1 is Maharana et al. 2024 Table 3 Summary RAG top-5, not Mem0 J). Mini-vs-Codex `methods_vs_full_context` is a ceiling overlay (`memory_lane` x `system_harness`): stuffed Chat Completions `full_context`, persist-off Codex workspace, and frozen-reader summaries/graph writers. It is not a ranking of memory systems. Missing RAG search stays empty, not 0; `full_context` search is 0.
+2. **Orchestrator is software**, not one giant LLM call (`ModelOrchestrator`). The **experiment runner** (`src/experiment_runner`) only expands matrices and launches one locomo_eval run spec per task.
 3. **Prefer small pure functions** over frameworks.
 4. **Keep metrics dual-reported:** SPEC token F1/EM *and* LoCoMo category F1.
    Autorater reports additionally use Mem0 F1/BLEU-1/J and must label these
-   separately; Mem0 category 5 is excluded from J and from campaign overall
+   separately; Mem0 category 5 is excluded from J and from design-level overall
    F1/EM (`source: runs` pack F1 is replaced with the cat-5-excluded example mean).
    Mock autorater output is plumbing-only (`mock_sanity_not_llm_judge`), must
    not occupy the literature J column, and must never log a live model id.
-5. **Runs are self-contained.** A bare `locomo_eval.run` invocation still clears and regenerates. **`experiment_runner execute-qa` skips** when `_SUCCESS` exists (Cloud Run retries). `--force` regenerates. Do not add response stores or per-question resume. Shared Mem0/RAG indexes (`mem0_locomo10`, `rag_locomo10`) are built once and reused across reader cells.
+5. **Runs are self-contained.** A bare `locomo_eval.run` invocation still clears and regenerates. **`experiment_runner execute-qa` skips** when `_SUCCESS` exists (Cloud Run retries). `--force` regenerates. Do not add response stores or per-question resume. Shared Mem0/RAG indexes (`mem0_locomo10`, `rag_locomo10`) are built once and reused across reader run specs.
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B. Components live under `configs/{writers,readers,layouts,autoraters,teachers}/` and compose with `includes:` (later keys win). `pipeline.memory` is still a builder id, not a path to another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files. Traces stay local (gitignored); keep writing them anyway.
 8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiment_pack.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiment_pack.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
@@ -376,7 +376,7 @@ From review. Follow these when adding or renaming code.
 - Group related cases in a `TestCase` per function or class; do not pile unrelated functions into one method.
 - Claim-audit joins: lock sample/session isolation, retrieve-loser exclusion, and **optional** fields/filters (`None` = no restriction; missing layers = empty, not invented teachers). See `tests/test_claim_audit.py`, `tests/test_experiment_pack.py`, and `tests/test_regressions.py`.
 
-**Experiments.** One locomo_eval YAML per `run_locomo_pipeline_with_memory_config` call. The harness (`configs/experiments/*.yaml`) expands many cells and calls that once per `--run-index`. QA and autorater are separate jobs. Compare packs with `scripts/compare_full_runs.py` as before.
+**Experiments.** One locomo_eval YAML per `run_locomo_pipeline_with_memory_config` call. The harness (`configs/experiments/*.yaml`) expands many run specs and calls that once per `--run-index`. QA and autorater are separate jobs. Compare packs with `scripts/compare_full_runs.py` as before.
 
 ---
 
@@ -416,4 +416,4 @@ Mem0 Platform / Neo4j / Qdrant, claiming paper Table 1–2 J from this OSS clone
 - Mem0 protocol: Chhikara et al., arXiv:2504.19413 (architecture clone; not Platform v2 numbers)
 - Autorater protocol/baselines: Chhikara et al., arXiv:2504.19413
 - Autorater prompt source: [Mem0 `ACCURACY_PROMPT` (pinned code)](https://github.com/mem0ai/mem0/blob/ece7ff6b/evaluation/metrics/llm_judge.py), also reproduced in paper Appendix A
-- Sandwich idea: Bowman et al. 2022 scalable oversight  
+- Controlled comparison: Bowman et al. 2022 scalable oversight  

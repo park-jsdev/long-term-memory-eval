@@ -1,4 +1,4 @@
-"""Run campaign/experiment analyses from YAML recipes (no LLM).
+"""Run design and experiment analyses from YAML configurations (no LLM).
 
 Tables and figures come from ``scripts.analysis.campaign_tables`` /
 ``scripts.analysis.campaign_plots``. This module only loads packs and writes

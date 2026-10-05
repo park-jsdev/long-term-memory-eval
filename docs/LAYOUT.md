@@ -17,7 +17,7 @@ LoCoMo eval, two answer paths, one writer model.
 | `configs/writers/` | One memory method per file |
 | `configs/agents/` | Codex adapter, persist, tools |
 | `configs/writers/openai_mini.yaml` | The one writer-model slot |
-| `configs/experiments/` | Matrices (one cell = one Cloud Run task) |
+| `configs/experiments/` | Design matrices (one run spec = one Cloud Run task) |
 | `configs/analysis/` | Campaign tables and plots |
 | `prompts/` | Prompt text, mirrored by role |
 

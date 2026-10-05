@@ -1,7 +1,7 @@
 """CLI: run the LoCoMo QA pipeline for **one** memory config.
 
 This module does not compare conditions and is not a multi-run orchestrator.
-Typical sandwich experiment:
+Typical frozen-reader comparison:
 
 1. Call this once with config A (e.g. ``configs/writers/raw_chunks.yaml``) → ``experiments/<run_id_A>/``
 2. Call this once with config B (e.g. ``configs/writers/session_summaries.yaml``) → ``experiments/<run_id_B>/``
@@ -1325,7 +1325,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--reader-thinking",
         default=None,
         choices=("on", "off"),
-        help="Answer-model thinking/reasoning (reader sweep). Frozen sandwich readers omit this.",
+        help="Answer-model thinking/reasoning (reader sweep). Frozen readers omit this.",
     )
     p.add_argument(
         "--message-layout",

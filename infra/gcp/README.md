@@ -1,6 +1,6 @@
 # GCP resources for the memorybench PoC
 
-**How to run (PowerShell, deploy, four waves, pull):** [`docs/gcp.md`](../../docs/gcp.md).  
+**How to run (PowerShell, deploy, execute, pull):** [`docs/gcp.md`](../../docs/gcp.md).  
 **This 2026 campaign (OpenAI vs DeepSeek):** [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](../../docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md).  
 **Completed 2025 campaign (budget, OpenAI vs DeepSeek):** [`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](../../docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md).  
 **Parked three-family (includes Claude):** [`docs/agent/RUNBOOK_2025_LIVE.md`](../../docs/agent/RUNBOOK_2025_LIVE.md). This file is the resource inventory.
@@ -106,7 +106,7 @@ Grant **only**:
 
 Do not grant `roles/owner` or project-wide storage admin.
 
-## 6. Cloud Run Jobs (same image, four jobs)
+## 6. Cloud Run Jobs (same image, one job per task)
 
 | Job name | Args | Tasks |
 |----------|------|--------|
@@ -133,7 +133,7 @@ Mount / inject:
 
 ## 7. What you do not create
 
-Cloud SQL, Firestore, Pub/Sub, GKE, Vertex AI endpoints, Cloud Functions, a second job per matrix cell, or a downloaded JSON key inside the container.
+Cloud SQL, Firestore, Pub/Sub, GKE, Vertex AI endpoints, Cloud Functions, a second job per run spec, or a downloaded JSON key inside the container.
 
 ## 8. Deploy the image (after secrets exist)
 

@@ -139,7 +139,7 @@ Every Phase‑1 run writes under `experiments/<run_id>/memory/`:
 | `memory/lineage.jsonl` | Question → injected memory item → writer (`proposed_by`) |
 | `memory/retrieve_ranks.jsonl` | Full ranked retrieve candidates, not just winners |
 
-Run-root `ATTRIBUTION.md` / `attribution.jsonl` join each LLM call to its sandwich role and the claims it made (not stored under `memory/`).
+Run-root `ATTRIBUTION.md` / `attribution.jsonl` join each LLM call to its pipeline role (reader, writer) and the claims it made (not stored under `memory/`).
 
 Answer-LLM traces live under `experiments/<run_id>/reader/` (`traces.jsonl` + a copy of `predictions.jsonl`). Judge traces live under `autorater/traces.jsonl`. Run-root `predictions.jsonl` is a compatibility copy of `reader/predictions.jsonl`.
 

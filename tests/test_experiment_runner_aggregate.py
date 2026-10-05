@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.experiment_runner.aggregate_successful_runs import (
+    _concat,
     collect_experiment_results,
     collect_full_run_packs,
 )
@@ -246,6 +247,42 @@ class TestCollectExperimentResultsWritesCatalogAndParquet(unittest.TestCase):
             self.assertIn(f"{prefix}/runs/{spec.run_id}/memory/schema.json", store.blobs)
             self.assertIn(f"{prefix}/runs/{spec.run_id}/predictions.jsonl", store.blobs)
             self.assertNotIn(f"{prefix}/by_run/{spec.run_id}/SUMMARY.md", store.blobs)
+
+
+class TestConcatParquetTables(unittest.TestCase):
+    def test_concat_returns_one_schema_when_null_and_large_string_columns_differ(self):
+        try:
+            import pyarrow as pa
+        except ImportError:
+            self.skipTest("pyarrow not installed")
+        model = pa.table(
+            {
+                "run_id": pa.array(["model-cell"], type=pa.string()),
+                "agent_harness": pa.array([None], type=pa.null()),
+                "n_retrieval_calls": pa.array([None], type=pa.null()),
+                "used_non_workspace_tools": pa.array([None], type=pa.null()),
+                "notes_retrieved": pa.array([None], type=pa.null()),
+            }
+        )
+        codex = pa.table(
+            {
+                "run_id": pa.array(["codex-cell"], type=pa.large_string()),
+                "agent_harness": pa.array(["codex"], type=pa.string()),
+                "n_retrieval_calls": pa.array([0], type=pa.int64()),
+                "used_non_workspace_tools": pa.array([False], type=pa.bool_()),
+                "notes_retrieved": pa.array([True], type=pa.bool_()),
+            }
+        )
+        merged = _concat([model, codex], pa)
+        self.assertEqual(merged.num_rows, 2)
+        self.assertEqual(merged.column("run_id").to_pylist(), ["model-cell", "codex-cell"])
+        self.assertEqual(merged.column("agent_harness").to_pylist(), [None, "codex"])
+        self.assertEqual(merged.column("n_retrieval_calls").to_pylist(), [None, 0])
+        self.assertEqual(
+            merged.column("used_non_workspace_tools").to_pylist(),
+            [None, False],
+        )
+        self.assertEqual(merged.column("notes_retrieved").to_pylist(), [None, True])
 
 
 if __name__ == "__main__":

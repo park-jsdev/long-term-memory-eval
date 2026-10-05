@@ -1,8 +1,9 @@
 """Named experiment designs the harness can expand.
 
-Sandwich is one design, not the only one. Agent eval freezes the harness
-model and varies adapter / persist / tools. The harness does not assume a
-frozen reader unless the YAML says ``type: sandwich`` or ``type: agent``.
+The frozen-reader type token is ``sandwich``. It is one design, not the
+only one. Agent eval freezes the harness model and varies adapter, persist,
+or tools. The harness does not assume a frozen reader unless the YAML says
+``type: sandwich`` or ``type: agent``.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Deterministic sandwich-pack verifier (configs, prompts, schemas, logs).
+"""Deterministic experiment-pack verifier (configs, prompts, schemas, logs).
 
 No LLM. Reads a finished ``experiments/<run_id>/`` (or a thin aggregate
 catalog copy) and returns ordered checks. Analysis/CLI import this module;
@@ -134,7 +134,7 @@ def classify_pack_kind(paths: AuditPaths, meta: dict[str, Any]) -> str:
 
 
 def verify_pack(run_dir: str | Path) -> PackReport:
-    """Walk config → prompt snapshot → jsonl logs for one sandwich run."""
+    """Walk config → prompt snapshot → jsonl logs for one experiment pack."""
     paths = AuditPaths.from_run_dir(run_dir)
     meta = load_json(paths.run_meta)
     memory_type = str(meta.get("memory_type") or "") or None
@@ -349,7 +349,7 @@ def _config_checks(
                 _fail(
                     "config.sandwich_reader",
                     "config",
-                    f"sandwich pack reader={reader!r}, expected {SANDWICH_READER}",
+                    f"frozen-reader pack reader={reader!r}, expected {SANDWICH_READER}",
                     evidence={"reader_model": reader},
                 )
             )
@@ -358,7 +358,7 @@ def _config_checks(
             _skip(
                 "config.sandwich_reader",
                 "config",
-                "not a mem0-reader sandwich pack",
+                "not a mem0-reader frozen-reader pack",
                 evidence={"reader_model": reader},
             )
         )

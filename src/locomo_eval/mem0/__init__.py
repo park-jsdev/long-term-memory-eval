@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-``MemoryBuilder`` already swaps the sandwich middle (``raw_chunks`` vs
+``MemoryBuilder`` already swaps the memory system (``raw_chunks`` vs
 ``mem0`` vs …). This package clones Mem0's *method* so that, *inside* that
 method, we can freeze write ops (extract + ADD/UPDATE/DELETE/NONE) and the
 read path, and swap only ``GraphMemory`` (e.g. a later distilled graph).
