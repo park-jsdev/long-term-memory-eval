@@ -1,0 +1,10 @@
+{
+  "schema_version": "audit_pack.v3",
+  "role": "reader",
+  "notes": "Frozen answer LLM. traces.jsonl is the Chat Completions audit (reasoning usually empty under reasoning_effort=none / gpt-4o-mini). predictions.jsonl is the LoCoMo QA pack (gold is scorer-only).",
+  "files": {
+    "predictions.jsonl": "one row per question (same as run-root copy)",
+    "traces.jsonl": "one LLM call per question: output, reasoning, usage",
+    "metrics.json": "LoCoMo / SPEC scores copied from the run"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "experiment_name": "locomo-openai-mini-codex-readers-analysis-v2",
+  "experiment_type": "agent",
+  "run_index": 4,
+  "run_id": "locomo-openai-mini-codex-readers-analysis-v2-e358bc4d",
+  "benchmark": "locomo",
+  "memory_method": "session_summaries",
+  "reader": {
+    "display_name": "GPT-4o mini",
+    "provider": "openai",
+    "family": "openai",
+    "generation": 2024,
+    "api_model_id": "gpt-4o-mini",
+    "model_snapshot": "TO_CONFIRM",
+    "catalog_id": "gpt-4o-mini",
+    "status": "runnable",
+    "thinking": null,
+    "max_tokens": null
+  },
+  "seed": 1,
+  "prompt_path": "prompts/readers/qa_mem0_v1.txt",
+  "judge_provider": "openai",
+  "judge_model": "gpt-4o-mini",
+  "writer": null,
+  "max_questions": null,
+  "max_samples": null,
+  "sample_id": null,
+  "method_yaml": "configs/writers/session_summaries.yaml",
+  "mem0_index_run_id": null,
+  "rag_index_run_id": null,
+  "status": "completed",
+  "agent": "codex",
+  "agent_persist": false,
+  "agent_sessions": "full",
+  "agent_tools": "native",
+  "agent_prompt_mode": "reader_prompt",
+  "agent_comparison": {
+    "strict": false,
+    "tool_budget": {
+      "allowed_tools": [],
+      "max_tool_calls": null,
+      "max_retrieved_tokens": null,
+      "wall_clock_s": 600
+    }
+  },
+  "extras": {},
+  "reader_provider": "openai",
+  "reader_model": "gpt-4o-mini",
+  "reader_display_name": "GPT-4o mini",
+  "reader_family": "openai",
+  "reader_generation": 2024,
+  "writer_model": null,
+  "thinking": null,
+  "reader_thinking": null,
+  "reader_max_tokens": null,
+  "teacher_thinking": null,
+  "teacher_max_tokens": null,
+  "comparison_contract": {
+    "strict": false,
+    "tool_budget": {
+      "allowed_tools": [],
+      "max_tool_calls": null,
+      "max_retrieved_tokens": null,
+      "wall_clock_s": 600
+    }
+  },
+  "git_commit": null,
+  "data_sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4",
+  "completed_at": "2026-10-04T17:21:27.744819+00:00",
+  "audit_predictions": "predictions.jsonl",
+  "examples_parquet": "examples.parquet",
+  "summary_parquet": "summary.parquet"
+}

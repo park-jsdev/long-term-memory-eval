@@ -23,6 +23,25 @@ separately, so persist-on is an auditable stateful-agent condition.
 | `configs/experiments/openai_mini_codex_readers_analysis_gcs.yaml` | GCS storage overlay. |
 | `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | Tables, plots, and paired takeaways. |
 | `notebooks/17_openai_mini_codex_readers_analysis.ipynb` | Thin report wrapper. |
+| `experiments/locomo-openai-mini-codex-readers-analysis-v2/` | Pinned reference pack for this six-cell run. |
+
+## Pinned reference
+
+`experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the collected
+six-cell pack for this comparison. Every question row is in that tree, along
+with the autorater verdicts, agent notes, and `collected/examples.parquet`.
+
+GitHub rejects a blob over 100 MB. On the three full-context cells, the same
+memory text was repeated on every question, and the Codex traces repeated the
+same task-prompt prefix. Those bodies are stored once:
+
+- `memory/by_sample/<sample_id>.txt` is the omitted `memory_text`. The
+  prediction row points at it with `memory_text_path`.
+- `agent/prompt_prefix/<sample_id>.txt` plus the last `argv` element is the
+  original Codex task prompt.
+
+The session-summary cells were already under the limit and are unchanged.
+`REFERENCE_PIN.json` records the original blob hashes.
 
 ## Run
 
