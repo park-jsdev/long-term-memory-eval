@@ -59,7 +59,7 @@ class AutoraterVerdict:
 
 
 class Autorater(ABC):
-    """Sandwich-adjacent evaluator: grades a predicted answer against gold.
+    """Mem0 judge: grades a predicted answer against gold.
 
     Called from ``run_benchmark`` after the answer LLM has already run.
     """

@@ -5,8 +5,8 @@ On-disk contract for one LoCoMo run: `experiments/<run_id>/`. Run packs are giti
 A frozen-reader comparison holds the dataset and the evaluation fixed and
 varies the memory system. These modules dump and reload that audit so a
 condition maps to results without re-running LLMs. Schema id is
-`audit_pack.v3` (`run_meta.json` → `audit_layout.version`). The loader
-function is still named `load_sandwich_audit`.
+`audit_pack.v3` (`run_meta.json` → `audit_layout.version`). Load a finished
+pack with `load_pack_audit`.
 
 Call traces (`reader/traces.jsonl`, `memory/writer/calls.jsonl`) record that
 an LLM ran. **Claim audit** files record what entered `{memory}` and who is
@@ -49,7 +49,7 @@ audit_loader  →  compare / autorater / paper-vs-local
 Eval / analysis code should import only:
 
 ```python
-from src.locomo_eval.experiment_pack.audit_loader import load_sandwich_audit, load_qa_pack
+from src.locomo_eval.experiment_pack.audit_loader import load_pack_audit, load_qa_pack
 from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
 from src.locomo_eval.experiment_pack.verify_pack import verify_pack
 from src.locomo_eval.experiment_pack.verify_graph_years import diagnose_graph_year_stagnation
@@ -118,7 +118,7 @@ experiments/<run_id>/
 | Slice | Load entry | Typical files |
 |-------|------------|----------------|
 | QA / reader | `load_qa_pack(run_dir)` | `predictions.jsonl`, `metrics.json`, `run_meta.json` |
-| Full pack | `load_sandwich_audit(run_dir)` | plus traces, writer calls, lineage, ranks, ingest, cost, attribution |
+| Full pack | `load_pack_audit(run_dir)` | plus traces, writer calls, lineage, ranks, ingest, cost, attribution |
 | Paths only | `AuditPaths.from_run_dir(run_dir)` | no I/O |
 
 `load_qa_pack` return keys match `scripts.compare_full_runs.load_pack`
@@ -141,7 +141,7 @@ no writer calls). `SUMMARY.md` and `cost.json` are written for every QA run.
 ## Attribution helpers
 
 ```python
-audit = load_sandwich_audit("experiments/smoke_graph")
+audit = load_pack_audit("experiments/smoke_graph")
 openai_calls = audit.writer_calls_for("openai")
 items = audit.lineage_for(question_id="conv-26-q-0", sample_id="conv-26")
 ranks = audit.retrieve_ranks_for(question_id="conv-26-q-0", sample_id="conv-26")

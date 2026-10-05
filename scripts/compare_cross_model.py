@@ -123,14 +123,14 @@ def cross_model_analysis(
     }
     if axis == "reader":
         sanity["expected"] = (
-            "Same memory (frozen middle); different reader_model in logs; "
+            "Same memory system; different reader_model in logs; "
             "answers/scores may differ."
         )
         sanity["memory_held_fixed"] = frac_same_mem == 1.0 if common else None
     elif axis == "teacher":
         sanity["expected"] = (
             "Different teacher_model in logs; memory text should differ; "
-            "reader_model should match if the sandwich bottom was frozen."
+            "reader_model should match if the reader was frozen."
         )
         sanity["reader_held_fixed"] = reader_a == reader_b
         sanity["memory_texts_differ"] = (

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 class MemoryBuilder(ABC):
-    """Sandwich middle: Conversation (+ Question) → Memory.
+    """Memory stage: Conversation (+ Question) → Memory.
 
     Called from run_locomo_pipeline_with_memory_config (one YAML per call).
     Swap the subclass without touching the reader or metrics.

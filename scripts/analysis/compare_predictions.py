@@ -1,6 +1,6 @@
 """Figure 2 kernel: compare **exactly two** prediction JSONLs (offline LoCoMo F1).
 
-This is **not** the sandwich experiment report. Use ``scripts/compare_full_runs.py``
+This is **not** the full-pack comparison. Use ``scripts/compare_full_runs.py``
 when you have two full ``experiments/<run_id>/`` packs and want SUMMARY /
 category tables / memory-distinctness checks. That script calls the plots
 from this module.

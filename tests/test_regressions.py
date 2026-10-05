@@ -1,4 +1,4 @@
-"""Regression locks for sandwich contracts that must not change silently.
+"""Regression locks for frozen-reader contracts that must not change silently.
 
 If a test here fails, treat it as a redesign (update SPEC / AGENTS / HUMANS),
 not a green-light to weaken the assertion.
@@ -45,7 +45,7 @@ from src.locomo_eval.readers import (
     build_reader_messages,
 )
 from src.locomo_eval.offline_evaluate import main as offline_evaluate_main
-from src.locomo_eval.experiment_pack.audit_loader import SandwichAudit, resolve_predictions_jsonl
+from src.locomo_eval.experiment_pack.audit_loader import PackAudit, resolve_predictions_jsonl
 from src.locomo_eval.experiment_pack.audit_layout import AuditPaths
 from src.locomo_eval.experiment_pack.claim_audit import lineage_rows
 from src.locomo_eval.run import _reset_run_output, build_parser, run_locomo_pipeline_with_memory_config
@@ -452,7 +452,7 @@ class TestRunsAreSelfContained(unittest.TestCase):
             self.assertEqual(meta["n_new_api_calls"], meta["n_predictions"])
 
 
-class TestSandwichMemorySwapDoesNotRetouchReaderOrMetrics(unittest.TestCase):
+class TestFrozenReaderMemorySwapDoesNotRetouchReaderOrMetrics(unittest.TestCase):
     def test_raw_chunks_and_session_summaries_runs_share_reader_model_and_prompt_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -582,7 +582,7 @@ class TestClaimAuditTracingDoesNotLeakAcrossSamplesOrOptionalFilters(unittest.Te
         self.assertEqual([row["item_id"] for row in rows], ["win"])
 
     def test_omitted_sample_id_filter_does_not_drop_rows_and_set_filter_does_not_leak(self):
-        audit = SandwichAudit(
+        audit = PackAudit(
             paths=AuditPaths.from_run_dir("unused"),
             meta={},
             metrics={},

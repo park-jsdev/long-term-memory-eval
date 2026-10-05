@@ -35,17 +35,17 @@ Eval code should not import ``audit_writer``, ``run``, or the writer model.
 """
 
 from .audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths, audit_layout_meta, writer_dir_name
-from .audit_loader import SandwichAudit, load_qa_pack, load_sandwich_audit, predictions_jsonl
+from .audit_loader import PackAudit, load_pack_audit, load_qa_pack, predictions_jsonl
 from .verify_pack import PackReport, verify_pack
 
 __all__ = [
     "AUDIT_LAYOUT_VERSION",
     "AuditPaths",
     "PackReport",
-    "SandwichAudit",
+    "PackAudit",
     "audit_layout_meta",
+    "load_pack_audit",
     "load_qa_pack",
-    "load_sandwich_audit",
     "predictions_jsonl",
     "writer_dir_name",
     "verify_pack",

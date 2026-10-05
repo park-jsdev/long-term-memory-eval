@@ -239,23 +239,23 @@ For the full `memory/`, `reader/`, and `agent/` dumps, copy the `collected/` pre
 The pinned pack is the input. One command regenerates every table and figure from the analysis configuration. It reads finished Parquet and never calls an API.
 
 ```bash
-python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
+python -m src.experiment_runner report configs/analysis/design_openai_mini_codex_readers_analysis.yaml
 ```
 
-That campaign YAML points at `experiments/locomo-openai-mini-codex-readers-analysis-v2`. Outputs:
+That design YAML points at `experiments/locomo-openai-mini-codex-readers-analysis-v2`. Outputs:
 
 ```text
 experiments/locomo-openai-mini-codex-readers-analysis-v2/analysis/
-experiments/_campaign/openai_mini_codex_readers_analysis/analysis/tables/*.csv
-experiments/_campaign/openai_mini_codex_readers_analysis/analysis/plots/*.png
-experiments/_campaign/openai_mini_codex_readers_analysis/analysis/SUMMARY.md
+experiments/_design/openai_mini_codex_readers_analysis/analysis/tables/*.csv
+experiments/_design/openai_mini_codex_readers_analysis/analysis/plots/*.png
+experiments/_design/openai_mini_codex_readers_analysis/analysis/SUMMARY.md
 ```
 
-The `_campaign` copy is a local report directory and stays gitignored. The pack under `experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the published reference.
+The `_design` copy is a local report directory and stays gitignored. The pack under `experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the published reference.
 
 Open `notebooks/17_openai_mini_codex_readers_analysis.ipynb` to read the same pack as a narrative: method, quality, performance, retention, abstention, and the audit gaps. The notebook calls the same `report` command. Other notebooks are gitignored. `report` remains the step that regenerates the tables.
 
-To add a comparison, edit `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` and re-run `report`. Do not fork
+To add a comparison, edit `configs/analysis/design_openai_mini_codex_readers_analysis.yaml` and re-run `report`. Do not fork
 the plotting code; the core is shared on purpose, which is why category axes read
 `1 multi-hop` / `2 temporal` / `3 open-domain` and legends sit outside the bars everywhere without
 per-design styling.
@@ -329,7 +329,7 @@ the incomplete run specs.
 
 - Architecture, layer diagrams, and the LLM call inventory: [`architecture.md`](architecture.md)
 - On-disk contracts: [`schemas/experiment_pack.md`](schemas/experiment_pack.md),
-  [`schemas/analysis_campaign.md`](schemas/analysis_campaign.md)
+  [`schemas/analysis_design.md`](schemas/analysis_design.md)
 - One question, from config to score: [`loop.md`](loop.md)
 - Pinned reader pack and notebook: [`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md), [`notebooks/17_openai_mini_codex_readers_analysis.ipynb`](../notebooks/17_openai_mini_codex_readers_analysis.ipynb)
 - Dataset and third-party prompt terms: [`NOTICE.md`](../NOTICE.md)

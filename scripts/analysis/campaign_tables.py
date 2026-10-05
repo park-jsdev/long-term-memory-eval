@@ -1161,7 +1161,7 @@ def _is_codex_writer(value: Any) -> bool:
 
 
 def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
-    """Align stuffed FC, persist-off workspace, and sandwich writers.
+    """Align stuffed full context, persist-off workspace, and frozen-reader writers.
 
     Persist-off ``workspace_files`` is the Codex analog of stuffed
     ``full_context``. Persist-on workspace and Codex facts are not lanes
@@ -1194,7 +1194,7 @@ def annotate_memory_lane(df: pd.DataFrame) -> pd.DataFrame:
 def annotate_system_harness(df: pd.DataFrame) -> pd.DataFrame:
     """Codex vs Chat Completions on the reader path or the writer path.
 
-    Sandwich cells freeze a Chat Completions reader; ``agent`` is none and
+    Frozen-reader conditions freeze a Chat Completions reader; ``agent`` is none and
     the writer provider is the harness. Workspace cells use Codex as the
     reader. Stuffed ``full_context`` is model-only Chat Completions.
     """
@@ -1455,7 +1455,7 @@ def annotate_gap_stack(df: pd.DataFrame) -> pd.DataFrame:
 
     ``2024 model`` is stuffed Chat Completions. ``2024 model + harness`` is
     persist-off Codex workspace. ``2026 model`` is Terra thinking-off
-    full_context. Sandwich writers stay unlabeled.
+    full_context. Frozen-reader writers stay unlabeled.
     """
     out = df.copy()
     if out.empty:
@@ -1486,9 +1486,9 @@ def annotate_gap_stack(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def annotate_writer_harness(df: pd.DataFrame) -> pd.DataFrame:
-    """``codex`` vs ``chat_completions`` for sandwich writer-family plots.
+    """``codex`` vs ``chat_completions`` for frozen-reader writer plots.
 
-    Codex sandwich cells use a frozen Chat Completions reader, so ``agent``
+    Codex writer conditions use a frozen Chat Completions reader, so ``agent``
     is none. The writer provider (or experiment name) is the harness.
     """
     out = df.copy()

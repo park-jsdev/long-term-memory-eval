@@ -2,7 +2,7 @@
 # the same frozen GPT-4o-mini + qa_mem0_v1 reader.
 experiment:
   name: locomo-openai-codex-poc-writers
-  type: sandwich
+  type: frozen_reader
   freeze:
     prompt_path: prompts/readers/qa_mem0_v1.txt
     reader: {catalog: gpt-4o-mini}

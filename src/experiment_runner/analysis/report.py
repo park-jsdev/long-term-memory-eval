@@ -61,13 +61,13 @@ from scripts.analysis.campaign_insights import (
     render_insight,
     takeaway_contrast,
 )
-from src.experiment_runner.analysis.load_campaign import (
+from src.experiment_runner.analysis.load_design import (
     AnalysisSpec,
-    CampaignConfig,
+    DesignConfig,
     ExperimentAnalysisRef,
     InsightSpec,
     PlotSpec,
-    load_campaign_yaml,
+    load_design_yaml,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -323,7 +323,7 @@ def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     """Outer-concat pack frames without dropping all-NA columns.
 
     pandas currently omits all-NA columns when it unions dtypes, which can
-    strip ``live_source`` / ``agent_persist`` from a campaign concat of
+    strip ``live_source`` / ``agent_persist`` from a design concat of
     readers+writers and then collapse ``group_by``.
     """
     nonempty = [frame for frame in frames if isinstance(frame, pd.DataFrame) and not frame.empty]
@@ -430,7 +430,7 @@ def _slug_label(value: str) -> str:
 
 
 def render_experiment(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     experiment_id: str,
     *,
     root: Path | None = None,
@@ -465,7 +465,7 @@ def render_experiment(
         )
         for spec in ref.analyses
     ]
-    for spec in cfg.campaign_analyses:
+    for spec in cfg.design_analyses:
         if experiment_id not in spec.experiments:
             continue
         results.append(
@@ -490,8 +490,8 @@ def render_experiment(
     )
 
 
-def render_campaign(
-    cfg: CampaignConfig,
+def render_design(
+    cfg: DesignConfig,
     *,
     root: Path | None = None,
 ) -> ReportResult:
@@ -506,14 +506,14 @@ def render_campaign(
             continue
         runs, examples = loaded
         examples = examples.copy()
-        examples["campaign_experiment"] = exp_id
+        examples["design_experiment"] = exp_id
         runs = runs.copy()
-        runs["campaign_experiment"] = exp_id
+        runs["design_experiment"] = exp_id
         example_frames[exp_id] = examples
         run_frames[exp_id] = runs
-    out_dir = root / "experiments" / "_campaign" / cfg.id / cfg.output_subdir
+    out_dir = root / "experiments" / "_design" / cfg.id / cfg.output_subdir
     results: list[AnalysisResult] = []
-    for spec in cfg.campaign_analyses:
+    for spec in cfg.design_analyses:
         src = run_frames if spec.source == "runs" else example_frames
         parts = [src[eid] for eid in spec.experiments if eid in src]
         df = _concat_frames(parts)
@@ -538,11 +538,11 @@ def render_campaign(
     )
     takeaway_results = _render_takeaways(cfg, results, out_dir)
     results = takeaway_results + results
-    _write_summary(out_dir, cfg, f"campaign {cfg.id}", results, missing=missing)
+    _write_summary(out_dir, cfg, f"design {cfg.id}", results, missing=missing)
     if cost is not None:
         _append_cost_summary(out_dir / "SUMMARY.md", cost)
     return ReportResult(
-        scope=f"campaign:{cfg.id}",
+        scope=f"design:{cfg.id}",
         out_dir=out_dir,
         results=results,
         missing_packs=missing,
@@ -556,12 +556,12 @@ def run_report(
     experiment_id: str | None = None,
     root: Path | None = None,
 ) -> list[ReportResult]:
-    cfg = load_campaign_yaml(yaml_path)
+    cfg = load_design_yaml(yaml_path)
     root = root or ROOT
     if experiment_id:
         return [render_experiment(cfg, experiment_id, root=root)]
     out = [render_experiment(cfg, exp_id, root=root) for exp_id in cfg.experiments]
-    out.append(render_campaign(cfg, root=root))
+    out.append(render_design(cfg, root=root))
     return out
 
 
@@ -689,7 +689,7 @@ def _notebook_show_takeaways(item: AnalysisResult) -> None:
 
 
 def _render_insights(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     results: list[AnalysisResult],
     out_dir: Path,
     cost: pd.DataFrame | None = None,
@@ -749,7 +749,7 @@ def _render_insights(
 
 
 def _render_takeaways(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     results: list[AnalysisResult],
     out_dir: Path,
 ) -> list[AnalysisResult]:
@@ -966,7 +966,7 @@ def _pins_as_table(
 
 def _write_summary(
     out_dir: Path,
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     heading: str,
     results: list[AnalysisResult],
     missing: list[str] | None = None,

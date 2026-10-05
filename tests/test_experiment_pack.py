@@ -1,4 +1,4 @@
-"""Dump and load tests for a sandwich-run audit (no API)."""
+"""Dump and load tests for an experiment-pack audit (no API)."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.experiment_pack.audit_layout import AuditPaths, audit_layout_meta
 from src.locomo_eval.experiment_pack.audit_loader import (
-    SandwichAudit,
+    PackAudit,
     load_json,
     load_jsonl,
     load_qa_pack,
-    load_sandwich_audit,
+    load_pack_audit,
     predictions_jsonl,
     resolve_predictions_jsonl,
 )
@@ -59,7 +59,7 @@ class TestPredictionsJsonlPrefersRootThenReader(unittest.TestCase):
             self.assertEqual(resolved, path)
 
 
-class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
+class TestLoadQaPackAndPackAudit(unittest.TestCase):
     def test_load_qa_pack_returns_compare_full_runs_keys(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
@@ -83,7 +83,7 @@ class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
             self.assertEqual(pack["run_id"], "r1")
             self.assertEqual(pack["by_qid"]["q0"]["predicted_answer"], "a")
 
-    def test_load_sandwich_audit_indexes_writer_calls(self):
+    def test_load_pack_audit_indexes_writer_calls(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             run.mkdir()
@@ -110,7 +110,7 @@ class TestLoadQaPackAndSandwichAudit(unittest.TestCase):
                     }
                 ],
             )
-            pack = load_sandwich_audit(run)
+            pack = load_pack_audit(run)
             self.assertEqual(len(pack.writer_calls_for("openai")), 1)
             self.assertEqual(pack.writer_calls_for("openai")[0]["reasoning"], "because")
             self.assertTrue(AuditPaths.from_run_dir(run).writer_calls.is_file())
@@ -129,12 +129,12 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
             run.mkdir()
             self.assertIsNone(predictions_jsonl(run))
 
-    def test_load_sandwich_audit_returns_empty_optional_layers_when_only_metrics_exist(self):
+    def test_load_pack_audit_returns_empty_optional_layers_when_only_metrics_exist(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             run.mkdir()
             (run / "metrics.json").write_text("{}", encoding="utf-8")
-            pack = load_sandwich_audit(run)
+            pack = load_pack_audit(run)
             self.assertEqual(pack.predictions, [])
             self.assertEqual(pack.writer_calls, [])
             self.assertEqual(pack.lineage, [])
@@ -145,7 +145,7 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
             self.assertEqual(pack.writer_quality, {})
             self.assertEqual(pack.cost, {})
 
-    def test_load_sandwich_audit_falls_back_to_compat_writer_calls_when_writer_dir_is_omitted(self):
+    def test_load_pack_audit_falls_back_to_compat_writer_calls_when_writer_dir_is_omitted(self):
         with __import__("tempfile").TemporaryDirectory() as tmp:
             run = Path(tmp) / "run"
             mem = run / "memory"
@@ -155,7 +155,7 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
                 json.dumps({"writer_id": "openai", "sample_id": "s1"}) + "\n",
                 encoding="utf-8",
             )
-            pack = load_sandwich_audit(run)
+            pack = load_pack_audit(run)
             self.assertEqual(len(pack.writer_calls), 1)
             self.assertEqual(pack.writer_calls[0]["writer_id"], "openai")
 
@@ -179,7 +179,7 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
                 json.dumps({"writer_id": "openai", "session_id": 1}) + "\n",
                 encoding="utf-8",
             )
-            audit = SandwichAudit(paths=paths, meta={}, metrics={}, predictions=[], writer_calls=[])
+            audit = PackAudit(paths=paths, meta={}, metrics={}, predictions=[], writer_calls=[])
             self.assertEqual(len(audit.writer_calls_for("openai")), 1)
             self.assertEqual(audit.writer_calls_for("anthropic"), [])
 
@@ -193,8 +193,8 @@ class TestOptionalAuditLayersLoadEmptyInsteadOfFailing(unittest.TestCase):
 
 
 class TestOptionalLoaderFiltersDoNotLeakWhenSetAndReturnAllWhenOmitted(unittest.TestCase):
-    def _audit(self) -> SandwichAudit:
-        return SandwichAudit(
+    def _audit(self) -> PackAudit:
+        return PackAudit(
             paths=AuditPaths.from_run_dir("unused"),
             meta={},
             metrics={},

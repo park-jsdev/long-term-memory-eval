@@ -2,10 +2,10 @@
 # Native Codex is audit-only unless comparison_status=comparable.
 # Paper / local_clone pins are literature context, not OSS-clone Table 2 J.
 #
-#   python -m src.experiment_runner report configs/analysis/campaign_openai_agents.yaml
+#   python -m src.experiment_runner report configs/analysis/design_openai_agents.yaml
 # Notebook: notebooks/17_openai_agent_reader_writer_analysis.ipynb
 
-campaign:
+design:
   id: openai_agents
   title: OpenAI 2024–2026 memory and Codex agent campaign
   notebook: notebooks/17_openai_agent_reader_writer_analysis.ipynb
@@ -13,7 +13,7 @@ campaign:
     Thinking is off. Catalog generation is the answer/writer model year
     (gpt-4o-mini=2024, gpt-5=2025, gpt-5.6-terra=2026). Codex CLI is a
     2026 harness around those models — a Codex-mini cell is not paper
-    2024. Chat Completions reader-sweep and sandwich writers are
+    2024. Chat Completions reader-sweep and frozen-reader writers are
     separate claims from native Codex workspace/tool cells. Native Codex
     is audit-only unless comparison_status is comparable; harness_failed
     is the all-failed cell label, not a 1–2% miss rate. Partial misses
@@ -95,7 +95,7 @@ pins:
     n: 1540
     note: experiments/mem0_qa OSS extract/update clone
 
-campaign_analyses:
+design_analyses:
   - id: standard_memory_readers
     title: OpenAI Chat Completions readers across fixed memory
     experiments: [readers]
@@ -131,7 +131,7 @@ campaign_analyses:
       - {kind: grouped_bar, x: memory_method, hue: writer_model, y: locomo_f1}
       - {kind: grouped_bar, x: memory_method, hue: writer_model, y: judge_score}
       - {kind: line, x: generation, y: judge_score}
-  - id: sandwich_writers_year
+  - id: frozen_reader_writers_year
     title: Chat vs Codex teachers (frozen mini reader; overlapping methods)
     experiments: [writers, codex_writers]
     where:
@@ -141,8 +141,8 @@ campaign_analyses:
       - {kind: grouped_bar, x: generation, hue: writer_harness, y: judge_score}
       - {kind: grouped_bar, x: memory_method, hue: writer_harness, y: judge_score}
       - {kind: line, x: generation, y: judge_score}
-  - id: sandwich_vs_paper_j
-    title: Sandwich writers vs 2024 Mem0/Mem0g pins (not matched)
+  - id: frozen_reader_vs_paper_j
+    title: Frozen-reader writers vs 2024 Mem0/Mem0g pins (not matched)
     experiments: [writers, codex_writers]
     include_pins: true
     where:
@@ -329,10 +329,10 @@ insights:
     kind: year_deltas
     from: codex_readers_year
     metrics: [locomo_f1, judge_score]
-  - id: sandwich_writer_year_deltas
-    title: Sandwich writer year moves (Chat vs Codex harness)
+  - id: frozen_reader_writer_year_deltas
+    title: Frozen-reader writer year moves (Chat vs Codex harness)
     kind: year_deltas
-    from: sandwich_writers_year
+    from: frozen_reader_writers_year
     metrics: [locomo_f1, judge_score]
 
 experiments:
@@ -345,13 +345,13 @@ experiments:
       n_cells: 15
       scientific_claim: true
       hypotheses:
-        - Mini / GPT-5 / Terra year moves on stuffed memory are a reader-sweep, not a sandwich.
+        - Mini / GPT-5 / Terra year moves on stuffed memory are a reader-sweep, not a frozen-reader writer comparison.
         - full_context / rag / openai_memory vs Table 2 is not a matched stack.
         - mem0 and mem0g are not in this matrix.
   writers:
     name: locomo-openai-agent-writers
     pack: experiments/locomo-openai-agent-writers
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 6
@@ -374,7 +374,7 @@ experiments:
   codex_writers:
     name: locomo-openai-codex-writers
     pack: experiments/locomo-openai-codex-writers
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 9
@@ -391,5 +391,5 @@ experiments:
       n_cells: 3
       scientific_claim: false
       hypotheses:
-        - Persistent workspace is an agent-system baseline, not a frozen-reader sandwich.
+        - Persistent workspace is an agent-system baseline, not a frozen-reader writer.
         - n_web_search and n_mcp stay at 0.

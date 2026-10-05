@@ -212,7 +212,7 @@ def snapshot_notes(
 
 
 class WorkspaceFilesMemoryBuilder(MemoryBuilder):
-    """Sandwich middle for harness eval: files, not stuffed transcript text.
+    """Memory stage for harness eval: files, not stuffed transcript text.
 
     ``Memory.text`` is a short manifest so claim-audit still has a pointer.
     The harness reads the files; the one-shot reader is not used.

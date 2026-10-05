@@ -2,7 +2,7 @@
 # qa_mem0_v1 payload; Codex persist-on adds an audited harness note footer.
 # Reads the pinned pack experiments/locomo-openai-mini-codex-readers-analysis-v2.
 # The published walkthrough is notebooks/17_openai_mini_codex_readers_analysis.ipynb.
-campaign:
+design:
   id: openai_mini_codex_readers_analysis
   title: GPT-4o-mini and Codex reader analysis
   notebook: notebooks/17_openai_mini_codex_readers_analysis.ipynb
@@ -19,7 +19,7 @@ defaults:
   metrics: [locomo_f1, judge_score]
   output_subdir: analysis
 
-campaign_analyses:
+design_analyses:
   - id: reader_conditions
     title: Matched reader payload conditions
     experiments: [readers]

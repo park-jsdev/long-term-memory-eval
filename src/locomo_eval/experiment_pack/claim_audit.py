@@ -537,7 +537,7 @@ def lineage_rows(
     return rows
 
 
-# Sandwich layer for each LLM role (write = writer, read = answer, judge = autorater).
+# Pipeline layer for each LLM role (write = writer, read = answer, judge = autorater).
 ROLE_LAYER = {
     "reader": "read",
     "agent": "read",
@@ -551,7 +551,7 @@ ATTRIBUTION_MD_CALL_CAP = 12
 
 
 def infer_llm_role(row: dict[str, Any]) -> str:
-    """Sandwich role for one trace row when ``role`` was omitted on older dumps.
+    """Pipeline role for one trace row when ``role`` was omitted on older dumps.
 
     Prefer the logged field. Fallback: triples → ``graph``, a writer
     session → ``writer``, ``question_id`` → ``reader``.
@@ -984,7 +984,7 @@ def render_summary_md(
         "This folder is an **audit of claims** (what entered `{memory}` and who",
         "proposed it), not only an audit of API calls.",
         "",
-        "## Sandwich",
+        "## Frozen reader",
         "",
         f"- **memory:** `{meta.get('memory_type')}`",
         f"- **reader:** `{meta.get('reader_provider')}/{meta.get('reader_model')}` "

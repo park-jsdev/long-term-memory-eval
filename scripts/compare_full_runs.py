@@ -1,11 +1,11 @@
-"""Sandwich experiment report for two (or more) full run packs.
+"""Compare two or more finished experiment packs.
 
 Use this after two ``python -m src.locomo_eval.run`` calls. It reads
 ``experiments/<run_id>/`` (predictions + metrics + run_meta) and writes
 overall/category tables, memory-text sanity, SUMMARY.md, and the
 LoCoMo F1 boxplot/histograms from ``scripts.analysis.compare_predictions``.
 
-For JSONL-only LoCoMo F1 plots (no sandwich SUMMARY), use
+For JSONL-only LoCoMo F1 plots, use
 ``python -m scripts.analysis.compare_predictions`` instead.
 """
 
@@ -386,7 +386,7 @@ def condition_diff_lines(packs: list[dict]) -> list[str]:
     lines = [
         "## What differs between conditions",
         "",
-        "Sandwich view: **same** LoCoMo questions, answer prompt, answer model, and metrics; "
+        "Frozen-reader view: **same** LoCoMo questions, answer prompt, answer model, and metrics; "
         "only the **MemoryBuilder** (middle layer) changes what string is pasted into the prompt.",
         "",
         "### Frozen (identical across raw_chunks / session_summaries in this suite)",
@@ -483,7 +483,7 @@ def write_text_report(
     lines.extend(condition_diff_lines(packs))
 
     if bottom_warn:
-        lines.append("## WARNING: frozen bottom mismatch")
+        lines.append("## WARNING: frozen evaluation mismatch")
         lines.append(bottom_warn)
         lines.append("")
 

@@ -2,10 +2,10 @@
 # vs 2024 model + harness. Category charts keep LoCoMo category 5.
 # Overall tables drop category 5 (Mem0 J).
 #
-#   python -m src.experiment_runner report configs/analysis/campaign_openai_model_harness_gaps.yaml
+#   python -m src.experiment_runner report configs/analysis/design_openai_model_harness_gaps.yaml
 # Notebook: notebooks/17_openai_model_harness_gaps_analysis.ipynb
 
-campaign:
+design:
   id: openai_model_harness_gaps
   title: Model vs harness gaps (4o-mini, Codex, 2026)
   notebook: notebooks/17_openai_model_harness_gaps_analysis.ipynb
@@ -29,7 +29,7 @@ defaults:
   metrics: [judge_score, locomo_f1]
   output_subdir: analysis
 
-campaign_analyses:
+design_analyses:
   - id: overall_mini_vs_codex
     title: Overall J and F1 — 4o-mini vs 4o-mini + Codex
     experiments: [readers, chat, codex]
@@ -142,7 +142,7 @@ experiments:
   chat:
     name: locomo-openai-mini-writers-structured
     pack: experiments/locomo-openai-mini-writers-structured
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 2
@@ -153,7 +153,7 @@ experiments:
   codex:
     name: locomo-openai-codex-poc-writers
     pack: experiments/locomo-openai-codex-poc-writers
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 3

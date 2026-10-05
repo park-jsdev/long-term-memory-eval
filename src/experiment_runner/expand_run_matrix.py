@@ -17,7 +17,7 @@ from src.experiment_runner.experiment_run_spec import (
 from src.experiment_runner.experiment_types import (
     AGENT,
     MATRIX_AXIS_ORDER,
-    SANDWICH,
+    FROZEN_READER,
     require_known_type,
 )
 from src.experiment_runner.hashed_run_id import hashed_run_id
@@ -66,8 +66,8 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
     shared = cfg.get("shared_indexes") or {}
     agent_comparison = dict(cfg.get("agent_comparison") or {})
 
-    if exp_type == SANDWICH:
-        matrix = _apply_sandwich_freeze(matrix, freeze)
+    if exp_type == FROZEN_READER:
+        matrix = _apply_frozen_reader_freeze(matrix, freeze)
     if exp_type == AGENT:
         matrix = _apply_agent_freeze(matrix, freeze)
 
@@ -174,19 +174,21 @@ def expand_run_matrix(cfg: dict[str, Any]) -> list[ExperimentRunSpec]:
     return specs
 
 
-def _apply_sandwich_freeze(
+def _apply_frozen_reader_freeze(
     matrix: dict[str, Any],
     freeze: dict[str, Any],
 ) -> dict[str, Any]:
     out = dict(matrix)
     if "reader" in out and _len_axis(out["reader"]) > 1:
         raise ValueError(
-            "frozen-reader experiments (type sandwich) freeze the reader; put one reader in "
+            "frozen-reader experiments freeze the reader; put one reader in "
             "experiment.freeze.reader, not a list under matrix.reader"
         )
     frozen = freeze.get("reader")
     if frozen is None:
-        raise ValueError("frozen-reader experiments (type sandwich) require experiment.freeze.reader")
+        raise ValueError(
+            "frozen-reader experiments require experiment.freeze.reader"
+        )
     out["reader"] = [frozen]
     return out
 
@@ -352,7 +354,7 @@ def _apply_thinking_axis(
     writer: WriterModelRef | None,
     thinking: bool,
 ) -> tuple[ReaderModelRef, WriterModelRef | None]:
-    """Matched on/off + headroom. Sandwich applies to the writer; sweeps to the reader."""
+    """Matched on/off + headroom. Writer runs use the writer; sweeps use the reader."""
     if writer is not None:
         return reader, replace(
             writer,

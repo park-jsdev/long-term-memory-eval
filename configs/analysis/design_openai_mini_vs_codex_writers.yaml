@@ -1,21 +1,21 @@
-# GPT-4o-mini Chat Completions vs GPT-4o-mini + Codex as sandwich writers,
+# GPT-4o-mini Chat Completions vs GPT-4o-mini + Codex as frozen-reader writers,
 # plus stuffed full_context / persist-off workspace as a ceiling overlay.
-# Frozen mini reader on sandwich cells. Overlapping methods: session summaries
+# Frozen mini reader on those writer conditions. Overlapping methods: session summaries
 # and Mem0g-shaped graph. Not paper Mem0 extract / Mem0g.
 #
-#   python -m src.experiment_runner report configs/analysis/campaign_openai_mini_vs_codex_writers.yaml
+#   python -m src.experiment_runner report configs/analysis/design_openai_mini_vs_codex_writers.yaml
 # Notebook: notebooks/17_openai_mini_vs_codex_writers_analysis.ipynb
 
-campaign:
+design:
   id: openai_mini_vs_codex_writers
-  title: GPT-4o-mini Chat Completions vs Codex sandwich writers
+  title: GPT-4o-mini Chat Completions vs Codex frozen-reader writers
   notebook: notebooks/17_openai_mini_vs_codex_writers_analysis.ipynb
   freeze_note: >
-    Frozen GPT-4o-mini + qa_mem0_v1 reader on sandwich cells. Writers are
+    Frozen GPT-4o-mini + qa_mem0_v1 reader on frozen-reader writer conditions. Writers are
     GPT-4o-mini Chat Completions vs Codex CLI around GPT-4o-mini (thinking
     off). Methods are session_summaries and graph
     (Mem0g-shaped schema). methods_vs_full_context is a ceiling overlay,
-    not a sandwich ranking: stuffed Chat Completions full_context sits next
+    not a frozen-reader ranking: stuffed Chat Completions full_context sits next
     to persist-off Codex workspace (the harness analog of the conversation)
     and the two writer methods. Persist-on workspace and Codex facts are
     dropped (no Chat Completions twin). Native Codex stays audit-only
@@ -27,7 +27,7 @@ defaults:
   metrics: [locomo_f1, judge_score]
   output_subdir: analysis
 
-campaign_analyses:
+design_analyses:
   - id: methods_vs_full_context
     title: Mini methods vs full_context — Chat Completions vs Codex
     experiments: [readers, chat, codex]
@@ -91,9 +91,9 @@ takeaways:
     right_label: chat_summaries
     metrics: [judge_score, locomo_f1]
     finding: >
-      Ceiling overlay, not a sandwich ranking. Chat Completions stuffed
+      Ceiling overlay, not a frozen-reader ranking. Chat Completions stuffed
       full_context is a model reader; session_summaries here is a
-      sandwich writer with the same frozen mini reader. Persist-off Codex
+      frozen-reader writer with the same frozen mini reader. Persist-off Codex
       workspace is the harness analog of the conversation (not persist-on
       notes). Native Codex stays incomparable.
   - id: summaries_chat_vs_codex
@@ -132,11 +132,11 @@ takeaways:
       teacher. Native Codex stays incomparable until comparison_status is
       comparable.
   - id: layers_are_different_claims
-    title: Ceiling overlay is not a sandwich ranking
+    title: Ceiling overlay is not a frozen-reader ranking
     claim: do_not_mix_layers
     finding: >
       methods_vs_full_context puts stuffed-context answering, persist-off
-      workspace retrieval, and sandwich writers on one figure for a ceiling
+      workspace retrieval, and frozen-reader writers on one figure for a ceiling
       check. Do not treat those bars as one memory-method leaderboard. Do not
       mix them with paper Table 2 Mem0g.
 
@@ -156,7 +156,7 @@ experiments:
   chat:
     name: locomo-openai-mini-writers-structured
     pack: experiments/locomo-openai-mini-writers-structured
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 2
@@ -168,7 +168,7 @@ experiments:
   codex:
     name: locomo-openai-codex-poc-writers
     pack: experiments/locomo-openai-codex-poc-writers
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 3

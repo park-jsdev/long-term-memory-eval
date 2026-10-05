@@ -102,7 +102,7 @@ def year_deltas(
     """Consecutive year deltas within the same keys (including result_source).
 
     2024 paper pins do not pair with 2025 live rows. Live 2025 vs 2026 is the
-    matched sandwich comparison.
+    matched frozen-reader comparison.
     """
     if table.empty or "generation" not in table.columns:
         return pd.DataFrame()
@@ -533,7 +533,7 @@ def pin_gaps(
 ) -> pd.DataFrame:
     """2024 paper/local_clone vs later live OpenAI on the same memory method.
 
-    Not a matched sandwich delta — different reader stack. Labelled so the
+    Not a matched frozen-reader delta — different reader stack. Labelled so the
     notebook does not treat it as 2025→2026 live robustness.
     """
     if table.empty or metric not in table.columns:

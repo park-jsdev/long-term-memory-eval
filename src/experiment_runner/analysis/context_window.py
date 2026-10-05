@@ -33,7 +33,7 @@ from src.locomo_eval.pricing import estimate_usd
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WINDOWS_PATH = ROOT / "configs" / "models" / "context_windows.yaml"
-DEFAULT_OUT = ROOT / "experiments" / "_campaign" / "context_window"
+DEFAULT_OUT = ROOT / "experiments" / "_design" / "context_window"
 
 # Conversation-associated methods still cover every session; RAG does not.
 COVERAGE_KIND = {
@@ -174,7 +174,7 @@ def render_context_window_report(
     from scripts.analysis.context_window_plots import write_context_window_plots
 
     root = Path(root) if root is not None else ROOT
-    dest = Path(out_dir) if out_dir is not None else root / "experiments" / "_campaign" / "context_window"
+    dest = Path(out_dir) if out_dir is not None else root / "experiments" / "_design" / "context_window"
     windows = load_context_windows(windows_path)
     injection = dict(INJECTION)
     injection["paper_memory_tokens"] = paper_full_context_memory_tokens()

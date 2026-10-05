@@ -2,7 +2,7 @@
 # 2 write conditions × 3 writer models = 6 cells. One model per cell.
 experiment:
   name: locomo-openai-agent-writers
-  type: sandwich
+  type: frozen_reader
   freeze:
     prompt_path: prompts/readers/qa_mem0_v1.txt
     reader:

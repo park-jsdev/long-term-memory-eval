@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.experiment_pack.audit_layout import AUDIT_LAYOUT_VERSION, AuditPaths
-from src.locomo_eval.experiment_pack.audit_loader import load_sandwich_audit
+from src.locomo_eval.experiment_pack.audit_loader import load_pack_audit
 from src.locomo_eval.experiment_pack.audit_writer import (
     write_claim_audit,
     write_frozen_config,
@@ -452,7 +452,7 @@ class TestClaimAuditDump(unittest.TestCase):
             session_txt = paths.writer_session_text_path("s1", 1)
             self.assertTrue(session_txt.is_file())
             self.assertIn("painting", session_txt.read_text(encoding="utf-8"))
-            pack = load_sandwich_audit(run)
+            pack = load_pack_audit(run)
             lineage = pack.lineage_for(question_id="q0")
             self.assertEqual(len(lineage), 1)
             self.assertEqual(lineage[0]["proposed_by"], ["openai"])

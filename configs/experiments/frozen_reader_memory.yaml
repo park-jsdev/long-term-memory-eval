@@ -1,9 +1,9 @@
-# Sandwich design: freeze reader + prompt + judge; vary only memory.
+# Frozen reader: freeze reader + prompt + judge; vary only memory.
 # One Cloud Run task = one full LoCoMo QA run (omit subset: for the full set).
 
 experiment:
-  name: locomo-sandwich-memory
-  type: sandwich
+  name: locomo-frozen-reader-memory
+  type: frozen_reader
   freeze:
     prompt_path: prompts/readers/qa_mem0_v1.txt
     reader:

@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.experiment_runner.analysis.cost import CostReport, render_cost
-from src.experiment_runner.analysis.load_campaign import CampaignConfig
+from src.experiment_runner.analysis.load_design import DesignConfig
 from src.experiment_runner.analysis.report import (
     ReportResult,
     ROOT,
@@ -22,7 +22,7 @@ SKIP = "SKIP"
 
 
 def notebook_pretest(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     experiment_id: str | None = None,
     *,
     root: Path | None = None,
@@ -33,7 +33,7 @@ def notebook_pretest(
     out_dir = _out_dir(cfg, experiment_id, root)
     cost = render_cost(cfg, out_dir, root=root, experiment_id=experiment_id)
     if cost is None:
-        _display_markdown("_No `cost:` block in this campaign YAML._")
+        _display_markdown("_No `cost:` block in this design YAML._")
         return None
     expected = cost.by_cell.copy()
     if not expected.empty and "usd_expected" in expected.columns:
@@ -62,7 +62,7 @@ def notebook_pretest(
 
 
 def notebook_posttest(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     experiment_id: str | None = None,
     *,
     report: ReportResult | list[ReportResult] | None = None,
@@ -70,7 +70,7 @@ def notebook_posttest(
 ) -> pd.DataFrame:
     """Score pre-test expectations against the finished pack + priced actuals.
 
-    ``run_report`` returns a list (one result per experiment, campaign last).
+    ``run_report`` returns a list (one result per experiment, design last).
     Pass ``report=reports[-1]`` or the whole list. A list as the second
     positional argument is that report list, not an experiment id.
     """
@@ -107,7 +107,7 @@ def notebook_posttest(
 def _as_report(
     report: ReportResult | list[ReportResult] | None,
 ) -> ReportResult | None:
-    """``run_report`` yields a list; post-test uses the campaign (last) item."""
+    """``run_report`` yields a list; post-test uses the design (last) item."""
     if report is None:
         return None
     if isinstance(report, list):
@@ -115,7 +115,7 @@ def _as_report(
     return report
 
 
-def _pretest_markdown(cfg: CampaignConfig, experiment_id: str | None) -> str:
+def _pretest_markdown(cfg: DesignConfig, experiment_id: str | None) -> str:
     lines = [
         f"## Pre-test — {cfg.title}",
         "",
@@ -157,7 +157,7 @@ def _pretest_markdown(cfg: CampaignConfig, experiment_id: str | None) -> str:
 
 
 def _posttest_rows(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     experiment_id: str | None,
     report: ReportResult | None,
     root: Path,
@@ -288,12 +288,12 @@ def _pack_counts(root: Path, ref) -> tuple[int | None, int | None]:
     return n_cells, n_questions
 
 
-def _out_dir(cfg: CampaignConfig, experiment_id: str | None, root: Path) -> Path:
+def _out_dir(cfg: DesignConfig, experiment_id: str | None, root: Path) -> Path:
     if experiment_id:
         ref = cfg.experiments[experiment_id]
         pack = root / ref.pack if not ref.pack.is_absolute() else ref.pack
         return pack / cfg.output_subdir
-    return root / "experiments" / "_campaign" / cfg.id / cfg.output_subdir
+    return root / "experiments" / "_design" / cfg.id / cfg.output_subdir
 
 
 def _display_markdown(text: str) -> None:

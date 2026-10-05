@@ -59,7 +59,7 @@ The published comparison holds the reader payload fixed and varies the answerer:
 |---|---|
 | Matrix | `configs/experiments/openai_mini_codex_readers_analysis.yaml` |
 | Pinned pack | `experiments/locomo-openai-mini-codex-readers-analysis-v2/` |
-| Analysis | `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` |
+| Analysis | `configs/analysis/design_openai_mini_codex_readers_analysis.yaml` |
 | Notebook | `notebooks/17_openai_mini_codex_readers_analysis.ipynb` |
 
 The pack is in the repository. The notebook reads it and states the result. Operator steps are in [docs/runbook_mini_vs_codex_readers.md](docs/runbook_mini_vs_codex_readers.md).

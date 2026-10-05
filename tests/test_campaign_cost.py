@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.locomo_eval.pricing import estimate_usd, load_pricing
 from src.experiment_runner.analysis.cost import render_cost
-from src.experiment_runner.analysis.load_campaign import load_campaign_yaml
+from src.experiment_runner.analysis.load_design import load_design_yaml
 from src.experiment_runner.analysis.notebook_protocol import _posttest_rows
 from src.experiment_runner.analysis.report import ReportResult
 
@@ -95,7 +95,7 @@ class TestCollectAndEstimate(unittest.TestCase):
             pricing = (ROOT / "configs" / "models" / "pricing.yaml").as_posix()
             cfg_path.write_text(
                 f"""
-campaign:
+design:
   id: toy
 cost:
   pricing: {pricing}
@@ -115,7 +115,7 @@ experiments:
                 + "\n",
                 encoding="utf-8",
             )
-            cfg = load_campaign_yaml(cfg_path)
+            cfg = load_design_yaml(cfg_path)
             report = render_cost(cfg, root / "out", root=root, experiment_id="baseline")
             self.assertIsNotNone(report)
             cell = report.by_cell
@@ -140,7 +140,7 @@ experiments:
             pricing = (ROOT / "configs" / "models" / "pricing.yaml").as_posix()
             cfg_path.write_text(
                 f"""
-campaign:
+design:
   id: toy
 cost:
   pricing: {pricing}
@@ -164,7 +164,7 @@ experiments:
                 + "\n",
                 encoding="utf-8",
             )
-            cfg = load_campaign_yaml(cfg_path)
+            cfg = load_design_yaml(cfg_path)
             report = render_cost(cfg, root / "out", root=root, experiment_id="baseline")
             launched = float(report.by_cell["usd_expected"].sum())
             parked = float(report.parked["usd"].sum())
@@ -189,7 +189,7 @@ experiments:
             pricing = (ROOT / "configs" / "models" / "pricing.yaml").as_posix()
             cfg_path.write_text(
                 f"""
-campaign:
+design:
   id: toy
 cost:
   pricing: {pricing}
@@ -217,7 +217,7 @@ experiments:
                 + "\n",
                 encoding="utf-8",
             )
-            cfg = load_campaign_yaml(cfg_path)
+            cfg = load_design_yaml(cfg_path)
             report = render_cost(cfg, root / "out", root=root, experiment_id="smoke")
             reader = report.by_cell[report.by_cell["role"] == "reader"].iloc[0]
             self.assertEqual(int(reader["n_questions"]), 5)
@@ -232,8 +232,8 @@ experiments:
 
 class TestPosttestChecks(unittest.TestCase):
     def test_missing_pack_is_skip_not_fail(self):
-        cfg = load_campaign_yaml(
-            ROOT / "configs" / "analysis" / "campaign_openai_codex_poc.yaml"
+        cfg = load_design_yaml(
+            ROOT / "configs" / "analysis" / "design_openai_codex_poc.yaml"
         )
         report = ReportResult(
             scope="experiment:readers",

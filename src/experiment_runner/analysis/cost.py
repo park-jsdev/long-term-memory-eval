@@ -15,7 +15,7 @@ import pandas as pd
 
 from scripts.analysis.campaign_plots import write_grouped_bar, write_metrics_grouped_bar
 from src.locomo_eval.pricing import PricingTable, estimate_usd, load_pricing
-from src.experiment_runner.analysis.load_campaign import CampaignConfig, ExperimentAnalysisRef
+from src.experiment_runner.analysis.load_design import DesignConfig, ExperimentAnalysisRef
 
 JUDGE_MODEL = "gpt-4o-mini"
 COST_METRICS = ("usd_expected", "usd_actual")
@@ -24,7 +24,7 @@ _REPO = Path(__file__).resolve().parents[3]
 
 @dataclass
 class CostReport:
-    """Tables written under analysis/ for one experiment or the whole campaign."""
+    """Tables written under analysis/ for one experiment or the whole design."""
 
     scope: str
     by_cell: pd.DataFrame
@@ -35,7 +35,7 @@ class CostReport:
 
 
 def render_cost(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     out_dir: Path,
     *,
     root: Path,
@@ -44,7 +44,7 @@ def render_cost(
     """Price expected (volume_from) vs actual (this pack). Skip if no ``cost:``."""
     if cfg.cost is None:
         return None
-    table = _load_campaign_pricing(cfg, root)
+    table = _load_design_pricing(cfg, root)
     expected = _expected_rows(cfg, root, table, experiment_id)
     actual = _actual_rows(cfg, root, table, experiment_id)
     by_cell = _join_expected_actual(expected, actual)
@@ -117,7 +117,7 @@ def render_cost(
     )
 
 
-def _load_campaign_pricing(cfg: CampaignConfig, root: Path) -> PricingTable:
+def _load_design_pricing(cfg: DesignConfig, root: Path) -> PricingTable:
     rel = Path(cfg.cost.pricing) if cfg.cost else Path("configs/models/pricing.yaml")
     for candidate in (rel, root / rel, _REPO / rel):
         if candidate.is_file():
@@ -187,7 +187,7 @@ def collect_pack_rows(pack: Path) -> pd.DataFrame:
 
 
 def _expected_rows(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     root: Path,
     table: PricingTable,
     experiment_id: str | None,
@@ -236,7 +236,7 @@ def _expected_rows(
 
 
 def _actual_rows(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     root: Path,
     table: PricingTable,
     experiment_id: str | None,
@@ -288,7 +288,7 @@ def _volume_pack(
 
 
 def _scale_from_baseline(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     root: Path,
     experiment_id: str,
 ) -> pd.DataFrame | None:
@@ -382,7 +382,7 @@ def _join_expected_actual(expected: pd.DataFrame, actual: pd.DataFrame) -> pd.Da
 
 
 def _parked_table(
-    cfg: CampaignConfig, expected: pd.DataFrame, table: PricingTable
+    cfg: DesignConfig, expected: pd.DataFrame, table: PricingTable
 ) -> pd.DataFrame:
     if cfg.cost is None or not cfg.cost.parked or expected.empty:
         return pd.DataFrame()
@@ -418,7 +418,7 @@ def _parked_table(
 
 
 def _stage_table(
-    cfg: CampaignConfig,
+    cfg: DesignConfig,
     by_cell: pd.DataFrame,
     parked: pd.DataFrame,
     experiment_id: str | None,

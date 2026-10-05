@@ -1,7 +1,7 @@
 # Codex persist as a memory method (GPT-4o-mini backbone, thinking off).
 # Three cells: persist-off retrieval, persist-on with sessions still visible,
 # persist-on notes_only (sessions hidden after ingest). notes_only is the
-# sandwich-style memory-method cell. Native Codex stays audit-only unless
+# memory-method condition. Native Codex stays audit-only unless
 # comparison_status=comparable.
 #
 #   python -m src.experiment_runner write-manifest configs/experiments/openai_codex_persist_memory.yaml

@@ -38,7 +38,7 @@ is a separate program.
 | **Configuration**   | Names the dataset pin, memory system, models, prompts, and report settings. No scoring logic.                                                                                                               | `configs/`, `prompts/`                                  |
 | **Core**            | The harness and the report code. A run may call a live model. String scores and reports are recomputed from stored artifacts.                                                                               | `src/locomo_eval/`, `src/metrics/`, `scripts/analysis/` |
 | **Experiment**      | One design matrix. The factor depends on the type: the memory system when the reader is frozen; the reader on a sweep; persist or tools when the answerer is an agent.                                      | `configs/experiments/`                                  |
-| **Design**          | Which finished packs, which groupings, which metrics. The file key is `campaign:`.                                                                                                                          | `configs/analysis/`                                     |
+| **Design**          | Which finished packs, which groupings, which metrics. The file key is `design:`.                                                                                                                          | `configs/analysis/`                                     |
 | **Job**             | One runner task: expand a matrix, answer or judge one run spec, collect packs, or write a report. A finished answer or judge task is skipped on retry unless forced. The run id is a hash of the QA fields. | `src/experiment_runner/`                                |
 | **Experiment pack** | The directory for one run spec: inputs, prompts, memory, traces, lineage, cost, and git hash. The harness writes it; reports read it.                                                                       | `experiments/<run_id>/`                                 |
 | **Test**            | Checks the contracts above so a refactor cannot change a claim quietly.                                                                                                                                     | `tests/`                                                |
@@ -184,7 +184,7 @@ not part of the QA merge; it is the design that reads finished packs.
 | `configs/presets/`     | One runnable overlay for `locomo_eval.run`                              | CLI default: `configs/presets/mem0_baseline.yaml`.                                                                        |
 | `configs/models/`      | Catalog ids, list prices, context windows                               | `generation_catalog.yaml` fills `api_model_id` and `model_snapshot`.                                                      |
 | `configs/experiments/` | Matrices the harness expands into run specs                             | `python -m src.experiment_runner write-manifest configs/experiments/<name>.yaml`                                          |
-| `configs/analysis/`    | Design: tables and plots over finished packs. YAML key `campaign:`      | `python -m src.experiment_runner report configs/analysis/<name>.yaml`                                                     |
+| `configs/analysis/`    | Design: tables and plots over finished packs. YAML key `design:`      | `python -m src.experiment_runner report configs/analysis/<name>.yaml`                                                     |
 
 
 Compose with `includes:` (deep-merge; later keys win; lists replace). A writer file is runnable because it includes a stack. Swap one piece by including another file after it:
@@ -299,7 +299,7 @@ flowchart TB
 | `experiment.type` | Meaning                                                                                                                                                                          |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sweep`           | Cartesian matrix; readers may vary                                                                                                                                               |
-| `sandwich`        | YAML type token for a frozen-reader experiment. Requires `experiment.freeze.reader` and rejects a multi-entry reader axis. Prose says frozen reader; the token stays `sandwich`. |
+| `frozen_reader`   | Holds the reader fixed and varies the memory system. Requires `experiment.freeze.reader` and rejects a multi-entry reader axis. |
 | `ablation`        | Remove or degrade one write-path component                                                                                                                                       |
 | `calibration`     | Plumbing and cost-calibration run specs                                                                                                                                          |
 | `agent`           | Workspace-file harness matrix; reader-like model calls happen inside the configured adapter                                                                                      |
@@ -311,14 +311,14 @@ Retrieval clones and dataset-only methods do not take a writer.
 
 ### 4. Design layer
 
-A design is an ordered set of finished experiments plus the analyses that span them. The YAML key and the cross-experiment output directory still use `campaign`.
+A design is an ordered set of finished experiments plus the analyses that span them. Analysis files name that block `design:`.
 
 ```mermaid
 flowchart LR
-  subgraph CAMP["configs/analysis/campaign_openai_agents.yaml"]
-    CID["campaign: id, title, freeze_note"]
+  subgraph DESIGN["configs/analysis/design_openai_agents.yaml"]
+    CID["design: id, title, freeze_note"]
     DEF["defaults: source, metrics, output_subdir"]
-    CA["campaign_analyses<br/>reader_family_*, writer_family_*"]
+    CA["design_analyses<br/>reader_family_*, writer_family_*"]
     EX["experiments: smoke, baseline, writers"]
   end
 
@@ -330,7 +330,7 @@ flowchart LR
 
   subgraph OUT["outputs"]
     O1["experiments/(name)/analysis/"]
-    O2["experiments/_campaign/(id)/analysis/"]
+    O2["experiments/_design/(id)/analysis/"]
   end
 
   EX --> P1 --> O1
@@ -631,7 +631,7 @@ flowchart TB
 | Sanity                  | `test_autorater_sanity`, `test_claim_audit`, `test_experiment_pack`, `test_prompt_bundle`                                                                                                                                                 | Judge protocol, lineage and cost audit, pack round-trip             |
 | Regression              | `test_regressions`, `test_run_isolation`                                                                                                                                                                                                  | One YAML to one pack, no hidden caching, gold never in a prompt     |
 | Integration             | `test_integration_sanity`                                                                                                                                                                                                                 | Model-swap seams stay pluggable                                     |
-| Configuration / harness | `test_config_includes`, `test_experiment_runner_matrix`, `test_experiment_runner_execute_qa`, `test_experiment_runner_aggregate`, `test_gcs_run_workspace`, `test_analysis_campaign`                                                      | Merge semantics, hashed ids, staged pipeline, deterministic reports |
+| Configuration / harness | `test_config_includes`, `test_experiment_runner_matrix`, `test_experiment_runner_execute_qa`, `test_experiment_runner_aggregate`, `test_gcs_run_workspace`, `test_analysis_design`                                                      | Merge semantics, hashed ids, staged pipeline, deterministic reports |
 
 
 The analysis verifiers are worth calling out, because they are what keep the configuration/core split
@@ -642,7 +642,7 @@ reordered input rows must produce **byte-identical** CSV and PNG files.
 
 ```bash
 # Analysis plane only
-python -m pytest tests/test_analysis_campaign.py -q
+python -m pytest tests/test_analysis_design.py -q
 
 # Harness subset
 make test

@@ -195,7 +195,7 @@ class TestVerifyPackGraph(unittest.TestCase):
             self.assertEqual(by_id["memory.graph_grammar"].status, "pass")
             self.assertEqual(by_id["gold.not_in_memory"].status, "pass")
             self.assertEqual(by_id["prompt.graph_timeless"].status, "pass")
-            self.assertEqual(by_id["config.sandwich_reader"].status, "pass")
+            self.assertEqual(by_id["config.frozen_reader"].status, "pass")
 
     def test_parse_fallback_mock_rate_invalidates_graph_pack(self):
         with tempfile.TemporaryDirectory() as tmp:

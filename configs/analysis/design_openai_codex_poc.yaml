@@ -2,10 +2,10 @@
 # Native Codex is audit-only unless comparison_status=comparable.
 # Paper / local_clone pins are literature context, not OSS-clone Table 2 J.
 #
-#   python -m src.experiment_runner report configs/analysis/campaign_openai_codex_poc.yaml
+#   python -m src.experiment_runner report configs/analysis/design_openai_codex_poc.yaml
 # Notebook: notebooks/17_openai_codex_poc_analysis.ipynb
 
-campaign:
+design:
   id: openai_codex_poc
   title: GPT-4o-mini Codex reader/writer proof of concept
   notebook: notebooks/17_openai_codex_poc_analysis.ipynb
@@ -19,12 +19,12 @@ campaign:
     vs LoCoMo F1 uses the same predicted string: F1 is token overlap on
     short gold, J is the Mem0 paraphrase judge. Gold-id recall is union
     over retrieve events (partial chains included). n_web_search / n_mcp
-    should be 0 (web_search disabled, user MCP ignored). Sandwich writers
+    should be 0 (web_search disabled, user MCP ignored). Frozen-reader writers
     freeze the mini Chat Completions reader; session_summaries /
     agent_codex_mem0_facts / graph are not paper Mem0 extract or
     Mem0g.     Paper and local_clone rows are Table 2 / clone pins (n=1540
     judged subset), not this pack. Do not mix reader-sweep scores into
-    the writer sandwich claim. Paper / local-clone / gpt-4o-mini + Codex J
+    the frozen-reader writer claim. Paper / local-clone / gpt-4o-mini + Codex J
     plots use Table 2 method ids. full_context J keeps paper, local clone,
     live Chat Completions, gpt-4o-mini + Codex, and 2025/2026 model-only as
     separate bars. The methods plot is paper vs live model vs Codex (clone
@@ -116,7 +116,7 @@ pins:
     n: 7512
     note: Maharana et al. 2024 Table 3 Summary RAG top-5 gpt-3.5-turbo-16k; overall F1 includes adversarial; 50-conversation benchmark (not locomo10, not Mem0 J)
 
-campaign_analyses:
+design_analyses:
   - id: reader_controls
     title: GPT-4o-mini Chat Completions vs Codex workspace
     experiments: [readers]
@@ -339,12 +339,12 @@ insights:
 
 takeaways:
   - id: layers_are_different_claims
-    title: Harness eval is not a model-reader or sandwich-writer claim
+    title: Harness eval is not a model-reader or frozen-reader writer claim
     claim: do_not_mix_layers
     finding: >
       Three separate claims. (1) Chat Completions full_context is a stuffed-context
       model reader. (2) workspace_files + Codex is a harness reader (file tools,
-      audit-only until comparable). (3) Codex summary/fact/graph cells are sandwich
+      audit-only until comparable). (3) Codex summary/fact/graph cells are frozen-reader
       writers with a frozen mini Chat Completions reader. Do not rank them as one
       memory-method leaderboard.
   - id: harness_reader_vs_chat_reader
@@ -428,7 +428,7 @@ experiments:
   writers:
     name: locomo-openai-codex-poc-writers
     pack: experiments/locomo-openai-codex-poc-writers
-    role: sandwich
+    role: frozen_reader
     family_from: writer
     pretest:
       n_cells: 3

@@ -12,7 +12,7 @@ from .retrieve import retrieve_rag_with_ranks
 
 
 class RagMemoryBuilder(MemoryBuilder):
-    """Sandwich middle: load RAG dump, cosine top-k token chunks.
+    """Memory stage: load RAG dump, cosine top-k token chunks.
 
     Does not re-chunk or re-embed the conversation. Question-dependent.
     """

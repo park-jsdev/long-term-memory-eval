@@ -153,7 +153,7 @@ def _reader() -> ReaderModelRef:
 def _spec(*, memory_method: str, writer: WriterModelRef | None) -> ExperimentRunSpec:
     return ExperimentRunSpec(
         experiment_name="locomo-mem0-reader-2024-writers",
-        experiment_type="sandwich",
+        experiment_type="frozen_reader",
         run_index=0,
         run_id="cell-1",
         benchmark="locomo",

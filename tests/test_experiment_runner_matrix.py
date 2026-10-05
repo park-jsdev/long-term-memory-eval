@@ -26,7 +26,7 @@ from src.experiment_runner.resolve_task_index import resolve_task_index
 from src.experiment_runner.write_run_manifest import write_run_manifest
 
 POC = ROOT / "configs" / "experiments" / "poc.yaml"
-SANDWICH = ROOT / "configs" / "experiments" / "sandwich_memory.yaml"
+FROZEN_READER = ROOT / "configs" / "experiments" / "frozen_reader_memory.yaml"
 
 
 class TestExpandRunMatrixCounts(unittest.TestCase):
@@ -37,25 +37,25 @@ class TestExpandRunMatrixCounts(unittest.TestCase):
         self.assertEqual(specs[0].run_index, 0)
         self.assertTrue(specs[0].run_id.startswith("locomo-poc-"))
 
-    def test_sandwich_expands_to_three_frozen_reader_cells(self):
-        specs = expand_run_matrix(load_experiment_yaml(SANDWICH))
+    def test_frozen_reader_expands_to_three_conditions(self):
+        specs = expand_run_matrix(load_experiment_yaml(FROZEN_READER))
         self.assertEqual(len(specs), 3)
         models = {s.reader.api_model_id for s in specs}
         self.assertEqual(models, {"gpt-4o-mini"})
-        self.assertEqual(specs[0].experiment_type, "sandwich")
+        self.assertEqual(specs[0].experiment_type, "frozen_reader")
 
 class TestHashedRunIdsAreStable(unittest.TestCase):
     def test_expanding_the_same_yaml_twice_keeps_order_and_ids(self):
-        a = expand_run_matrix(load_experiment_yaml(SANDWICH))
-        b = expand_run_matrix(load_experiment_yaml(SANDWICH))
+        a = expand_run_matrix(load_experiment_yaml(FROZEN_READER))
+        b = expand_run_matrix(load_experiment_yaml(FROZEN_READER))
         self.assertEqual([s.run_id for s in a], [s.run_id for s in b])
         self.assertEqual([s.memory_method for s in a], [s.memory_method for s in b])
         self.assertEqual(len(set(s.run_id for s in a)), 3)
 
 
-class TestSandwichRejectsReaderSweep(unittest.TestCase):
-    def test_sandwich_with_two_readers_raises(self):
-        cfg = load_experiment_yaml(SANDWICH)
+class TestFrozenReaderRejectsReaderSweep(unittest.TestCase):
+    def test_frozen_reader_with_two_readers_raises(self):
+        cfg = load_experiment_yaml(FROZEN_READER)
         cfg["matrix"]["reader"] = [{"catalog": "gpt-4o"}, {"catalog": "gpt-5.6-sol"}]
         with self.assertRaises(ValueError):
             expand_run_matrix(cfg)
