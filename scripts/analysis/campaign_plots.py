@@ -136,6 +136,12 @@ def _axis_title(col: str) -> str:
         return "Failure mode"
     if col == "harness_failed_rate":
         return "Harness-failed question rate"
+    if col == "adversarial_refusal":
+        return "Category-5 refusal rate"
+    if col == "false_refusal":
+        return "False refusal rate (categories 1-4)"
+    if col == "reader_usd":
+        return "Reader list price (USD / question)"
     if col == "n_harness_failed":
         return "Harness-failed questions"
     if col == "n":
@@ -160,9 +166,12 @@ def unbounded_metric(metric: str) -> bool:
     name = str(metric)
     if name.endswith("_n_words"):
         return True
+    if name.endswith("_n"):
+        # Refusal denominators (adversarial_refusal_n) are counts.
+        return True
     if name == "n":
         return True
-    if name.startswith("usd"):
+    if name.startswith("usd") or name.endswith("_usd"):
         return True
     if name.startswith("n_"):
         return True

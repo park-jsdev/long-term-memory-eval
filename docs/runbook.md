@@ -1,6 +1,6 @@
 # Installing, building, and running
 
-Local steps for the evaluation harness. Staged reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The matched-prompt reader comparison is in [runbook_mini_vs_codex_readers.md](runbook_mini_vs_codex_readers.md). The writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
+Local steps for the evaluation harness. Staged reproduction is in [REPRODUCE.md](REPRODUCE.md). Cloud Run is in [gcp.md](gcp.md). The matched-prompt reader comparison is in [runbook_mini_vs_codex_readers.md](runbook_mini_vs_codex_readers.md). Its pinned pack is `experiments/locomo-openai-mini-codex-readers-analysis-v2/`, and the walkthrough is [notebooks/17_openai_mini_codex_readers_analysis.ipynb](../notebooks/17_openai_mini_codex_readers_analysis.ipynb). The writer comparison is in [runbook_mini_vs_codex_writers.md](runbook_mini_vs_codex_writers.md).
 
 Never commit `.env` or an API key.
 

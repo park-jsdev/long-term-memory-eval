@@ -42,7 +42,12 @@ writer twin of PoC Codex summaries/graph. Operator instructions:
 and `docs/agent/RUNBOOK_OPENAI_MINI_VS_CODEX_WRITERS.md`. The focused reader
 comparison uses `openai_mini_codex_readers_analysis.yaml`: six run specs with the
 same rendered reader payload across model-only, Codex persist-off, and Codex
-persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
+persist-on. The finished pack is pinned at
+`experiments/locomo-openai-mini-codex-readers-analysis-v2`. The campaign YAML
+`configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` reads that
+pack, and `notebooks/17_openai_mini_codex_readers_analysis.ipynb` is the
+published walkthrough. Operator steps:
+`docs/runbook_mini_vs_codex_readers.md`.
 
 ---
 
@@ -113,7 +118,7 @@ persist-on; see `docs/runbook_mini_vs_codex_readers.md`.
 | `configs/analysis/campaign_openai_agents.yaml` | Chat Completions 2024–2026 vs Codex 2026 harness (notebook 17) |
 | `configs/analysis/campaign_openai_codex_persist_memory.yaml` | Persist-off / persist-on / notes_only vs summaries (notebook 17) |
 | `configs/analysis/campaign_openai_mini_vs_codex_writers.yaml` | Mini Chat Completions vs Codex summaries/graph writers plus full_context ceiling overlay (notebook 17) |
-| `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | GPT-4o-mini/Codex reader analysis with persist-off/on as separate conditions |
+| `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` | GPT-4o-mini/Codex reader analysis; reads the pinned `locomo-openai-mini-codex-readers-analysis-v2` pack; notebook 17 |
 | `configs/analysis/campaign_2026_openai_deepseek.yaml` | Same designs, 2026 Terra vs V4 packs |
 | `notebooks/` | Local notebooks — **gitignored**, except `17_openai_mini_codex_readers_analysis.ipynb` |
 | `docs/agent/SPEC_v1.md` | Phase 1 requirements — **local only** |

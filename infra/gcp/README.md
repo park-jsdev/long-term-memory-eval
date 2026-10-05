@@ -181,7 +181,7 @@ gcloud.cmd run jobs execute memorybench-collect-full --region=us-central1 --task
 
 In your own project (region `us-central1`). Console URLs below take `?project=$PROJECT_ID`:
 
-1. **Cloud Run Jobs** (`console.cloud.google.com/run/jobs`) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`.
+1. **Cloud Run Jobs** (`console.cloud.google.com/run/jobs`) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`. During the run, progress prints every 10th question (and the last). Calls stay sequential; a quiet gap is those 10 calls finishing, not a stalled task.
 2. Direct executions list: `console.cloud.google.com/run/jobs/details/us-central1/memorybench-qa/executions`.
 3. **Bucket browser** (`console.cloud.google.com/storage/browser/$BUCKET/experiments/locomo-poc/runs`) → folder `locomo-poc-<8 hex>/`. Must contain `_SUCCESS`, `predictions.jsonl`, `TRACE.md`, `reader/traces.jsonl`. After the autorater job: `autorater/_SUCCESS`. After aggregate, `experiments/locomo-poc/aggregate` holds `SUMMARY.md`, parquet, and `by_run/<run_id>/`.
 4. Job **Configuration** / container args must be `execute-qa` + `configs/experiments/poc_gcs.yaml` (not `poc.yaml`). If you still see `poc.yaml`, the image was not redeployed.

@@ -21,14 +21,18 @@ from scripts.analysis.campaign_plots import (
 )
 from scripts.analysis.agent_harness import overlay_collected_agent_audit
 from scripts.analysis.campaign_tables import (
+    annotate_answer_abstention,
     annotate_generation,
     annotate_gap_stack,
+    annotate_gold_token_coverage,
     annotate_mem0_latency,
     annotate_memory_lane,
     annotate_mini_side,
     annotate_model_family,
     annotate_reader_stack,
     annotate_paper_compare,
+    annotate_prompt_parity_condition,
+    annotate_reader_list_price,
     annotate_system_harness,
     annotate_thinking,
     annotate_writer_harness,
@@ -618,12 +622,22 @@ def _display_notebook_table(table: pd.DataFrame) -> None:
         print(dataframe_markdown(table))
 
 
-def notebook_show(report: ReportResult) -> None:
-    """Display tables and PNGs in a Jupyter notebook (no-op extras if missing)."""
+def notebook_show(
+    report: ReportResult,
+    only: tuple[str, ...] | None = None,
+    *,
+    header: bool = True,
+) -> None:
+    """Display tables and PNGs in a Jupyter notebook (no-op extras if missing).
+
+    ``only`` keeps those analysis ids, in the given order, so a notebook can
+    put Quality, Performance, Retention, and Abstention in separate sections.
+    """
+    results = _select_results(report, only)
     try:
         from IPython.display import Image, Markdown, display
     except ImportError:
-        for item in report.results:
+        for item in results:
             if item.spec.id == "takeaways":
                 print("\n".join(_takeaways_markdown(item.table, item.csv_path)))
                 continue
@@ -634,12 +648,13 @@ def notebook_show(report: ReportResult) -> None:
             for path in item.plot_paths:
                 print("plot", path)
         return
-    if report.missing_packs:
+    if header and report.missing_packs:
         display(Markdown("**Missing packs:** " + ", ".join(report.missing_packs)))
-    display(Markdown(f"Output `{report.out_dir.as_posix()}`"))
-    if not report.results:
+    if header:
+        display(Markdown(f"Output `{report.out_dir.as_posix()}`"))
+    if not results:
         return
-    for item in report.results:
+    for item in results:
         if item.spec.id == "takeaways":
             _notebook_show_takeaways(item)
             continue
@@ -650,6 +665,17 @@ def notebook_show(report: ReportResult) -> None:
         _display_notebook_table(item.table)
         for path in item.plot_paths:
             display(Image(filename=str(path)))
+
+
+def _select_results(
+    report: ReportResult, only: tuple[str, ...] | None
+) -> list[AnalysisResult]:
+    if only is None:
+        return list(report.results)
+    order = {name: i for i, name in enumerate(only)}
+    chosen = [item for item in report.results if item.spec.id in order]
+    chosen.sort(key=lambda item: order[item.spec.id])
+    return chosen
 
 
 def _notebook_show_takeaways(item: AnalysisResult) -> None:
@@ -823,6 +849,13 @@ def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
     out = annotate_paper_compare(out)
     out = annotate_mini_side(out)
     out = annotate_gap_stack(out)
+    out = annotate_prompt_parity_condition(out)
+    if any(metric.startswith("gold_") for metric in spec.metrics):
+        out = annotate_gold_token_coverage(out)
+    if "reader_usd" in spec.metrics:
+        out = annotate_reader_list_price(out)
+    if _abstention_analysis(spec):
+        out = annotate_answer_abstention(out)
     drop = _categories_to_drop(spec)
     if drop and "question_category" in out.columns:
         category = pd.to_numeric(out["question_category"], errors="coerce")
@@ -830,13 +863,26 @@ def _prepare_frame(spec: AnalysisSpec, df: pd.DataFrame) -> pd.DataFrame:
     return _apply_where(out, spec.where)
 
 
+_ABSTENTION_RATES = frozenset({"adversarial_refusal", "false_refusal"})
+
+
+def _abstention_analysis(spec: AnalysisSpec) -> bool:
+    """True when the recipe asks for a refusal rate or its denominator."""
+    return any(metric.removesuffix("_n") in _ABSTENTION_RATES for metric in spec.metrics)
+
+
 def _categories_to_drop(spec: AnalysisSpec) -> tuple[int, ...]:
     """Mem0 J / paper clone overalls skip category 5; category plots keep it.
 
     Failure-mode counts are an audit of what the harness did, so they keep
-    adversarial questions the same way category bars do.
+    adversarial questions the same way category bars do. Refusal rates also
+    keep both classes: each rate is missing on the class it does not score.
     """
-    if "question_category" in spec.group_by or "failure_mode" in spec.group_by:
+    if (
+        "question_category" in spec.group_by
+        or "failure_mode" in spec.group_by
+        or _abstention_analysis(spec)
+    ):
         return spec.exclude_question_categories
     return spec.exclude_question_categories or (5,)
 

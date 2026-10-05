@@ -23,7 +23,7 @@ LoCoMo eval, two answer paths, one writer model.
 
 ## One run
 
-`experiments/<run_id>/` is the only place a run's models, memory, and trajectories meet.
+`experiments/<run_id>/` is the only place a run's models, memory, and trajectories meet. Run packs are gitignored. The exception is the published reader comparison: `experiments/locomo-openai-mini-codex-readers-analysis-v2/`, read by `notebooks/17_openai_mini_codex_readers_analysis.ipynb`.
 
 | Directory | Contents |
 |-----------|----------|

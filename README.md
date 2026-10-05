@@ -51,6 +51,19 @@ python -m src.locomo_eval.run \
 
 The pack is written to `experiments/smoke_mock/`.
 
+## Reference run
+
+The published comparison holds the reader payload fixed and varies the answerer: GPT-4o-mini Chat Completions, Codex with persistence off, and Codex with persistence on. Each of those reads stuffed full context and the dataset session summaries.
+
+| Step | Path |
+|---|---|
+| Matrix | `configs/experiments/openai_mini_codex_readers_analysis.yaml` |
+| Pinned pack | `experiments/locomo-openai-mini-codex-readers-analysis-v2/` |
+| Analysis | `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` |
+| Notebook | `notebooks/17_openai_mini_codex_readers_analysis.ipynb` |
+
+The pack is in the repository. The notebook reads it and states the result. Operator steps are in [docs/runbook_mini_vs_codex_readers.md](docs/runbook_mini_vs_codex_readers.md).
+
 ## Docs
 
 - [**Glossary**](docs/glossary.md) - common terms used in the codebase

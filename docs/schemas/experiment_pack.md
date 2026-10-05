@@ -1,6 +1,6 @@
 # Experiment pack (`audit_pack.v3`)
 
-On-disk contract for one LoCoMo run: `experiments/<run_id>/`.
+On-disk contract for one LoCoMo run: `experiments/<run_id>/`. Run packs are gitignored. The published exception is `experiments/locomo-openai-mini-codex-readers-analysis-v2/`, read by `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. On that pack's three full-context cells, `predictions.jsonl` stores `memory_text_path` instead of repeating the conversation, and Codex `agent/traces.jsonl` stores the shared task-prompt prefix once under `agent/prompt_prefix/`. `REFERENCE_PIN.json` records the original blob hashes.
 
 A frozen-reader comparison holds the dataset and the evaluation fixed and
 varies the memory system. These modules dump and reload that audit so a

@@ -211,6 +211,8 @@ A larger matrix uses `--tasks` equal to the run-spec count on QA and on the auto
 
 A successful QA log line looks like `qa complete locomo-poc-… uploaded=N blobs`. The usual failures are a missing `data/locomo10.json` or a runner account without `storage.objectAdmin`.
 
+While QA is running, progress is one line every 10th question, plus the last question: `[1870/1986] conv-50-q-87 api_calls_this_run=1870`. The questions and agent tasks still run one at a time. The gap between those lines is the time for those 10 calls, not a timer and not the log viewer grouping output.
+
 ## 8. Where the files go
 
 The durable copy is the bucket. `/tmp/memorybench-experiments` on the VM is scratch and disappears with the task.
@@ -263,4 +265,4 @@ Every run spec:
 gcloud.cmd storage cp -r gs://$env:BUCKET/experiments/locomo-poc/runs experiments/locomo-poc/
 ```
 
-Staged reproduction of a full design, including when to spend API credits, is in [REPRODUCE.md](REPRODUCE.md).
+Staged reproduction of a full design, including when to spend API credits, is in [REPRODUCE.md](REPRODUCE.md). The published reader-analysis pack is already in the repo at `experiments/locomo-openai-mini-codex-readers-analysis-v2/`. Its walkthrough is `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. Pull from the bucket only when regenerating that design; see [runbook_mini_vs_codex_readers.md](runbook_mini_vs_codex_readers.md).

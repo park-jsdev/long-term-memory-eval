@@ -1,3 +1,6 @@
+# GCS overlay for the reader-analysis matrix. The finished pack is pinned at
+# experiments/locomo-openai-mini-codex-readers-analysis-v2. The notebook is
+# notebooks/17_openai_mini_codex_readers_analysis.ipynb.
 includes:
   - configs/experiments/openai_mini_codex_readers_analysis.yaml
 

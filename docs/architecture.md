@@ -741,11 +741,13 @@ src/experiment_runner/  experiment runner: matrix, hashed IDs, one run spec per 
 src/metrics/        official LoCoMo category F1
 scripts/            fetch, prepare, deploy, compare
 scripts/analysis/   campaign_tables, campaign_plots, run_benchmark, comparisons
-notebooks/          thin YAML wrappers, local by default (gitignored)
+notebooks/          thin YAML wrappers, local by default (gitignored),
+                    except 17_openai_mini_codex_readers_analysis.ipynb
 tests/              deterministic verifiers, mock only
 infra/gcp/          resource inventory + bootstrap
 docs/               schemas, runbooks, methodology reports
-experiments/        run packs, aggregates, reports (gitignored)
+experiments/        run packs, aggregates, reports (gitignored), except the
+                    pinned locomo-openai-mini-codex-readers-analysis-v2 pack
 data/raw/           locomo10.json (fetched, gitignored)
 ```
 

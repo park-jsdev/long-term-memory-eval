@@ -174,8 +174,7 @@ so that pair is a trajectory condition, not a byte-identical request.
 | `full_context` | 1 | 1 | 1 |
 | `session_summaries` | 1 | 1 | 1 |
 
-YAML: `configs/experiments/openai_mini_codex_readers_analysis.yaml`. Operator steps:
-[`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md).
+YAML: `configs/experiments/openai_mini_codex_readers_analysis.yaml`. The finished six-cell pack is already in the repository at `experiments/locomo-openai-mini-codex-readers-analysis-v2/`. Stage 6 reads that pack. The published walkthrough is [`notebooks/17_openai_mini_codex_readers_analysis.ipynb`](../notebooks/17_openai_mini_codex_readers_analysis.ipynb). Operator steps: [`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md). Options A and B below regenerate the pack; they are not required to read the pinned result.
 
 A separate frozen-reader experiment holds the GPT-4o-mini reader fixed and compares a GPT-4o-mini writer with a
 Codex writer on `session_summaries` and `graph` (two run specs). Those prompts are
@@ -237,28 +236,24 @@ For the full `memory/`, `reader/`, and `agent/` dumps, copy the `collected/` pre
 
 ## Stage 6 — Analysis
 
-One command regenerates every table and figure from the analysis configuration. It reads finished Parquet
-and never calls an API.
+The pinned pack is the input. One command regenerates every table and figure from the analysis configuration. It reads finished Parquet and never calls an API.
 
 ```bash
 python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
 ```
 
-Outputs:
+That campaign YAML points at `experiments/locomo-openai-mini-codex-readers-analysis-v2`. Outputs:
 
 ```text
+experiments/locomo-openai-mini-codex-readers-analysis-v2/analysis/
 experiments/_campaign/openai_mini_codex_readers_analysis/analysis/tables/*.csv
 experiments/_campaign/openai_mini_codex_readers_analysis/analysis/plots/*.png
 experiments/_campaign/openai_mini_codex_readers_analysis/analysis/SUMMARY.md
 ```
 
-Missing packs are listed and skipped, so this works before every experiment has landed.
+The `_campaign` copy is a local report directory and stays gitignored. The pack under `experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the published reference.
 
-That command is the whole analysis step — every table and figure in the repository comes out of it,
-so you never need a notebook to reproduce a published number.
-
-Notebooks are an optional local review layer. They are gitignored. `report` is the
-reproduction step.
+Open `notebooks/17_openai_mini_codex_readers_analysis.ipynb` to read the same pack as a narrative: method, quality, performance, retention, abstention, and the audit gaps. The notebook calls the same `report` command. Other notebooks are gitignored. `report` remains the step that regenerates the tables.
 
 To add a comparison, edit `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` and re-run `report`. Do not fork
 the plotting code; the core is shared on purpose, which is why category axes read
@@ -283,8 +278,7 @@ produces a judged `J`, and category 5 is excluded from `J` as in the paper.
 
 ## Stage 7 — Walk one number back to its bytes
 
-This is the reproducibility check that matters. Pick any run spec in a published table and follow it
-down:
+This is the reproducibility check that matters. For the published reader comparison, start in `notebooks/17_openai_mini_codex_readers_analysis.ipynb`, then follow one cell of `experiments/locomo-openai-mini-codex-readers-analysis-v2` down. Tables live in that pack's `analysis/`. Per-question rows live in `collected/examples.parquet` and `aggregate/examples.parquet`. One run spec is `collected/runs/<run_id>/`.
 
 1. **`analysis/tables/<analysis_id>.csv`** — the published mean and its `n`.
 2. **`aggregate/examples.parquet`** — one row per question, with `run_id`, scores, judge verdict,
@@ -297,7 +291,9 @@ down:
 6. **`experiments/<run_id>/reader/traces.jsonl`** — the exact request and response for that question.
 7. **`experiments/<run_id>/memory/`** — the exact memory text in the prompt. Query-dependent methods
    such as `rag` and `mem0` write `by_question/<qid>.txt`; whole-conversation methods such as
-   `session_summaries` and `full_context` write `by_sample/<sample_id>.txt`.
+   `session_summaries` and `full_context` write `by_sample/<sample_id>.txt`. In the pinned
+   full-context cells, `predictions.jsonl` leaves `memory_text` empty and sets
+   `memory_text_path` to that file. See `REFERENCE_PIN.json`.
 8. **`memory/lineage.jsonl`** — which memory item came from which writer.
 9. **`memory/writer/calls.jsonl`** — the write-path call behind that item.
 10. **`memory/retrieve_ranks.jsonl`** — for retrieval conditions, what was rejected as well as what
@@ -305,8 +301,9 @@ down:
 11. **`autorater/traces.jsonl`** — the judge's reasoning for that verdict.
 
 **Checkpoint.** If step 7 shows an empty or identical memory string across two arms you were
-comparing, the claim is invalid regardless of the score difference. If step 4 shows a different git
-hash than you expect, you are reading an older run.
+comparing, the claim is invalid regardless of the score difference. An empty `memory_text` on a
+pinned full-context row is the deduplicated pointer, not a missing prompt: open
+`memory_text_path`. If step 4 shows a different git hash than you expect, you are reading an older run.
 
 ---
 
@@ -334,4 +331,5 @@ the incomplete run specs.
 - On-disk contracts: [`schemas/experiment_pack.md`](schemas/experiment_pack.md),
   [`schemas/analysis_campaign.md`](schemas/analysis_campaign.md)
 - One question, from config to score: [`loop.md`](loop.md)
+- Pinned reader pack and notebook: [`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md), [`notebooks/17_openai_mini_codex_readers_analysis.ipynb`](../notebooks/17_openai_mini_codex_readers_analysis.ipynb)
 - Dataset and third-party prompt terms: [`NOTICE.md`](../NOTICE.md)
