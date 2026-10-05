@@ -38,10 +38,9 @@ data/processed/*
 experiments/*
 !experiments/.gitkeep
 !experiments/locomo-openai-mini-codex-readers-analysis-v2/
-# Legacy output root; current packs live under experiments/
+# Legacy output roots; current packs live under experiments/
 results/
-logs/*
-!logs/.gitkeep
+logs/
 outputs/
 *.log
 # LLM response-hash cache was removed; keep the name ignored if a leftover appears
