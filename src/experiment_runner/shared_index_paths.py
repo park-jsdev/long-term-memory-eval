@@ -1,4 +1,4 @@
-"""Shared write-index ids (Mem0 extract / RAG chunks) reused across reader cells.
+"""Shared write-index ids (Mem0 extract / RAG chunks) reused across reader run specs.
 
 The longitudinal sweep freezes the writer: one gpt-4o-mini Mem0 dump and one
 text-embedding-3-small RAG dump, then varies only the answer model.

@@ -1,0 +1,9 @@
+question_category,memory_method,n,gold_memory_recall
+1 multi-hop,full_context,282,0.921307216994871
+2 temporal,full_context,321,0.864460020768432
+3 open-domain,full_context,96,0.6281028688194125
+4 single-hop,full_context,841,0.989269113763763
+1 multi-hop,session_summaries,282,0.7004059098458852
+2 temporal,session_summaries,321,0.7821614003856995
+3 open-domain,session_summaries,96,0.37925157057505793
+4 single-hop,session_summaries,841,0.7663776135500974

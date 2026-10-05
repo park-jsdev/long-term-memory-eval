@@ -17,13 +17,13 @@ LoCoMo eval, two answer paths, one writer model.
 | `configs/writers/` | One memory method per file |
 | `configs/agents/` | Codex adapter, persist, tools |
 | `configs/writers/openai_mini.yaml` | The one writer-model slot |
-| `configs/experiments/` | Matrices (one cell = one Cloud Run task) |
+| `configs/experiments/` | Design matrices (one run spec = one Cloud Run task) |
 | `configs/analysis/` | Campaign tables and plots |
 | `prompts/` | Prompt text, mirrored by role |
 
 ## One run
 
-`experiments/<run_id>/` is the only place a run's models, memory, and trajectories meet.
+`experiments/<run_id>/` is the only place a run's models, memory, and trajectories meet. Run packs are gitignored. The exception is the published reader comparison: `experiments/locomo-openai-mini-codex-readers-analysis-v2/`, read by `notebooks/17_openai_mini_codex_readers_analysis.ipynb`.
 
 | Directory | Contents |
 |-----------|----------|

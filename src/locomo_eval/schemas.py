@@ -21,10 +21,10 @@ Write-path preprocess (HLD i; not the QA scorer):
          ├── preprocess/         SessionBlock[] (stable ids, normalized speakers/times)
          │
          ▼
-    Memory.text                  sandwich middle — the one thing we vary
+    Memory.text                  memory representation — the experimental variable
          │
          ▼
-    Reader.answer()              frozen bottom — must not see the gold answer
+    Reader.answer()              fixed evaluation — must not see the gold answer
          │
          ▼
     Prediction                   one JSONL row: Q + gold + pred + memory snapshot

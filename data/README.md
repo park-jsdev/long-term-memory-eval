@@ -24,7 +24,7 @@ Do not commit the raw JSON unless you intentionally accept redistribution under 
 
 Each of the **10 samples** (`sample_id` like `conv-26`) is one multi-session conversation plus annotations. It is a **benchmark package**, not a single document type.
 
-| Field | Grain | What it is | Gold for **our QA sandwich**? |
+| Field | Grain | What it is | Used by the QA scorer? |
 |-------|--------|------------|-------------------------------|
 | `conversation` / `session_N` | session → turns (`dia_id` `D{session}:{turn}`) | Source dialog (LLM agents + human edits) | **Input corpus.** `raw_chunks` uses this. |
 | `qa` | question | Eval **task 1** (memory recall): question, answer, `evidence` turn ids, `category` | **Yes — scorer only.** Never in `Memory.text` / `SessionBlock`. |

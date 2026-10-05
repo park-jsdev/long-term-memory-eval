@@ -13,7 +13,9 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from src.metrics.locomo_qa import CATEGORY_NAMES
+from nltk.stem import PorterStemmer
+
+from src.metrics.locomo_qa import CATEGORY_NAMES, normalize_answer
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GENERATION_LOOKUP: dict[str, str] | None = None
@@ -1259,6 +1261,171 @@ def annotate_mini_side(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+_STEMMER = PorterStemmer()
+
+
+def _stem_set(text: str) -> set[str]:
+    return { _STEMMER.stem(token) for token in normalize_answer(text).split() if token }
+
+
+def annotate_gold_token_coverage(df: pd.DataFrame) -> pd.DataFrame:
+    """Add question-level gold-token rates for prompt coverage and answers.
+
+    Category 3 uses the gold text before the first semicolon, matching LoCoMo
+    F1. A missing gold token set stays empty so the campaign mean skips it.
+    Memory stems are cached per conversation because stuffed context does not
+    change between questions.
+    """
+    required = {"reference_answer", "generated_answer", "retrieved_memories"}
+    if df.empty or not required.issubset(df.columns):
+        return df
+    out = df.copy()
+    categories = (
+        out["question_category"]
+        if "question_category" in out.columns
+        else pd.Series([0] * len(out), index=out.index)
+    )
+    run_ids = out["run_id"] if "run_id" in out.columns else pd.Series([""] * len(out))
+    conversations = (
+        out["conversation_id"]
+        if "conversation_id" in out.columns
+        else pd.Series([""] * len(out), index=out.index)
+    )
+    memory_cache: dict[tuple[str, str], set[str]] = {}
+    memory_recall: list[float | None] = []
+    answer_recall: list[float | None] = []
+    answer_precision: list[float | None] = []
+    kept: list[float | None] = []
+    dropped: list[float | None] = []
+    for gold_text, answer_text, memory_text, category, run_id, conversation_id in zip(
+        out["reference_answer"],
+        out["generated_answer"],
+        out["retrieved_memories"],
+        categories,
+        run_ids,
+        conversations,
+        strict=False,
+    ):
+        gold = "" if gold_text is None else str(gold_text)
+        try:
+            if int(category) == 3:
+                gold = gold.split(";", 1)[0]
+        except (TypeError, ValueError):
+            pass
+        gold_tokens = _stem_set(gold)
+        if not gold_tokens:
+            memory_recall.append(None)
+            answer_recall.append(None)
+            answer_precision.append(None)
+            kept.append(None)
+            dropped.append(None)
+            continue
+        cache_key = (str(run_id), str(conversation_id))
+        if cache_key not in memory_cache:
+            memory_cache[cache_key] = _stem_set(
+                "" if memory_text is None else str(memory_text)
+            )
+        answer_tokens = _stem_set("" if answer_text is None else str(answer_text))
+        in_memory = gold_tokens & memory_cache[cache_key]
+        in_answer = gold_tokens & answer_tokens
+        memory_recall.append(len(in_memory) / len(gold_tokens))
+        answer_recall.append(len(in_answer) / len(gold_tokens))
+        answer_precision.append(
+            len(in_answer) / len(answer_tokens) if answer_tokens else 0.0
+        )
+        if in_memory:
+            kept.append(len(in_memory & in_answer) / len(in_memory))
+            dropped.append(len(in_memory - in_answer) / len(in_memory))
+        else:
+            kept.append(None)
+            dropped.append(None)
+    out["gold_memory_recall"] = memory_recall
+    out["gold_answer_recall"] = answer_recall
+    out["gold_answer_precision"] = answer_precision
+    out["gold_kept_given_memory"] = kept
+    out["gold_dropped_given_memory"] = dropped
+    return out
+
+
+def _uses_locomo_refusal(text: object) -> bool:
+    # Same substring rule as LoCoMo category 5. It is not token overlap.
+    low = "" if text is None else str(text).lower()
+    return "no information available" in low or "not mentioned" in low
+
+
+def annotate_answer_abstention(df: pd.DataFrame) -> pd.DataFrame:
+    """Mark LoCoMo refusal phrases separately for traps and real questions.
+
+    Category 5 gold is empty, so gold-token drop cannot score a trap.
+    ``adversarial_refusal`` is 1 when a category-5 answer contains the
+    official refusal phrase. ``false_refusal`` is that same phrase on
+    categories 1–4. The other class stays missing so a later mean uses
+    only the rows that define each rate.
+    """
+    required = {"generated_answer", "question_category"}
+    if df.empty or not required.issubset(df.columns):
+        return df
+    out = df.copy()
+    adversarial: list[float | None] = []
+    false_refusal: list[float | None] = []
+    for answer, category in zip(
+        out["generated_answer"], out["question_category"], strict=False
+    ):
+        try:
+            category_id = int(category)
+        except (TypeError, ValueError):
+            adversarial.append(None)
+            false_refusal.append(None)
+            continue
+        refused = 1.0 if _uses_locomo_refusal(answer) else 0.0
+        if category_id == 5:
+            adversarial.append(refused)
+            false_refusal.append(None)
+        elif category_id in (1, 2, 3, 4):
+            adversarial.append(None)
+            false_refusal.append(refused)
+        else:
+            adversarial.append(None)
+            false_refusal.append(None)
+    out["adversarial_refusal"] = adversarial
+    out["false_refusal"] = false_refusal
+    return out
+
+
+def annotate_reader_list_price(df: pd.DataFrame) -> pd.DataFrame:
+    """Pin per-question reader USD from ``configs/models/pricing.yaml``.
+
+    Chat Completions and Codex both use the row's reader model. Missing
+    token counts stay empty rather than $0. The judge is not included,
+    and the figure is a list price, not an invoice.
+    """
+    required = {"reader_model", "agent_input_tokens", "agent_output_tokens"}
+    if df.empty or not required.issubset(df.columns):
+        return df
+    from src.locomo_eval.pricing import estimate_usd
+
+    out = df.copy()
+    prices: list[float | None] = []
+    for model, prompt, completion in zip(
+        out["reader_model"],
+        out["agent_input_tokens"],
+        out["agent_output_tokens"],
+        strict=False,
+    ):
+        if pd.isna(prompt) or pd.isna(completion):
+            prices.append(None)
+            continue
+        prices.append(
+            estimate_usd(
+                None if model is None else str(model),
+                int(prompt),
+                int(completion),
+            )
+        )
+    out["reader_usd"] = prices
+    return out
+
+
 def annotate_prompt_parity_condition(df: pd.DataFrame) -> pd.DataFrame:
     """Label model and Codex persistence without dropping null model fields."""
     out = df.copy()
@@ -1452,6 +1619,9 @@ def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.
     for name, src, how in specs:
         if how == "mean":
             series = grouped[src].mean()
+        elif how == "count":
+            # Non-null rows. Refusal rates leave the other class empty.
+            series = grouped[src].count()
         elif how == "p50":
             series = grouped[src].quantile(0.50)
         else:
@@ -1481,8 +1651,20 @@ def mean_table(df: pd.DataFrame, group_by: list[str], metrics: list[str]) -> pd.
     return out
 
 
+_NON_NULL_COUNTS = {
+    "adversarial_refusal_n": "adversarial_refusal",
+    "false_refusal_n": "false_refusal",
+}
+
+
 def _metric_reduce(name: str) -> tuple[str, str]:
-    """Map ``foo_p50`` / ``foo_p95`` onto column ``foo``; otherwise mean ``name``."""
+    """Map ``foo_p50`` / ``foo_p95`` onto column ``foo``; otherwise mean ``name``.
+
+    ``adversarial_refusal_n`` and ``false_refusal_n`` count non-null rows of
+    the rate column. That count is the denominator, not a second mean.
+    """
+    if name in _NON_NULL_COUNTS:
+        return _NON_NULL_COUNTS[name], "count"
     if name.endswith("_p50"):
         return name[:-4], "p50"
     if name.endswith("_p95"):

@@ -1,8 +1,8 @@
-"""Path contract for one sandwich run: ``experiments/<run_id>/``.
+"""Path contract for one experiment pack: ``experiments/<run_id>/``.
 
 This module names folders and files. It does not read or write them.
 
-A sandwich run freezes data + reader/eval and varies memory. The on-disk
+A frozen-reader run holds the dataset and the evaluation fixed and varies the memory system. The on-disk
 tree is the **audit** of those layers (reader, writer, memory graph, judge)
 so later analysis can map a condition to its results without re-running LLMs.
 
@@ -86,7 +86,7 @@ def writer_dir_name(writer_id: str) -> str:
 
 @dataclass(frozen=True)
 class AuditPaths:
-    """Absolute paths for one sandwich-run directory. Missing files are still listed."""
+    """Absolute paths for one experiment-pack directory. Missing files are still listed."""
 
     run_dir: Path
     run_meta: Path

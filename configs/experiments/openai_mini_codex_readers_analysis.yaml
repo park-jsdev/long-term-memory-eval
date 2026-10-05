@@ -1,5 +1,7 @@
 # GPT-4o-mini and Codex reader analysis: two model cells plus matched-payload
-# Codex cells with persistence off/on.
+# Codex cells with persistence off/on. The finished pack is pinned at
+# experiments/locomo-openai-mini-codex-readers-analysis-v2 and opened from
+# notebooks/17_openai_mini_codex_readers_analysis.ipynb.
 experiment:
   name: locomo-openai-mini-codex-readers-analysis-v2
   type: agent

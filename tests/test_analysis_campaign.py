@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -21,7 +22,10 @@ from src.experiment_runner.analysis.load_campaign import (
     load_campaign_yaml,
 )
 from src.experiment_runner.analysis.plots import _place_legend_outside
-from src.experiment_runner.analysis.notebook_protocol import notebook_posttest
+from src.experiment_runner.analysis.notebook_protocol import (
+    notebook_posttest,
+    notebook_pretest,
+)
 from src.experiment_runner.analysis.report import (
     ReportResult,
     _plot_stem,
@@ -29,11 +33,13 @@ from src.experiment_runner.analysis.report import (
     _takeaway_sections,
     _takeaways_markdown,
     _write_plot,
+    annotate_gold_token_coverage,
     annotate_model_family,
     dataframe_html,
     dataframe_markdown,
     load_pack,
     mean_table,
+    notebook_show,
     render_analysis,
     render_campaign,
     render_experiment,
@@ -41,7 +47,9 @@ from src.experiment_runner.analysis.report import (
 )
 from scripts.analysis.campaign_tables import (
     COMPARE_SOURCE_CODEX,
+    annotate_answer_abstention,
     annotate_generation,
+    annotate_reader_list_price,
     annotate_mem0_latency,
     annotate_memory_lane,
     annotate_paper_compare,
@@ -1153,6 +1161,149 @@ class TestAnalysisNotebookContract(unittest.TestCase):
                 self.assertNotIn("groupby(", code)
 
 
+class TestGoldTokenCoverage(unittest.TestCase):
+    def test_annotate_gold_token_coverage_counts_prompt_hits_and_answer_drops(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "run_id": "run-a",
+                    "conversation_id": "conv-a",
+                    "question_category": 4,
+                    "reference_answer": "painting class",
+                    "generated_answer": "painting",
+                    "retrieved_memories": "Alice started a painting class yesterday",
+                }
+            ]
+        )
+        out = annotate_gold_token_coverage(frame).iloc[0]
+        self.assertAlmostEqual(float(out["gold_memory_recall"]), 1.0)
+        self.assertAlmostEqual(float(out["gold_answer_recall"]), 0.5)
+        self.assertAlmostEqual(float(out["gold_kept_given_memory"]), 0.5)
+        self.assertAlmostEqual(float(out["gold_dropped_given_memory"]), 0.5)
+        self.assertGreater(float(out["gold_answer_precision"]), 0.0)
+
+    def test_annotate_gold_token_coverage_uses_open_domain_text_before_semicolon(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "run_id": "run-a",
+                    "conversation_id": "conv-a",
+                    "question_category": 3,
+                    "reference_answer": "counseling; she also likes music",
+                    "generated_answer": "counseling",
+                    "retrieved_memories": "Caroline plans to explore counseling",
+                }
+            ]
+        )
+        out = annotate_gold_token_coverage(frame).iloc[0]
+        self.assertAlmostEqual(float(out["gold_memory_recall"]), 1.0)
+        self.assertAlmostEqual(float(out["gold_answer_recall"]), 1.0)
+        self.assertAlmostEqual(float(out["gold_dropped_given_memory"]), 0.0)
+
+
+class TestAnswerAbstention(unittest.TestCase):
+    def test_annotate_answer_abstention_splits_trap_and_answerable_refusals(self):
+        from src.metrics.locomo_qa import score_prediction
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "question_category": 5,
+                    "generated_answer": "Not mentioned in the memories.",
+                },
+                {
+                    "question_category": 5,
+                    "generated_answer": "She ran a charity race.",
+                },
+                {
+                    "question_category": 4,
+                    "generated_answer": "No information available.",
+                },
+                {
+                    "question_category": 2,
+                    "generated_answer": "7 May 2023",
+                },
+            ]
+        )
+        out = annotate_answer_abstention(frame)
+        self.assertEqual(float(out.iloc[0]["adversarial_refusal"]), 1.0)
+        self.assertTrue(pd.isna(out.iloc[0]["false_refusal"]))
+        self.assertEqual(
+            float(out.iloc[0]["adversarial_refusal"]),
+            score_prediction("Not mentioned in the memories.", "", 5),
+        )
+        self.assertEqual(float(out.iloc[1]["adversarial_refusal"]), 0.0)
+        self.assertTrue(pd.isna(out.iloc[2]["adversarial_refusal"]))
+        self.assertEqual(float(out.iloc[2]["false_refusal"]), 1.0)
+        self.assertEqual(float(out.iloc[3]["false_refusal"]), 0.0)
+
+    def test_mean_table_refusal_counts_use_only_the_defined_class(self):
+        from src.experiment_runner.analysis.report import (
+            AnalysisSpec,
+            _prepare_frame,
+        )
+
+        frame = pd.DataFrame(
+            [
+                {
+                    "memory_method": "full_context",
+                    "question_category": 5,
+                    "generated_answer": "Not mentioned in the memories.",
+                },
+                {
+                    "memory_method": "full_context",
+                    "question_category": 4,
+                    "generated_answer": "Not mentioned.",
+                },
+                {
+                    "memory_method": "full_context",
+                    "question_category": 4,
+                    "generated_answer": "painting class",
+                },
+            ]
+        )
+        spec = AnalysisSpec(
+            id="adversarial_refusal",
+            title="Adversarial refusal and false refusal",
+            group_by=("memory_method",),
+            metrics=(
+                "adversarial_refusal",
+                "adversarial_refusal_n",
+                "false_refusal",
+                "false_refusal_n",
+            ),
+            plots=(),
+            source="examples",
+        )
+        table = mean_table(
+            _prepare_frame(spec, frame),
+            ["memory_method"],
+            list(spec.metrics),
+        )
+        row = table.iloc[0]
+        self.assertAlmostEqual(float(row["adversarial_refusal"]), 1.0)
+        self.assertEqual(int(row["adversarial_refusal_n"]), 1)
+        self.assertAlmostEqual(float(row["false_refusal"]), 0.5)
+        self.assertEqual(int(row["false_refusal_n"]), 2)
+        self.assertEqual(int(row["n"]), 3)
+
+
+class TestReaderListPrice(unittest.TestCase):
+    def test_annotate_reader_list_price_uses_pinned_gpt_4o_mini_rates(self):
+        frame = pd.DataFrame(
+            [
+                {
+                    "reader_model": "gpt-4o-mini",
+                    "agent_input_tokens": 1_000_000,
+                    "agent_output_tokens": 1_000_000,
+                }
+            ]
+        )
+        out = annotate_reader_list_price(frame).iloc[0]
+        # pricing.yaml: gpt-4o-mini input 0.15 and output 0.60 per 1M tokens.
+        self.assertAlmostEqual(float(out["reader_usd"]), 0.75)
+
+
 class TestMeanTableAndFamily(unittest.TestCase):
     def test_mean_table_groups_reader_and_keeps_count(self):
         df = pd.DataFrame(
@@ -1524,6 +1675,11 @@ class TestLegendDoesNotCoverBars(unittest.TestCase):
         self.assertTrue(unbounded_metric("n"))
         self.assertTrue(unbounded_metric("answer_n_words"))
         self.assertFalse(unbounded_metric("harness_failed_rate"))
+        self.assertFalse(unbounded_metric("adversarial_refusal"))
+        self.assertFalse(unbounded_metric("false_refusal"))
+        self.assertTrue(unbounded_metric("adversarial_refusal_n"))
+        self.assertTrue(unbounded_metric("false_refusal_n"))
+        self.assertTrue(unbounded_metric("reader_usd"))
 
 
 
@@ -2236,6 +2392,43 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
             "full_context_model_vs_codex",
             [item.id for item in cfg.takeaways],
         )
+        coverage = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "gold_token_stages"
+        )
+        self.assertIn("gold_memory_recall", coverage.metrics)
+        self.assertIn("gold_dropped_given_memory", coverage.metrics)
+        self.assertTrue(
+            any(plot.y == "gold_answer_recall" for plot in coverage.plots)
+        )
+        self.assertFalse(
+            any(plot.y == "gold_dropped_given_memory" for plot in coverage.plots)
+        )
+        performance = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "reader_performance"
+        )
+        self.assertIn("total_latency_seconds_p50", performance.metrics)
+        self.assertIn("reader_usd", performance.metrics)
+        self.assertEqual(performance.plots[0].y, "total_latency_seconds_p50")
+        by_category = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "gold_token_by_category"
+        )
+        self.assertEqual(by_category.exclude_question_categories, (5,))
+        refusal = next(
+            spec for spec in cfg.campaign_analyses if spec.id == "adversarial_refusal"
+        )
+        self.assertEqual(
+            refusal.metrics,
+            (
+                "adversarial_refusal",
+                "adversarial_refusal_n",
+                "false_refusal",
+                "false_refusal_n",
+            ),
+        )
+        self.assertNotIn("gold_dropped_given_memory", refusal.metrics)
+        self.assertTrue(
+            any(plot.y == "false_refusal" for plot in refusal.plots)
+        )
 
     def test_model_harness_gaps_campaign_has_category_j_charts(self):
         cfg = load_campaign_yaml(
@@ -2277,6 +2470,86 @@ class TestOpenAIAgentCampaigns(unittest.TestCase):
         table = notebook_posttest(cfg, [fake], root=ROOT)
         self.assertFalse(table.empty)
         self.assertIn("pack", " ".join(table["check"].astype(str)))
+
+
+class TestPinnedReaderNotebook(unittest.TestCase):
+    def test_pinned_reader_notebook_report_passes_against_local_pack(self):
+        # The published notebook only reads this pack. A temp copy of its
+        # aggregate keeps the report from rewriting the committed plots.
+        pinned = ROOT / "experiments" / "locomo-openai-mini-codex-readers-analysis-v2"
+        aggregate = pinned / "aggregate"
+        self.assertTrue(
+            (aggregate / "examples.parquet").is_file(),
+            "pinned reader pack is missing aggregate/examples.parquet",
+        )
+        yaml_path = (
+            ROOT / "configs" / "analysis" / "campaign_openai_mini_codex_readers_analysis.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = root / "experiments" / pinned.name / "aggregate"
+            shutil.copytree(aggregate, dest)
+            camp = load_campaign_yaml(yaml_path)
+            notebook_pretest(camp, root=root)
+            reports = run_report(yaml_path, root=root)
+            report = reports[-1]
+            checks = notebook_posttest(camp, report=reports, root=root)
+
+            self.assertEqual(report.missing_packs, [])
+            failed = checks[checks["result"] == "FAIL"]
+            self.assertTrue(failed.empty, failed.to_dict(orient="records"))
+            n_cells = checks[checks["check"] == "readers.n_cells"].iloc[0]
+            self.assertEqual(n_cells["result"], "PASS")
+            self.assertIn("actual 6", str(n_cells["detail"]))
+
+            by_id = {item.spec.id: item for item in report.results}
+            sections = (
+                ("reader_conditions", "reader_by_category"),
+                ("reader_performance",),
+                ("gold_token_stages", "gold_token_by_category"),
+                ("adversarial_refusal",),
+                ("codex_audit",),
+            )
+            for only in sections:
+                for analysis_id in only:
+                    item = by_id[analysis_id]
+                    self.assertFalse(item.skipped, analysis_id)
+                    self.assertGreater(len(item.table), 0, analysis_id)
+                    for path in item.plot_paths:
+                        self.assertTrue(path.is_file(), path)
+                notebook_show(report, only=only, header=False)
+
+            conditions = by_id["reader_conditions"].table
+            self.assertEqual(len(conditions), 6)
+            self.assertTrue((conditions["n"] == 1540).all())
+            model = _pinned_cell(conditions, "full_context", "4o-mini")
+            persist_on = _pinned_cell(
+                conditions, "full_context", "4o-mini + Codex (persist on)"
+            )
+            self.assertAlmostEqual(float(model["judge_score"]), 0.747, places=3)
+            self.assertAlmostEqual(float(persist_on["locomo_f1"]), 0.337, places=3)
+
+            stages = by_id["gold_token_stages"].table
+            full = stages[stages["memory_method"] == "full_context"]
+            self.assertEqual(len(full), 3)
+            for value in full["gold_memory_recall"]:
+                self.assertAlmostEqual(float(value), 0.928, places=3)
+            persist_on_stage = _pinned_cell(
+                stages, "full_context", "4o-mini + Codex (persist on)"
+            )
+            self.assertAlmostEqual(
+                float(persist_on_stage["gold_answer_recall"]), 0.629, places=3
+            )
+
+
+def _pinned_cell(table: pd.DataFrame, memory_method: str, condition: str) -> pd.Series:
+    rows = table[
+        (table["memory_method"] == memory_method)
+        & (table["prompt_parity_condition"] == condition)
+    ]
+    if len(rows) != 1:
+        raise AssertionError(f"{memory_method} / {condition} matched {len(rows)} rows")
+    return rows.iloc[0]
 
 
 if __name__ == "__main__":

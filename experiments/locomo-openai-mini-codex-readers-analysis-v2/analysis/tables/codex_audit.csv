@@ -1,0 +1,5 @@
+memory_method,agent_persist,n,n_web_search,n_mcp,used_non_workspace_tools,n_write_events,notes_retrieved,notes_bytes,harness_failed_rate
+full_context,False,1,0.0,0.0,0.0,0.0,0.0,,0.0
+full_context,True,1,0.0,0.0,0.0,0.019133937562940583,0.002014098690835851,268.3086606243706,0.0
+session_summaries,False,1,0.0,0.0,0.0,0.0,0.0,,0.0
+session_summaries,True,1,0.0,0.0,0.0,0.013091641490433032,0.016112789526686808,204.92900302114805,0.0

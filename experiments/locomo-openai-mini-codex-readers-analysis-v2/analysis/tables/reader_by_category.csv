@@ -1,0 +1,31 @@
+question_category,memory_method,prompt_parity_condition,n,locomo_f1,judge_score
+1 multi-hop,full_context,4o-mini,282,0.37850468535957094,0.6595744680851063
+1 multi-hop,full_context,4o-mini + Codex (persist off),282,0.31274803872147355,0.6595744680851063
+1 multi-hop,full_context,4o-mini + Codex (persist on),282,0.26629682505178315,0.723404255319149
+2 temporal,full_context,4o-mini,321,0.5160076968213307,0.557632398753894
+2 temporal,full_context,4o-mini + Codex (persist off),321,0.3664331447352772,0.5451713395638629
+2 temporal,full_context,4o-mini + Codex (persist on),321,0.2847098721588634,0.5264797507788161
+3 open-domain,full_context,4o-mini,96,0.24533457576056994,0.4791666666666667
+3 open-domain,full_context,4o-mini + Codex (persist off),96,0.2215582362373513,0.53125
+3 open-domain,full_context,4o-mini + Codex (persist on),96,0.1504879928038855,0.5625
+4 single-hop,full_context,4o-mini,841,0.6338957275550885,0.8799048751486326
+4 single-hop,full_context,4o-mini + Codex (persist off),841,0.5323991867683743,0.8668252080856124
+4 single-hop,full_context,4o-mini + Codex (persist on),841,0.4014454317288718,0.8906064209274673
+5 adversarial,full_context,4o-mini,446,0.020179372197309416,0.0
+5 adversarial,full_context,4o-mini + Codex (persist off),446,0.006726457399103139,0.0
+5 adversarial,full_context,4o-mini + Codex (persist on),446,0.011210762331838564,0.0
+1 multi-hop,session_summaries,4o-mini,282,0.30158452396010776,0.4787234042553192
+1 multi-hop,session_summaries,4o-mini + Codex (persist off),282,0.2836910231946324,0.5212765957446809
+1 multi-hop,session_summaries,4o-mini + Codex (persist on),282,0.22945526217893988,0.5460992907801419
+2 temporal,session_summaries,4o-mini,321,0.3838624047428769,0.3613707165109034
+2 temporal,session_summaries,4o-mini + Codex (persist off),321,0.3536101598570856,0.32398753894080995
+2 temporal,session_summaries,4o-mini + Codex (persist on),321,0.2553207557334147,0.34890965732087226
+3 open-domain,session_summaries,4o-mini,96,0.1960790714541137,0.4270833333333333
+3 open-domain,session_summaries,4o-mini + Codex (persist off),96,0.20605375277560947,0.4166666666666667
+3 open-domain,session_summaries,4o-mini + Codex (persist on),96,0.16029900883521872,0.4791666666666667
+4 single-hop,session_summaries,4o-mini,841,0.360135872504308,0.5469678953626635
+4 single-hop,session_summaries,4o-mini + Codex (persist off),841,0.3213600381697047,0.5517241379310345
+4 single-hop,session_summaries,4o-mini + Codex (persist on),841,0.24802335905840037,0.5719381688466112
+5 adversarial,session_summaries,4o-mini,446,0.12780269058295965,0.0
+5 adversarial,session_summaries,4o-mini + Codex (persist off),446,0.020179372197309416,0.0
+5 adversarial,session_summaries,4o-mini + Codex (persist on),446,0.042600896860986545,0.0

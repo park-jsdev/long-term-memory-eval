@@ -1,0 +1,22 @@
+{
+  "n_questions": 1986,
+  "n_harness_failed": 0,
+  "harness_failed_rate": 0.0,
+  "n_retrieval_calls_mean": 0.023162134944612285,
+  "retrieved_tokens_mean": 0.7613293051359517,
+  "memory_recall_mean": null,
+  "memory_precision_mean": null,
+  "unnecessary_retrievals_mean": null,
+  "evidence_retrieved_rate": null,
+  "n_web_search_sum": 0,
+  "n_mcp_sum": 0,
+  "n_write_events_mean": 0.013091641490433032,
+  "hop_to_evidence_mean": null,
+  "notes_retrieved_rate": 0.016112789526686808,
+  "used_non_workspace_tools_rate": 0.0,
+  "failure_modes": {
+    "prompt_injected": 1986
+  },
+  "comparison_status": "incomparable",
+  "comparison_contract_sha256": "09a8b62b1a29515d462a5ec148f9656996196d418ac38c5e698a1f63bb484213"
+}

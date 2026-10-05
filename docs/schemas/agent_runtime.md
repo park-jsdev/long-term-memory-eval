@@ -3,9 +3,9 @@
 On-disk contract for **agent-level** LoCoMo eval: the coding-agent harness
 retrieves from conversation files instead of a one-shot `{memory}` fill.
 
-This is a different sandwich bottom than `readers.Reader`. Model-only
-comparison remains `full_context` + Chat Completions. Do not mix a reader
-prompt swap into a harness claim.
+This is a different answer path than `readers.Reader`. The agent reads
+workspace files. Model-only comparison remains `full_context` + Chat
+Completions. Do not mix a reader prompt swap into a harness claim.
 
 Schema id: **`agent_trajectory.v1`** (`agent/metrics.json` → `schema_version`
 on each `agent/trajectory.jsonl` row).

@@ -30,14 +30,14 @@ judge run, an OSS clone, or an agent run must not be called a paper result.
 ```mermaid
 flowchart LR
   source["LoCoMo locomo10.json"] --> load["dataset.py: Conversation and Question"]
-  load --> middle["memory middle"]
-  middle --> answer["reader completion or Codex answer"]
+  load --> memory["memory stage"]
+  memory --> answer["reader completion or Codex answer"]
   answer --> prediction["predicted_answer"]
   prediction --> locomo["LoCoMo F1: local deterministic scorer"]
   prediction --> judge["Mem0 judge: separate online job"]
   load -.->|"gold and evidence stay scorer-side"| locomo
   load -.->|"question, gold, prediction"| judge
-  middle --> pack["experiment pack"]
+  memory --> pack["experiment pack"]
   answer --> pack
   locomo --> pack
   judge --> pack
@@ -62,11 +62,31 @@ LoCoMo commit `3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376`. It creates
 | `qa[].answer` | Never reader/writer/workspace input | LoCoMo scorer and Mem0 judge |
 | `qa[].evidence` | Never reader/writer/workspace input | Post-hoc agent-trajectory audit |
 
-Questions run sequentially inside one run: source conversation order, then
-`qa` array order. A capped subset is the deterministic file-order prefix and
-is not a benchmark result. The runner parallelizes independent run specs, such
-as one Cloud Run task per matrix entry, it does not parallelize questions
-within a run.
+### The QA loop
+
+One run answers questions on a single thread. The order is the LoCoMo file,
+then each conversation's `qa` array. `iter_questions` is that double loop:
+finish every question of one conversation, then start the next conversation.
+Questions are not dealt across conversations.
+
+The ids follow the file, not a renumbering into conversation 1, 2, 3. In the
+pinned pack the first stretch is `conv-26-q-0`, `conv-26-q-1`, `conv-26-q-2`,
+through the rest of `conv-26`, and only then `conv-30-q-0`.
+
+For `full_context` and dataset `session_summaries`, the memory string is built
+once when that conversation starts and reused for each of its questions. The
+question line changes. The memory block does not. Persist-on keeps one
+workspace per conversation, so a note written on `conv-26-q-0` can be read by
+a later `conv-26` question. `conv-30` has its own workspace and starts only
+after `conv-26` is finished.
+
+`--max-questions` keeps the prefix of this flattened list. Five questions are
+the first five of the first conversation, not one question from each
+conversation. That prefix is a smoke, not a benchmark result.
+
+A matrix does not change this order inside a run. The six reader-analysis
+cells are six runs. Cloud Run may execute those runs at the same time. It
+does not interleave their questions.
 
 ### Dataset grain and what is replayed
 
@@ -212,6 +232,25 @@ never changes the next prompt. Gold answers are present in the local prediction
 record solely for later scoring and are never injected into reader, writer, or
 workspace inputs.
 
+### What each stage receives
+
+This is one question in the published reader comparison. The question belongs
+to one conversation. Memory is that conversation only. The other nine LoCoMo
+conversations are not in the prompt, the workspace, or the notes file. A
+writer path or a `workspace_files` path is a different memory stage; those are
+described under the answer paths below.
+
+| Stage | Data, prompt, and memory | What it can decide |
+|---|---|---|
+| Load | One conversation's sessions and one `qa` row. Gold and evidence IDs stay in the local record. | No model call. The source JSON is not edited. |
+| Memory | `full_context`: every turn of that conversation, as `timestamp \| speaker: text`, with `[image: ...]` when a turn has a caption. Dataset `session_summaries`: the released per-session summary strings, not the turns. Built once per conversation and reused for every question in it. | No retrieval and no tool. The question does not change the memory text. |
+| Prompt fill | `prompts/readers/qa_mem0_v1.txt`, the memory string, and the question. The template's instructions, including the 5–6 word line, are fixed. | Fills `{memory}` and `{question}` only. There is no gold slot. |
+| Model-only reader | System message: "You answer questions using only the provided memory." User message: the filled template. That system line is outside `reader_payload_sha256`. | One Chat Completions call. No files, notes, or tools. The decision is the answer string. |
+| Codex, persist-off | The filled template as the task string, and nothing after it. Same bytes as the model's user message, so `reader_payload_sha256` matches. The workspace has no session files. | One `codex exec`. Codex may run an inner model/tool loop. Web search and user MCP are disabled. The sandbox is read-only. The decision is when that loop stops and which string is returned. |
+| Codex, persist-on | The same filled template, then the `# HARNESS PERSISTENCE` footer. The footer is outside `reader_payload_sha256` and inside `agent_task_sha256`. | The same outer process, with a workspace-write sandbox. It may read and append `memory/notes.md`. Those notes remain for later questions in this conversation only. |
+| LoCoMo scorer | The stored answer, the gold string, and the category. Not the memory. | No model call. The category rule produces the score. The score does not change the next prompt. |
+| Mem0 judge | The question, the gold answer, and the generated answer, through `prompts/autoraters/autorater_mem0_v1.txt`. Not the memory transcript. | One judge call on categories 1–4. Category 5 is skipped. The decision is CORRECT or WRONG. It does not rewrite the answer. |
+
 ## LLM call scheduling and reproducibility
 
 This repository does not use provider batch APIs. One QA run is deliberately
@@ -228,18 +267,18 @@ There is no hidden request fan-out or in-process concurrency. A reader's
 `min_request_interval_s` is a spacing floor between its sequential live calls,
 rate-limit retries remain attached to that one call.
 
-The experiment runner can run **independent cells** in parallel. Locally,
-`execute-qa` executes one matrix cell. On Cloud Run, one task executes one
-cell, the deployment default permits up to eight concurrent tasks, while the
-operator's `--tasks=N` sets how many cells are launched. Thus simultaneous
+The experiment runner can run **independent run specs** in parallel. Locally,
+`execute-qa` executes one run spec. On Cloud Run, one task executes one
+run spec, the deployment default permits up to eight concurrent tasks, while the
+operator's `--tasks=N` sets how many run specs are launched. Thus simultaneous
 provider calls can reach `min(N, configured Cloud Run parallelism)`, but only
-across independent cells - not within a cell.
+across independent run specs, not within a run spec.
 
 This scheduling is an implementation control, not a LoCoMo or Mem0 scoring
 rule. LoCoMo and the Mem0-style judge define data/scoring protocols, not API
 batch size or worker count. Full benchmark scores are valid under this
 execution because every condition evaluates the complete frozen dataset with
-the same per-cell order. For persisted agents, serial execution is required:
+the same per-run-spec order. For persisted agents, serial execution is required:
 parallel questions would create an undefined notes-write order and change the
 condition.
 
@@ -253,20 +292,20 @@ than treating these defaults as an immutable hardware claim.
 
 | Job | Work unit | Default resources | Task timeout / retries | Parallelism |
 |---|---|---:|---:|---:|
-| `memorybench-qa` | One matrix cell per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
-| `memorybench-autorater` | One finished QA cell per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
-| `memorybench-aggregate` | One campaign aggregation | 1 vCPU, 4 GiB RAM | 12 h / 2 | 1 |
+| `memorybench-qa` | One run spec per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
+| `memorybench-autorater` | One finished QA run spec per task | 1 vCPU, 4 GiB RAM | 12 h / 2 | 8 |
+| `memorybench-aggregate` | One design aggregation | 1 vCPU, 4 GiB RAM | 12 h / 2 | 1 |
 | `memorybench-collect-full` | One full-pack collection | 8 vCPU, 32 GiB RAM | 12 h / 2 | 1 |
 
 `JOB_MEMORY`, `JOB_CPU`, and `JOB_PARALLELISM` are deployment-time overrides
 for QA and autorater. Aggregate separately defaults to `AGGREGATE_MEMORY=4Gi`
 and `AGGREGATE_CPU=1`, because Cloud Run limits a 1-vCPU container to 4 GiB.
-For a memory-heavy cell, deploy QA and autorater with `8Gi`, `2`, and `3`,
+For a memory-heavy run spec, deploy QA and autorater with `8Gi`, `2`, and `3`,
 respectively: that permits at most three 8-GiB tasks while preserving the
-sequential question loop inside each task. `--tasks=N` selects cell indices
+sequential question loop inside each task. `--tasks=N` selects run-spec indices
 `0` through `N - 1`; it does not alter the job's deployed parallelism.
 
-At execution, `--tasks=N` selects the number of matrix cells in that wave.
+At execution, `--tasks=N` selects the number of run specs in that wave.
 The concurrent-task upper bound is `min(N, job parallelism)`. Each task owns
 one `experiments/<experiment>/runs/<run_id>/` GCS prefix. Workers never append
 to a shared Parquet file. QA must finish before the autorater wave, aggregation
@@ -480,10 +519,10 @@ When `CODEX_API_KEY` is absent, this harness passes `OPENAI_API_KEY` to Codex.
 An API-key-backed Codex run can therefore be checked in the OpenAI
 account/project usage dashboard by model and time window, subject to the
 account's dashboard permissions and aggregation. The dashboard is useful for
-reconciling an isolated single-task test or a whole campaign window. It cannot
+reconciling an isolated single-task test or a whole design window. It cannot
 automatically join usage to this repository's `run_id` or `question_id`; with
 parallel tasks using the same key, it cannot assign a dashboard total to one
-cell without an additional correlation mechanism. A saved Codex/ChatGPT login
+run spec without an additional correlation mechanism. A saved Codex/ChatGPT login
 may follow a different accounting path and should be recorded separately.
 
 Codex is open source, so a stronger future audit is feasible: pin a Codex
@@ -516,11 +555,13 @@ It is therefore audit-only unless the recorded `agent_comparison.v1` status is
 
 ### 4. Codex with a matched reader payload
 
-The mini/Codex reader analysis is a separate harness mode. It renders
-`qa_mem0_v1` with the same `{memory}` and `{question}` bytes supplied to the
-one-shot model, records `reader_payload_sha256`, and passes that payload to
-Codex directly. Its workspace contains no conversation files, so a workspace
-read is neither expected nor counted as retrieval.
+The mini/Codex reader analysis is a separate harness mode. What the model,
+persist-off Codex, and persist-on Codex each receive is in "What each stage
+receives" above. It renders `qa_mem0_v1` with the same `{memory}` and
+`{question}` bytes supplied to the one-shot model, records
+`reader_payload_sha256`, and passes that payload to Codex directly. Its
+workspace contains no conversation files, so a workspace read is neither
+expected nor counted as retrieval.
 
 Persist-off receives only the shared reader payload. Persist-on adds a small
 Codex-only instruction after that payload to read and append
@@ -532,6 +573,12 @@ claim that the model-only request was identical end to end.
 means the memory representation was supplied in the task prompt, so absent
 workspace reads must not become `retrieval_failure`. Workspace retrieval,
 evidence recall, and hop metrics remain reserved for `workspace_files`.
+
+Gold-token drop is the share of gold stems that were in the prompt and are
+absent from the answer. It is a conditional omission rate for categories 1–4.
+Category 5 gold is empty, so that table does not score traps. The adversarial
+table is separate: category-5 refusal rate, and the same LoCoMo refusal phrase
+on categories 1–4.
 
 Long agent runs append raw events, traces, trajectories, prediction rows, and
 note-ledger rows as JSONL journals. For `full_context`, claim lineage records
@@ -652,3 +699,15 @@ calls. `aggregate`, `collect-full`, `report`, comparison scripts, and thin
 notebooks read finished artifacts. A reported number should be walkable from
 a table row to `examples.parquet`, then to the run pack and its reader or
 agent trace.
+
+## Worked example
+
+The published walk of that path is the pinned reader comparison. The stage
+contract is "What each stage receives" above.
+
+1. `configs/experiments/openai_mini_codex_readers_analysis.yaml` expands to six run specs.
+2. `experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the collected pack, including `collected/examples.parquet` and each run's predictions, autorater, and agent traces.
+3. `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` names the tables and figures.
+4. `notebooks/17_openai_mini_codex_readers_analysis.ipynb` loads that YAML, runs `report`, and reads the result.
+
+On the three full-context cells, repeated memory text and the shared Codex task-prompt prefix are stored once. `REFERENCE_PIN.json` in the pack says how to put those strings back. The session-summary cells are stored in full.

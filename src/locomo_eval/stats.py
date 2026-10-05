@@ -1,4 +1,4 @@
-"""Mean, CI, and paired tests for multi-seed / sandwich evaluation.
+"""Mean, CI, and paired tests for multi-seed and frozen-reader evaluation.
 
 Used by ``scripts.analysis.aggregate_seeds`` and ``scripts.compare_full_runs``.
 No scipy: numpy only. These are audit statistics on *already scored* rows,

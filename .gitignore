@@ -33,13 +33,14 @@ data/processed/*
 !data/processed/.gitkeep
 
 # --- Run artifacts, local logs ---
-# Per-run preds, metrics, plots, memory dumps (never commit these)
+# Per-run preds, metrics, plots, memory dumps.
+# The reader-analysis v2 pack is the published reference run.
 experiments/*
 !experiments/.gitkeep
-# Legacy output root; current packs live under experiments/
+!experiments/locomo-openai-mini-codex-readers-analysis-v2/
+# Legacy output roots; current packs live under experiments/
 results/
-logs/*
-!logs/.gitkeep
+logs/
 outputs/
 *.log
 # LLM response-hash cache was removed; keep the name ignored if a leftover appears

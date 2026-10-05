@@ -1,6 +1,6 @@
 # GCP resources for the memorybench PoC
 
-**How to run (PowerShell, deploy, four waves, pull):** [`docs/gcp.md`](../../docs/gcp.md).  
+**How to run (PowerShell, deploy, execute, pull):** [`docs/gcp.md`](../../docs/gcp.md).  
 **This 2026 campaign (OpenAI vs DeepSeek):** [`docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md`](../../docs/agent/RUNBOOK_2026_OPENAI_DEEPSEEK.md).  
 **Completed 2025 campaign (budget, OpenAI vs DeepSeek):** [`docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md`](../../docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md).  
 **Parked three-family (includes Claude):** [`docs/agent/RUNBOOK_2025_LIVE.md`](../../docs/agent/RUNBOOK_2025_LIVE.md). This file is the resource inventory.
@@ -106,7 +106,7 @@ Grant **only**:
 
 Do not grant `roles/owner` or project-wide storage admin.
 
-## 6. Cloud Run Jobs (same image, four jobs)
+## 6. Cloud Run Jobs (same image, one job per task)
 
 | Job name | Args | Tasks |
 |----------|------|--------|
@@ -133,7 +133,7 @@ Mount / inject:
 
 ## 7. What you do not create
 
-Cloud SQL, Firestore, Pub/Sub, GKE, Vertex AI endpoints, Cloud Functions, a second job per matrix cell, or a downloaded JSON key inside the container.
+Cloud SQL, Firestore, Pub/Sub, GKE, Vertex AI endpoints, Cloud Functions, a second job per run spec, or a downloaded JSON key inside the container.
 
 ## 8. Deploy the image (after secrets exist)
 
@@ -181,7 +181,7 @@ gcloud.cmd run jobs execute memorybench-collect-full --region=us-central1 --task
 
 In your own project (region `us-central1`). Console URLs below take `?project=$PROJECT_ID`:
 
-1. **Cloud Run Jobs** (`console.cloud.google.com/run/jobs`) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`.
+1. **Cloud Run Jobs** (`console.cloud.google.com/run/jobs`) → `memorybench-qa` → **Executions** → latest execution. Status **Succeeded** (green). Open **Logs**. You should see `qa complete locomo-poc-… uploaded=N blobs`. Failures are usually missing `data/locomo10.json` or the runner SA lacking `storage.objectAdmin`. During the run, progress prints every 10th question (and the last). Calls stay sequential; a quiet gap is those 10 calls finishing, not a stalled task.
 2. Direct executions list: `console.cloud.google.com/run/jobs/details/us-central1/memorybench-qa/executions`.
 3. **Bucket browser** (`console.cloud.google.com/storage/browser/$BUCKET/experiments/locomo-poc/runs`) → folder `locomo-poc-<8 hex>/`. Must contain `_SUCCESS`, `predictions.jsonl`, `TRACE.md`, `reader/traces.jsonl`. After the autorater job: `autorater/_SUCCESS`. After aggregate, `experiments/locomo-poc/aggregate` holds `SUMMARY.md`, parquet, and `by_run/<run_id>/`.
 4. Job **Configuration** / container args must be `execute-qa` + `configs/experiments/poc_gcs.yaml` (not `poc.yaml`). If you still see `poc.yaml`, the image was not redeployed.

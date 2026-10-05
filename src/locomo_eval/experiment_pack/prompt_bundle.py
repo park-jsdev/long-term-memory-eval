@@ -211,7 +211,7 @@ def find_run_dir_for_autorater(out_dir: str | Path) -> Path | None:
     """Walk up from an autorater out dir to the QA pack (has predictions.jsonl).
 
     ``autorater/run_meta.json`` is the judge pack, not the QA pack, so do not
-    treat a ``run_meta.json`` alone as the sandwich run root.
+    treat a ``run_meta.json`` alone as the experiment-pack root.
     """
     current = Path(out_dir).resolve()
     for _ in range(4):
@@ -278,7 +278,7 @@ def _render_trace(payload: dict[str, Any], *, run_dir: Path) -> str:
             "| `memory/writer/calls.jsonl` | Write-path calls (if a writer ran) |",
             "| `autorater/traces.jsonl` | Judge LLM (separate job; gold is visible here) |",
             "| `run_meta.json` | Pins: models, `prompt_path`, hashes |",
-            "| `SUMMARY.md` | Claim audit: sandwich pins, cost, how to follow one question |",
+            "| `SUMMARY.md` | Claim audit: frozen-reader pins, cost, how to follow one question |",
             "| `ATTRIBUTION.md` | LLM call → role → claims made |",
             "",
         ]

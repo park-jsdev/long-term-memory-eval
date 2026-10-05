@@ -1,0 +1,75 @@
+{
+  "schema": "reference_pin.v1",
+  "experiment": "locomo-openai-mini-codex-readers-analysis-v2",
+  "reason": "GitHub rejects a blob over 100MB. Full-context predictions repeated the same memory text on every question, and Codex traces repeated the same task-prompt prefix. Those bodies are stored once. Every question row is kept. Session-summary packs were already under the limit and are unchanged.",
+  "restore": {
+    "memory_text": "When memory_text is empty, read memory_text_path relative to the run directory. That file is the omitted memory text.",
+    "task_prompt": "The last argv element is the per-question suffix. The original task prompt is the bytes of task_prompt_prefix_path plus that suffix."
+  },
+  "rewritten": [
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-0830e2f8/predictions.jsonl",
+      "original_bytes": 210328484,
+      "original_sha256": "d2a1185f61754e3272d074943dd4650c654645d154d6229b317b05805559003c",
+      "pinned_bytes": 1557631,
+      "pinned_sha256": "2796b863f5967a6c415c660d8d58eec91b84e8e69480d9bbdc944297afac87da",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-0830e2f8/reader/predictions.jsonl",
+      "original_bytes": 210328484,
+      "original_sha256": "d2a1185f61754e3272d074943dd4650c654645d154d6229b317b05805559003c",
+      "pinned_bytes": 1557631,
+      "pinned_sha256": "2796b863f5967a6c415c660d8d58eec91b84e8e69480d9bbdc944297afac87da",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-47639359/predictions.jsonl",
+      "original_bytes": 212041739,
+      "original_sha256": "4acbcfd170ae7f9ff1d231093f7d827510b7ede4b73d6c0e20544315622dae15",
+      "pinned_bytes": 3155698,
+      "pinned_sha256": "f44e97a057303705347b95c00b07763e22bd0567b6b8faabe92b65367625fbcf",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-47639359/reader/predictions.jsonl",
+      "original_bytes": 212041739,
+      "original_sha256": "4acbcfd170ae7f9ff1d231093f7d827510b7ede4b73d6c0e20544315622dae15",
+      "pinned_bytes": 3155698,
+      "pinned_sha256": "f44e97a057303705347b95c00b07763e22bd0567b6b8faabe92b65367625fbcf",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-47639359/agent/traces.jsonl",
+      "original_bytes": 215860866,
+      "original_sha256": "00b0d90d9b3c064e4bcdd97194d44d94ef7dbde3982c6edc8cae3ff5e793a2a3",
+      "pinned_bytes": 3347236,
+      "pinned_sha256": "28402fd4e967341a9dec80d1832abe5b47c573b128e299f7e87af855cc06c919",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-4deb78f9/predictions.jsonl",
+      "original_bytes": 211824498,
+      "original_sha256": "a981501462af9cc7c575f5ab5ae140b2b8652319f4ab245e92f9748f82647dc2",
+      "pinned_bytes": 2950373,
+      "pinned_sha256": "932de565e453f3176e5676f686f159fecde7e94dfb571b8f67a364f1c87acd1b",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-4deb78f9/reader/predictions.jsonl",
+      "original_bytes": 211824498,
+      "original_sha256": "a981501462af9cc7c575f5ab5ae140b2b8652319f4ab245e92f9748f82647dc2",
+      "pinned_bytes": 2950373,
+      "pinned_sha256": "932de565e453f3176e5676f686f159fecde7e94dfb571b8f67a364f1c87acd1b",
+      "rows": 1986
+    },
+    {
+      "path": "collected/runs/locomo-openai-mini-codex-readers-analysis-v2-4deb78f9/agent/traces.jsonl",
+      "original_bytes": 215234018,
+      "original_sha256": "c66b7dfb2d9722209c9c38da3583c69c996a8a36f6cf62203878aaae13907966",
+      "pinned_bytes": 2718402,
+      "pinned_sha256": "b180fef6d6aed72a55bda5194473641ab700ec4ef205c49fea387c532b11341a",
+      "rows": 1986
+    }
+  ]
+}

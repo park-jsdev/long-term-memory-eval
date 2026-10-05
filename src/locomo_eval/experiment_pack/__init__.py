@@ -1,4 +1,4 @@
-"""On-disk sandwich pack: write during a run, load for analysis, verify offline.
+"""On-disk experiment pack: write during a run, load for analysis, verify offline.
 
 The output folder stays ``experiments/<run_id>/``. This package is the
 code that writes and reads that folder. Only ``verify_pack`` and
@@ -7,7 +7,7 @@ The old name ``experiments`` collided with that folder and with
 ``configs/experiments/``.
 
 A LoCoMo *run* is one YAML / ``--method`` producing ``experiments/<run_id>/``.
-That directory is the sandwich audit (schema ``audit_pack.v3``): reader,
+That directory is the experiment pack (schema ``audit_pack.v3``): reader,
 writer, memory graph, claim lineage, and optional autorater mapped to
 one condition's results.
 
@@ -15,7 +15,7 @@ one condition's results.
 conversation + question
         │
         ▼
-  MemoryBuilder / ModelOrchestrator        ← variable middle
+  MemoryBuilder / ModelOrchestrator        ← memory system
         │
         ▼
   audit_writer  →  experiments/<run_id>/   ← dump (run.py, autorater)
@@ -28,7 +28,7 @@ conversation + question
 |--------|------|-----------------|
 | ``audit_layout`` | Folder/file names only | both sides |
 | ``audit_writer`` | Write reader / writer / graph / judge files | ``run.py``, autorater CLI |
-| ``audit_loader`` | Read a finished sandwich audit | ``scripts/analysis/``, compare CLIs |
+| ``audit_loader`` | Read a finished experiment pack | ``scripts/analysis/``, compare CLIs |
 | ``verify_pack`` / ``verify_graph_years`` | Offline validity from dumps | ``scripts/analysis/verify_experiments`` |
 
 Eval code should not import ``audit_writer``, ``run``, or the writer model.

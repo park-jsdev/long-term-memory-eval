@@ -1,0 +1,7 @@
+memory_method,prompt_parity_condition,n,adversarial_refusal,adversarial_refusal_n,false_refusal,false_refusal_n
+full_context,4o-mini,1986,0.020179372197309416,446,0.0025974025974025974,1540
+full_context,4o-mini + Codex (persist off),1986,0.006726457399103139,446,0.0012987012987012987,1540
+full_context,4o-mini + Codex (persist on),1986,0.011210762331838564,446,0.0006493506493506494,1540
+session_summaries,4o-mini,1986,0.12780269058295965,446,0.046753246753246755,1540
+session_summaries,4o-mini + Codex (persist off),1986,0.020179372197309416,446,0.00974025974025974,1540
+session_summaries,4o-mini + Codex (persist on),1986,0.042600896860986545,446,0.007792207792207792,1540

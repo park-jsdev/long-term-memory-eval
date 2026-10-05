@@ -1,10 +1,10 @@
-"""Claim-level sandwich audit: lineage, ranks, writer quality, cost, SUMMARY.
+"""Claim-level pack audit: lineage, ranks, writer quality, cost, SUMMARY.
 
 Call traces (reader/writer JSONL) record that an LLM ran. These helpers
 record **what entered {memory}** and who is responsible for each item, so a
 reviewer can audit a QA claim without re-running models.
 
-``attribution_call_rows`` joins each LLM call to its sandwich role and the
+``attribution_call_rows`` joins each LLM call to its pipeline role and the
 claims that call produced (triples, session summaries, predicted answers).
 
 Pure functions. ``audit_writer`` dumps the dicts; ``run.py`` collects inputs.
@@ -820,7 +820,7 @@ def attribution_call_rows(
 
 
 def attribution_role_summary(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Counts per sandwich role / model for SUMMARY and ATTRIBUTION.md tables.
+    """Counts per pipeline role / model for SUMMARY and ATTRIBUTION.md tables.
 
     Software rollup of call rows, not an LLM judge.
     """
@@ -862,11 +862,11 @@ def render_attribution_md(
     calls: list[dict[str, Any]],
     roles: list[dict[str, Any]],
 ) -> str:
-    """Human report: LLM call → sandwich role → claims made."""
+    """Human report: LLM call → pipeline role → claims made."""
     lines = [
         f"# Attribution and LLM roles: `{run_id}`",
         "",
-        "Each row is one LLM **call**: the sandwich **role** it played, and the",
+        "Each row is one LLM **call**: the pipeline **role** it played, and the",
         "**claims** that call produced. Teachers propose memory claims (triples",
         "or session summaries). The reader proposes a QA answer from injected",
         "`{memory}`. This file is the join; `attribution.jsonl` is the machine copy.",

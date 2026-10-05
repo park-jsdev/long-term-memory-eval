@@ -1,6 +1,6 @@
 """Memory builders: conversation → Memory context for the answer LLM.
 
-Experimental middle of the sandwich. Readers/metrics stay agnostic.
+The memory stage. Readers and metrics stay independent of which system is built.
 
 Current conditions (ids are what reviewers see in logs):
   raw_chunks                  — raw dialogue turns (optional char budget)

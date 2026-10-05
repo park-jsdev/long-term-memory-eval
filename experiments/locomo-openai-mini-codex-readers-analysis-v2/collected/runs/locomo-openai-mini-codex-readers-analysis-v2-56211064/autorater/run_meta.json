@@ -1,0 +1,17 @@
+{
+  "timestamp_utc": "2026-10-04T19:06:59.333315+00:00",
+  "predictions_path": "/tmp/memorybench-experiments/locomo-openai-mini-codex-readers-analysis-v2-56211064/predictions.jsonl",
+  "autorater_model": "gpt-4o-mini",
+  "autorater_provider": "openai",
+  "temperature": 0.0,
+  "max_tokens": null,
+  "autorater_family": "gpt-4o",
+  "prompt_version": "autorater_mem0_v1",
+  "skip_category": 5,
+  "n_predictions": 1986,
+  "n_new_ratings": 1540,
+  "n_new_judge_calls": 1540,
+  "cite": "Chhikara et al., arXiv:2504.19413",
+  "paper_url": "https://arxiv.org/abs/2504.19413",
+  "package_version": "0.1.5"
+}

@@ -1,4 +1,4 @@
-"""Compat re-export. Plot engines live in ``scripts.analysis.campaign_plots``."""
+"""Compat re-export. Plot code lives in ``scripts.analysis.campaign_plots``."""
 
 from scripts.analysis.campaign_plots import (  # noqa: F401
     _place_legend_outside,

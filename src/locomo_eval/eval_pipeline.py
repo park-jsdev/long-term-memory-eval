@@ -1,7 +1,7 @@
 """Evaluation pipeline: index (if needed) → QA → string metrics → autorater.
 
 One experimental method per invocation. Compare packs afterwards with
-``scripts/compare_full_runs.py`` (sandwich / representation) or
+``scripts/compare_full_runs.py`` (memory representation) or
 ``scripts.analysis.aggregate_seeds`` (multi-judge CIs).
 
     python -m src.locomo_eval.eval_pipeline --method rag --reader mock --embedder mock --max-samples 1 --max-questions 5 --run-id smoke_eval_rag

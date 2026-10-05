@@ -1,0 +1,5 @@
+# Harness memory
+
+Append `- (dia_id) speaker: fact` lines. Do not overwrite this file.
+On 16 August, 2023, donations helped John's community acquire a brand new fire truck.
+John appreciates resilience observed at veterans hospital visit.

@@ -1,10 +1,10 @@
 # Long-Term Memory Eval
 
-Long-Term Memory Eval is a reproducible harness for studying long-term
-conversational memory on [LoCoMo](https://arxiv.org/abs/2402.17753). The current
-experiment holds LoCoMo conversations, questions, gold answers, and scoring
-rules fixed. It compares what changes in the middle: the reader's memory
-representation and the answering path.
+Long-Term Memory Eval is a research pipeline for long-term conversational
+memory on [LoCoMo](https://arxiv.org/abs/2402.17753). A controlled comparison
+holds the dataset and the evaluation fixed and varies the memory system: the
+memory representation the answerer receives, and whether that answerer is a
+Chat Completions reader or Codex. Terms are in [docs/glossary.md](docs/glossary.md).
 
 The model-only path sends the same rendered reader prompt to Chat Completions.
 The agent path submits that task to Codex, with web and MCP tools disabled.
@@ -51,14 +51,28 @@ python -m src.locomo_eval.run \
 
 The pack is written to `experiments/smoke_mock/`.
 
+## Reference run
+
+The published comparison holds the reader payload fixed and varies the answerer: GPT-4o-mini Chat Completions, Codex with persistence off, and Codex with persistence on. Each of those reads stuffed full context and the dataset session summaries.
+
+| Step | Path |
+|---|---|
+| Matrix | `configs/experiments/openai_mini_codex_readers_analysis.yaml` |
+| Pinned pack | `experiments/locomo-openai-mini-codex-readers-analysis-v2/` |
+| Analysis | `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` |
+| Notebook | `notebooks/17_openai_mini_codex_readers_analysis.ipynb` |
+
+The pack is in the repository. The notebook reads it and states the result. Operator steps are in [docs/runbook_mini_vs_codex_readers.md](docs/runbook_mini_vs_codex_readers.md).
+
 ## Docs
 
-- [**Unrolling the experiment pipeline**](docs/loop.md) — one question, from config to notebook
-- [**Architecture**](docs/architecture.md) — harness and experiment runner
+- [**Glossary**](docs/glossary.md) - common terms used in the codebase
+- [**Unrolling the experiment pipeline**](docs/loop.md) - one question, from config to notebook
+- [**Architecture**](docs/architecture.md) - harness and experiment runner
 - [**Installing, building, and running**](docs/runbook.md)
-- [**Cloud Run**](docs/gcp.md)
-- [**Reproduce**](docs/REPRODUCE.md) — staged local and Cloud Run reproduction
-- [**Third-party terms**](NOTICE.md) — LoCoMo is CC BY-NC 4.0; Mem0 prompts are Apache-2.0
+- [**Cloud Run**](docs/gcp.md) - details on the cloud infrastructure using GCP
+- [**Reproduce**](docs/REPRODUCE.md) - staged local and Cloud Run reproduction
+- [**Third-party terms**](NOTICE.md) - LoCoMo is CC BY-NC 4.0; Mem0 prompts are Apache-2.0
 
 ## License
 

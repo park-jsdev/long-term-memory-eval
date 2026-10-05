@@ -1,4 +1,4 @@
-"""Dump sandwich-layer folders into ``experiments/<run_id>/`` during a run.
+"""Dump experiment-pack folders into ``experiments/<run_id>/`` during a run.
 
 Called from ``run.py`` (reader/QA), ``memory_log.py`` (teachers), and the
 autorater CLI (judge traces). Analysis code should not import this module —
@@ -120,7 +120,7 @@ def write_reader_module(
             [
                 "# Reader (answer LLM)",
                 "",
-                "Frozen sandwich bottom: `{memory}` + question → predicted answer.",
+                "Fixed evaluation: `{memory}` + question → predicted answer.",
                 "Gold answers are in `predictions.jsonl` for scoring only; they are",
                 "not sent to the reader.",
                 "",

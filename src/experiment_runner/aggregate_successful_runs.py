@@ -1,4 +1,4 @@
-"""Third wave: collect finished cells into ``experiments/<name>/aggregate/``.
+"""Third wave: collect finished run specs into ``experiments/<name>/aggregate/``.
 
 Pulls packs from GCS when ``storage.backend`` is ``gcs``, concatenates Parquet
 for notebooks, and copies a small audit catalog (SUMMARY / TRACE / ATTRIBUTION)
@@ -89,7 +89,7 @@ def collect_experiment_results(
             rel_allowlist=CATALOG_DOWNLOAD_FILES if mode == "catalog" else None,
         )
         n_blobs = sum(downloaded.values())
-        print(f"downloaded {n_blobs} blobs from GCS for {len(specs)} cell(s)")
+        print(f"downloaded {n_blobs} blobs from GCS for {len(specs)} run spec(s)")
 
     folder = "aggregate" if mode == "catalog" else "collected"
     agg_dir = out_root / name / folder
@@ -274,11 +274,11 @@ def _render_summary(name: str, status: dict[str, Any], *, mode: str) -> str:
         "",
         "## Notebooks",
         "",
-        "- `runs.parquet` — one row per completed QA cell",
+        "- `runs.parquet` — one row per completed QA run spec",
         "- `examples.parquet` — one row per question (judge columns if autorater ran)",
-        "- `cells.jsonl` / `status.json` — every matrix row, including missing cells",
+        "- `cells.jsonl` / `status.json` — every matrix row, including missing run specs",
         "",
-        "## Cells",
+        "## Run specs",
         "",
         "| index | run_id | memory | reader | stage | catalog |",
         "|------:|--------|--------|--------|-------|---------|",
@@ -290,13 +290,13 @@ def _render_summary(name: str, status: dict[str, Any], *, mode: str) -> str:
         )
     if mode == "catalog":
         pack_note = (
-            "Per-cell `by_run/<run_id>/` holds SUMMARY / TRACE / ATTRIBUTION / metrics / cost. "
+            "Per-run-spec `by_run/<run_id>/` holds SUMMARY / TRACE / ATTRIBUTION / metrics / cost. "
             "Full `{memory}` dumps: run `python -m src.experiment_runner collect-full <config>` "
             "(Cloud Run job `memorybench-collect-full`)."
         )
     else:
         pack_note = (
-            "Per-cell `runs/<run_id>/` is the complete audit pack (`memory/`, `reader/`, "
+            "Per-run-spec `runs/<run_id>/` is the complete audit pack (`memory/`, `reader/`, "
             "predictions, plots, autorater). Same hashed `run_id` as QA and autorater."
         )
     lines.extend(["", pack_note, ""])
@@ -307,7 +307,80 @@ def _render_summary(name: str, status: dict[str, Any], *, mode: str) -> str:
 
 
 def _concat(tables, pa):
-    try:
-        return pa.concat_tables(tables, promote_options="default")
-    except TypeError:
-        return pa.concat_tables(tables)
+    """Join cell parquet after giving every column one shared type.
+
+    Each cell infers its own schema. A model-only cell leaves unused agent
+    fields as null, while a Codex cell stores strings, ints, and bools. A
+    long text column can also be string in one cell and large_string in
+    another. PyArrow's default promotion does not merge those, so cast first.
+    """
+    schema = _unified_schema(tables, pa)
+    aligned = [_align_table(table, schema, pa) for table in tables]
+    return pa.concat_tables(aligned)
+
+
+def _unified_schema(tables, pa):
+    names: list[str] = []
+    seen: set[str] = set()
+    for table in tables:
+        for name in table.schema.names:
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+    return pa.schema(
+        [
+            pa.field(name, _common_type(name, tables, pa), nullable=True)
+            for name in names
+        ]
+    )
+
+
+def _common_type(name: str, tables, pa):
+    concrete = []
+    for table in tables:
+        if name not in table.schema.names:
+            continue
+        field_type = table.schema.field(name).type
+        if not pa.types.is_null(field_type):
+            concrete.append(field_type)
+    if not concrete:
+        return pa.null()
+    if all(field_type.equals(concrete[0]) for field_type in concrete):
+        return concrete[0]
+    # large_string can hold either string width, including full-context text.
+    if all(
+        pa.types.is_string(field_type) or pa.types.is_large_string(field_type)
+        for field_type in concrete
+    ):
+        if any(pa.types.is_large_string(field_type) for field_type in concrete):
+            return pa.large_string()
+        return pa.string()
+    if all(pa.types.is_integer(field_type) for field_type in concrete):
+        return pa.int64()
+    if all(
+        pa.types.is_integer(field_type) or pa.types.is_floating(field_type)
+        for field_type in concrete
+    ):
+        return pa.float64()
+    rendered = ", ".join(str(field_type) for field_type in concrete)
+    raise TypeError(f"cannot merge parquet field {name}: {rendered}")
+
+
+def _align_table(table, schema, pa):
+    columns = []
+    for field in schema:
+        if field.name not in table.schema.names:
+            columns.append(pa.nulls(table.num_rows, type=field.type))
+            continue
+        column = table.column(field.name)
+        if column.type.equals(field.type):
+            columns.append(column)
+            continue
+        try:
+            columns.append(column.cast(field.type))
+        except pa.ArrowInvalid as exc:
+            raise TypeError(
+                f"cannot cast parquet field {field.name} "
+                f"from {column.type} to {field.type}"
+            ) from exc
+    return pa.Table.from_arrays(columns, schema=schema)

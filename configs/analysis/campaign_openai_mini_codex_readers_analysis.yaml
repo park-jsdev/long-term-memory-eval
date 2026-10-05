@@ -1,5 +1,7 @@
 # Six-cell GPT-4o-mini/Codex reader analysis. All cells share the rendered
 # qa_mem0_v1 payload; Codex persist-on adds an audited harness note footer.
+# Reads the pinned pack experiments/locomo-openai-mini-codex-readers-analysis-v2.
+# The published walkthrough is notebooks/17_openai_mini_codex_readers_analysis.ipynb.
 campaign:
   id: openai_mini_codex_readers_analysis
   title: GPT-4o-mini and Codex reader analysis
@@ -33,6 +35,64 @@ campaign_analyses:
     plots:
       - {kind: grouped_bar, x: question_category, hue: prompt_parity_condition, y: judge_score}
       - {kind: grouped_bar, x: question_category, hue: prompt_parity_condition, y: locomo_f1}
+  - id: reader_performance
+    title: Reader latency and list-price cost
+    experiments: [readers]
+    group_by: [memory_method, prompt_parity_condition]
+    # Same answerable questions as the quality table. Search time is 0
+    # because the memory text is already in the prompt.
+    metrics:
+      - total_latency_seconds_p50
+      - total_latency_seconds_p95
+      - agent_latency_seconds_p50
+      - agent_input_tokens
+      - agent_output_tokens
+      - reader_usd
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: total_latency_seconds_p50}
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: reader_usd}
+  - id: gold_token_stages
+    title: Gold-token coverage and answer retention
+    experiments: [readers]
+    group_by: [memory_method, prompt_parity_condition]
+    metrics:
+      - gold_memory_recall
+      - gold_answer_recall
+      - gold_answer_precision
+      - gold_kept_given_memory
+      - gold_dropped_given_memory
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: gold_memory_recall}
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: gold_answer_recall}
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: gold_answer_precision}
+      # gold_dropped_given_memory stays in the table. It is 1 minus kept,
+      # so it does not get its own figure.
+  - id: gold_token_by_category
+    title: Gold-token prompt coverage by category
+    experiments: [readers]
+    group_by: [question_category, memory_method]
+    exclude_question_categories: [5]
+    # Coverage is identical for model and Codex. One condition keeps n equal
+    # to the question count instead of averaging the same prompt three times.
+    where:
+      prompt_parity_condition: ["4o-mini"]
+    metrics: [gold_memory_recall]
+    plots:
+      - {kind: grouped_bar, x: question_category, hue: memory_method, y: gold_memory_recall}
+  - id: adversarial_refusal
+    title: Adversarial refusal and false refusal
+    experiments: [readers]
+    group_by: [memory_method, prompt_parity_condition]
+    # Both classes stay in the frame. Each rate averages only the class it
+    # scores; *_n is that denominator. n remains every question in the cell.
+    metrics:
+      - adversarial_refusal
+      - adversarial_refusal_n
+      - false_refusal
+      - false_refusal_n
+    plots:
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: adversarial_refusal}
+      - {kind: grouped_bar, x: memory_method, hue: prompt_parity_condition, y: false_refusal}
   - id: codex_audit
     title: Codex tool and persistence audit
     source: runs

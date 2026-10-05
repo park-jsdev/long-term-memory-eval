@@ -11,9 +11,9 @@ spends real API money.
 | 0 | Working environment and dataset | none | no |
 | 1 | Green deterministic verifiers | none | no |
 | 2 | A complete mock run pack you can inspect | none | no |
-| 3 | A mock multi-cell experiment, aggregated and reported | none | no |
-| 4 | One live cell, verified cheaply | cents | yes |
-| 5 | The six-cell reader comparison | substantial | yes |
+| 3 | A mock multi-condition experiment, aggregated and reported | none | no |
+| 4 | One live run spec, verified cheaply | cents | yes |
+| 5 | The six-condition reader comparison | substantial | yes |
 | 6 | Campaign tables, plots, and notebook review | none | no |
 | 7 | Audit trail walked back from a published number | none | no |
 
@@ -67,7 +67,7 @@ python -m unittest tests/test_regressions.py tests/test_claim_audit.py
 `matplotlib`, missing `pyarrow`, or a not-yet-pulled aggregate pack.
 
 What you have just locked: scoring and indexing; the judge protocol, including the
-category-5 exclusion; the sandwich contracts (one YAML to one pack, replace-not-append,
+category-5 exclusion; the controlled-comparison contracts (one YAML to one pack, replace-not-append,
 gold answers never entering a prompt); YAML merge semantics; hashed run ids; and
 analysis output under row reordering.
 
@@ -133,11 +133,11 @@ python -m src.experiment_runner status            configs/experiments/poc.yaml
 
 Re-run `execute-qa --run-index 0`. It should **skip**, because `_SUCCESS` exists. That skip is the
 resume policy: interrupted campaigns are restarted with the same command and you are not re-billed
-for finished cells. Pass `--force` only when you intend to pay again.
+for finished run specs. Pass `--force` only when you intend to pay again.
 
 ---
 
-## Stage 4 — One live cell
+## Stage 4 — One live run spec
 
 Before spending on a full matrix, prove each provider answers. Smallest possible live check:
 
@@ -163,7 +163,7 @@ failure modes this campaign already hit and pinned:
 
 ## Stage 5 — Reader comparison
 
-Six cells. Both sides use GPT-4o-mini. Chat Completions receives the released `qa_mem0_v1`
+Six run specs. Both sides use GPT-4o-mini. Chat Completions receives the released `qa_mem0_v1`
 prompt as one request. Codex receives that same rendered payload. The two texts are stuffed
 `full_context` and the dataset `session_summaries` field. No writer model runs. Codex is
 included with persist off and persist on. Persist-on may add notes after the first question,
@@ -174,19 +174,18 @@ so that pair is a trajectory condition, not a byte-identical request.
 | `full_context` | 1 | 1 | 1 |
 | `session_summaries` | 1 | 1 | 1 |
 
-YAML: `configs/experiments/openai_mini_codex_readers_analysis.yaml`. Operator steps:
-[`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md).
+YAML: `configs/experiments/openai_mini_codex_readers_analysis.yaml`. The finished six-cell pack is already in the repository at `experiments/locomo-openai-mini-codex-readers-analysis-v2/`. Stage 6 reads that pack. The published walkthrough is [`notebooks/17_openai_mini_codex_readers_analysis.ipynb`](../notebooks/17_openai_mini_codex_readers_analysis.ipynb). Operator steps: [`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md). Options A and B below regenerate the pack; they are not required to read the pinned result.
 
-A separate sandwich freezes the GPT-4o-mini reader and compares a GPT-4o-mini writer with a
-Codex writer on `session_summaries` and `graph` (2 cells). Those prompts are
+A separate frozen-reader experiment holds the GPT-4o-mini reader fixed and compares a GPT-4o-mini writer with a
+Codex writer on `session_summaries` and `graph` (two run specs). Those prompts are
 `prompts/writers/session_summary_v1.txt` and `prompts/writers/graph_v1.txt`. Operator steps:
 [`runbook_mini_vs_codex_writers.md`](runbook_mini_vs_codex_writers.md). Dataset
-`session_summaries` with no writer is the reader cell above, not that sandwich.
+`session_summaries` with no writer is the reader condition above, not that writer comparison.
 
 ### Option A — Local
 
 `write-manifest` prints `wrote 6 runs`. Finish every QA index before the autorater. The judge
-stops if a cell has no QA `_SUCCESS`.
+stops if a run spec has no QA `_SUCCESS`.
 
 ```bash
 python -m src.experiment_runner write-manifest configs/experiments/openai_mini_codex_readers_analysis.yaml
@@ -222,7 +221,7 @@ Three rules that cause most operator errors:
    `gcloud.cmd run jobs describe memorybench-qa --region=$env:REGION --format="value(spec.template.spec.template.spec.containers[0].args)"`.
 2. **`--parallelism` is not an `execute` flag.** It is set at deploy time. Passing it to
    `execute` fails.
-3. **Set `--tasks` to the cell count**: 6 for QA and the autorater, and 1 for each collector.
+3. **Set `--tasks` to the run-spec count**: 6 for QA and the autorater, and 1 for each collector.
 
 Pull the aggregate when the collector finishes:
 
@@ -237,35 +236,31 @@ For the full `memory/`, `reader/`, and `agent/` dumps, copy the `collected/` pre
 
 ## Stage 6 — Analysis
 
-One command regenerates every table and figure from the analysis recipe. It reads finished Parquet
-and never calls an API.
+The pinned pack is the input. One command regenerates every table and figure from the analysis configuration. It reads finished Parquet and never calls an API.
 
 ```bash
 python -m src.experiment_runner report configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml
 ```
 
-Outputs:
+That campaign YAML points at `experiments/locomo-openai-mini-codex-readers-analysis-v2`. Outputs:
 
 ```text
+experiments/locomo-openai-mini-codex-readers-analysis-v2/analysis/
 experiments/_campaign/openai_mini_codex_readers_analysis/analysis/tables/*.csv
 experiments/_campaign/openai_mini_codex_readers_analysis/analysis/plots/*.png
 experiments/_campaign/openai_mini_codex_readers_analysis/analysis/SUMMARY.md
 ```
 
-Missing packs are listed and skipped, so this works before every experiment has landed.
+The `_campaign` copy is a local report directory and stays gitignored. The pack under `experiments/locomo-openai-mini-codex-readers-analysis-v2/` is the published reference.
 
-That command is the whole analysis step — every table and figure in the repository comes out of it,
-so you never need a notebook to reproduce a published number.
-
-Notebooks are an optional local review layer. They are gitignored. `report` is the
-reproduction step.
+Open `notebooks/17_openai_mini_codex_readers_analysis.ipynb` to read the same pack as a narrative: method, quality, performance, retention, abstention, and the audit gaps. The notebook calls the same `report` command. Other notebooks are gitignored. `report` remains the step that regenerates the tables.
 
 To add a comparison, edit `configs/analysis/campaign_openai_mini_codex_readers_analysis.yaml` and re-run `report`. Do not fork
-the plotting code; the engine is shared on purpose, which is why category axes read
+the plotting code; the core is shared on purpose, which is why category axes read
 `1 multi-hop` / `2 temporal` / `3 open-domain` and legends sit outside the bars everywhere without
-per-campaign styling.
+per-design styling.
 
-If you want a Mem0-style judged report over a single finished pack rather than a campaign table:
+If you want a Mem0-style judged report over a single finished pack rather than a design table:
 
 ```bash
 # offline plumbing check
@@ -283,13 +278,12 @@ produces a judged `J`, and category 5 is excluded from `J` as in the paper.
 
 ## Stage 7 — Walk one number back to its bytes
 
-This is the reproducibility check that matters. Pick any cell in a published table and follow it
-down:
+This is the reproducibility check that matters. For the published reader comparison, start in `notebooks/17_openai_mini_codex_readers_analysis.ipynb`, then follow one cell of `experiments/locomo-openai-mini-codex-readers-analysis-v2` down. Tables live in that pack's `analysis/`. Per-question rows live in `collected/examples.parquet` and `aggregate/examples.parquet`. One run spec is `collected/runs/<run_id>/`.
 
 1. **`analysis/tables/<analysis_id>.csv`** — the published mean and its `n`.
 2. **`aggregate/examples.parquet`** — one row per question, with `run_id`, scores, judge verdict,
    tokens, and latency.
-3. **`aggregate/by_run/<run_id>/`** — that cell's metrics, cost, and summary.
+3. **`aggregate/by_run/<run_id>/`** — that run spec's metrics, cost, and summary.
 4. **`experiments/<run_id>/run_meta.json`** — the git hash, data hash, model pins, and layout
    version that produced it.
 5. **`experiments/<run_id>/config.resolved.yaml`** — the merged YAML plus the CLI overrides actually
@@ -297,7 +291,9 @@ down:
 6. **`experiments/<run_id>/reader/traces.jsonl`** — the exact request and response for that question.
 7. **`experiments/<run_id>/memory/`** — the exact memory text in the prompt. Query-dependent methods
    such as `rag` and `mem0` write `by_question/<qid>.txt`; whole-conversation methods such as
-   `session_summaries` and `full_context` write `by_sample/<sample_id>.txt`.
+   `session_summaries` and `full_context` write `by_sample/<sample_id>.txt`. In the pinned
+   full-context cells, `predictions.jsonl` leaves `memory_text` empty and sets
+   `memory_text_path` to that file. See `REFERENCE_PIN.json`.
 8. **`memory/lineage.jsonl`** — which memory item came from which writer.
 9. **`memory/writer/calls.jsonl`** — the write-path call behind that item.
 10. **`memory/retrieve_ranks.jsonl`** — for retrieval conditions, what was rejected as well as what
@@ -305,8 +301,9 @@ down:
 11. **`autorater/traces.jsonl`** — the judge's reasoning for that verdict.
 
 **Checkpoint.** If step 7 shows an empty or identical memory string across two arms you were
-comparing, the claim is invalid regardless of the score difference. If step 4 shows a different git
-hash than you expect, you are reading an older run.
+comparing, the claim is invalid regardless of the score difference. An empty `memory_text` on a
+pinned full-context row is the deduplicated pointer, not a missing prompt: open
+`memory_text_path`. If step 4 shows a different git hash than you expect, you are reading an older run.
 
 ---
 
@@ -314,9 +311,9 @@ hash than you expect, you are reading an older run.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `status=to_confirm`, cell refuses to run | Model has an unpinned `model_snapshot` | Pin it in `configs/models/generation_catalog.yaml`, or pass `--allow-unconfirmed` and do not call the result reproducible |
-| RAG cell exits immediately | Shared index missing | Build `rag_locomo10`, and in cloud upload it under the bucket's `shared/` prefix |
-| Autorater fails instantly | QA `_SUCCESS` missing for that cell | Finish QA first; the judge does not poll |
+| `status=to_confirm`, run spec refuses to run | Model has an unpinned `model_snapshot` | Pin it in `configs/models/generation_catalog.yaml`, or pass `--allow-unconfirmed` and do not call the result reproducible |
+| RAG run spec exits immediately | Shared index missing | Build `rag_locomo10`, and in cloud upload it under the bucket's `shared/` prefix |
+| Autorater fails instantly | QA `_SUCCESS` missing for that run spec | Finish QA first; the judge does not poll |
 | Re-run did nothing | `_SUCCESS` exists; this is the resume policy | Use `--force` only if you intend to pay again |
 | Cloud job ran the wrong experiment | Forgot to redeploy after changing `EXPERIMENT_YAML` | Redeploy, then describe the job args |
 | `execute --parallelism` unrecognized | Parallelism is a deploy-time field | Ignore; deploy already set it |
@@ -324,7 +321,7 @@ hash than you expect, you are reading an older run.
 | Numbers moved after a refactor | A verifier should have caught it | Run `python -m pytest tests/ -q` and check the regression and analysis tests |
 
 Partial failures write `errors.jsonl` and no `_SUCCESS`. Re-running the same command finishes only
-the incomplete cells.
+the incomplete run specs.
 
 ---
 
@@ -334,4 +331,5 @@ the incomplete cells.
 - On-disk contracts: [`schemas/experiment_pack.md`](schemas/experiment_pack.md),
   [`schemas/analysis_campaign.md`](schemas/analysis_campaign.md)
 - One question, from config to score: [`loop.md`](loop.md)
+- Pinned reader pack and notebook: [`runbook_mini_vs_codex_readers.md`](runbook_mini_vs_codex_readers.md), [`notebooks/17_openai_mini_codex_readers_analysis.ipynb`](../notebooks/17_openai_mini_codex_readers_analysis.ipynb)
 - Dataset and third-party prompt terms: [`NOTICE.md`](../NOTICE.md)

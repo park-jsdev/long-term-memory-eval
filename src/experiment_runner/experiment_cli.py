@@ -28,7 +28,7 @@ from src.experiment_runner.write_run_manifest import write_run_manifest
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="experiment_runner",
-        description="Expand a YAML matrix and run one eval cell per task.",
+        description="Expand a YAML matrix and run one run spec per task.",
     )
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -36,12 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     man.add_argument("config")
     man.add_argument("--output", default=None)
 
-    qa = sub.add_parser("execute-qa", help="One matrix cell: answer LLM + string metrics")
+    qa = sub.add_parser("execute-qa", help="One run spec: answer LLM + string metrics")
     _add_run_flags(qa)
 
     judge = sub.add_parser(
         "execute-autorater",
-        help="One matrix cell: Mem0 judge on stored predictions (QA must be done)",
+        help="One run spec: Mem0 judge on stored predictions (QA must be done)",
     )
     _add_run_flags(judge)
 
@@ -59,13 +59,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     rep = sub.add_parser(
         "report",
-        help="Offline tables/plots from analysis YAML (campaign + experiment)",
+        help="Offline tables and plots from an analysis YAML (design and experiment)",
     )
     rep.add_argument("config")
     rep.add_argument(
         "--experiment",
         default=None,
-        help="Campaign experiment id (smoke|baseline|writers). Omit for all + campaign concat.",
+        help="Experiment id in the design file (smoke|baseline|writers). Omit for all experiments plus the cross-experiment report.",
     )
 
     st = sub.add_parser("status", help="Count completed / failed / not started")
