@@ -1,0 +1,31 @@
+{
+  "description": "Hello-world marker. UserPromptSubmit may add additionalContext. Stop only appends a capture line.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${PLUGIN_ROOT}/hooks/marker_hook.py",
+            "commandWindows": "python ${PLUGIN_ROOT}/hooks/marker_hook.py",
+            "timeout": 30,
+            "statusMessage": "Harness marker hook"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${PLUGIN_ROOT}/hooks/marker_hook.py",
+            "commandWindows": "python ${PLUGIN_ROOT}/hooks/marker_hook.py",
+            "timeout": 30,
+            "statusMessage": "Harness capture hook"
+          }
+        ]
+      }
+    ]
+  }
+}

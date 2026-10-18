@@ -1,0 +1,20 @@
+{
+  "name": "harness-spikes",
+  "interface": {
+    "displayName": "Harness spikes"
+  },
+  "plugins": [
+    {
+      "name": "harness-marker",
+      "source": {
+        "source": "local",
+        "path": "./plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

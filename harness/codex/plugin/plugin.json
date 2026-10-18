@@ -1,0 +1,17 @@
+{
+  "name": "harness-marker",
+  "version": "0.1.0",
+  "description": "Hello-world Codex plugin. Injects one marker token or abstains.",
+  "license": "MIT",
+  "keywords": ["research", "harness"],
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "interface": {
+        "displayName": "Harness marker",
+        "shortDescription": "Injects a marker token or abstains.",
+        "developerName": "agent_memory"
+      }
+    }
+  }
+}

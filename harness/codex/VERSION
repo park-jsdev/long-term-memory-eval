@@ -1,0 +1,7 @@
+codex_bin: C:\Users\park-\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE
+version: codex-cli 0.155.1
+hooks: hooks                                    stable             true
+plugin_hooks: plugin_hooks                             removed            false
+plugins: plugins                                  stable             true
+memories: memories                                 stable             true
+recorded_at: 20261018T214359Z
