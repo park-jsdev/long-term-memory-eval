@@ -1,5 +1,0 @@
-{
-  "schema_version": "audit_pack.v3",
-  "role": "autorater",
-  "notes": "Judge LLM traces. Gold is visible to this module (unlike the reader). autorater_verdicts.jsonl keeps the full scored row; traces.jsonl is the LLM-call subset."
-}

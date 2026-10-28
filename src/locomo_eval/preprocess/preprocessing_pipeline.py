@@ -1,6 +1,6 @@
 """Deterministic preprocess steps: segment, stamp ids, normalize speakers/times.
 
-Order is fixed. The diagram's three boxes are not parallel services.
+Order is fixed and sequential.
 """
 
 from __future__ import annotations

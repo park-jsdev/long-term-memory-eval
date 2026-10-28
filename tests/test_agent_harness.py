@@ -401,6 +401,19 @@ class TestCodexArgv(unittest.TestCase):
         self.assertNotIn("--search", argv)
         self.assertIn("--foo", argv)
 
+    def test_argv_drops_ignore_user_config_when_project_hooks_is_on(self):
+        runner = CodexAgentRunner(
+            model_name="gpt-5", persist_memory=False, project_hooks=True
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = runner._argv("codex", Path(tmp), "q")
+        self.assertNotIn("--ignore-user-config", argv)
+        self.assertIn("--ignore-rules", argv)
+        self.assertIn("--ephemeral", argv)
+        self.assertIn("--dangerously-bypass-hook-trust", argv)
+        self.assertIn("hooks", argv)
+        self.assertIn("trust_level", " ".join(argv))
+
     def test_subprocess_env_copies_openai_key_when_codex_key_missing(self):
         with mock.patch.dict(
             os.environ,

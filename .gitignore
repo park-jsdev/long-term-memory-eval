@@ -28,9 +28,14 @@ venv/
 # LoCoMo raw release (CC BY-NC 4.0) — use scripts/fetch_locomo.py
 data/raw/*
 !data/raw/.gitkeep
+# Heuristic sheets and human annotation. Gold is assigned after reconciliation.
+annotations/
 # Flattened QA / processed tables
 data/processed/*
 !data/processed/.gitkeep
+
+# Codex hello-world exec logs (local CLI output, not the plugin source)
+harness/codex/spikes/runs/
 
 # --- Run artifacts, local logs ---
 # Per-run preds, metrics, plots, memory dumps.
@@ -38,6 +43,9 @@ data/processed/*
 experiments/*
 !experiments/.gitkeep
 !experiments/locomo-openai-mini-codex-readers-analysis-v2/
+# Local pack inventory. experiments/* already ignores it; the name is
+# here so a later un-ignore of experiments/ does not publish it.
+experiments/journal.md
 # Legacy output roots; current packs live under experiments/
 results/
 logs/
@@ -56,6 +64,8 @@ docs/agent/traces/
 # Cloud steps live in docs/gcp.md and infra/gcp/README.md.
 docs/agent/*.md
 !docs/agent/AGENTS.md
+# Local proposal drafts. The Oct 22 harness-mediated PDF lives here.
+docs/agent/*.pdf
 docs/reflections/
 # Local writeups. The published path is README, REPRODUCE, architecture, and runbooks.
 docs/reports/

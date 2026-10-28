@@ -141,12 +141,23 @@ def main() -> int:
     body, action = response_for_event(event, policy, marker)
     if action == "capture":
         append_capture(cwd, event)
+    selected = []
+    condition = ""
+    if isinstance(policy, dict):
+        # The decision module stores these so a pack can be audited
+        # without parsing the injected prose.
+        condition = str(policy.get("condition") or "")
+        raw_ids = policy.get("selected_ids") or []
+        if isinstance(raw_ids, list):
+            selected = [str(item) for item in raw_ids]
     row = {
         "event": event_name(event) or "unknown",
         "action": action,
         "marker": marker if action == "inject" else "",
         "policy_from": policy_from,
         "turn_id": event.get("turn_id") or "",
+        "condition": condition,
+        "selected_ids": selected,
     }
     for path in log_paths(cwd):
         append_jsonl(path, row)
