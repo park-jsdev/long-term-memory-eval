@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Plus label sheet</title>
+  <style>
+    :root { color-scheme: light; --line: #d5d1c8; --ink: #1c1915; --muted: #5c564c; --bg: #f6f4ef; --paper: #fff; --select: #e7f0e4; --abstain: #f8ead8; --gold: #1f6b3a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+    header { padding: 14px 18px; background: var(--paper); border-bottom: 1px solid var(--line); }
+    header h1 { margin: 0 0 4px; font-size: 18px; }
+    header p { margin: 0; color: var(--muted); max-width: 78ch; }
+    .counts { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .counts button, .toolbar button, .savebar button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+    .counts button[aria-pressed="true"] { background: #efe7d6; }
+    main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 118px); }
+    #list { overflow: auto; border-right: 1px solid var(--line); background: #fff; }
+    .item { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: #fff; padding: 8px 12px; cursor: pointer; font: inherit; }
+    .item small { display: block; color: var(--muted); }
+    .item.active { background: #efe7d6; }
+    .item .tag { font-size: 12px; }
+    #detail { overflow: auto; padding: 16px 20px 80px; }
+    .cue, .trigger { white-space: pre-wrap; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+    .trigger { background: #f3f7fb; }
+    label { display: block; margin: 10px 0 4px; font-weight: 600; }
+    textarea, input[type="text"], select { width: 100%; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+    textarea { min-height: 64px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .ai { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .savebar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 10px 0; display: flex; gap: 8px; align-items: center; }
+    .status { font-size: 13px; }
+    .gold { color: var(--gold); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LoCoMo-Plus label sheet</h1>
+    <p>The cue is the evidence. The trigger is the later request. Who / What / Why is the memory. If / When and How / Then is the harness decision for this trigger. AI drafts are not gold until you save them as gold. Abstain means the cue should not shape the reply.</p>
+    <div class="counts" id="counts"></div>
+  </header>
+  <main>
+    <div id="list"></div>
+    <div id="detail"><p>Loading the sheet…</p></div>
+  </main>
+  <script>
+    let rows = [];
+    let filter = "batch";
+    let current = null;
+
+    const filters = [
+      ["batch", "AI batch"],
+      ["ai_draft", "Still a draft"],
+      ["revised", "Revised, not gold"],
+      ["confirmed", "Gold"],
+      ["unlabeled", "Not drafted"],
+      ["all", "All 401"],
+    ];
+
+    function statusOf(row) { return row.label_status || "unlabeled"; }
+    function inBatch(row) { return row.review_first || statusOf(row) === "ai_draft" || row.ai_confidence; }
+
+    function visible() {
+      return rows.filter((row) => {
+        if (filter === "all") return true;
+        if (filter === "batch") return inBatch(row);
+        return statusOf(row) === filter;
+      });
+    }
+
+    function renderCounts() {
+      const host = document.getElementById("counts");
+      const n = (key) => rows.filter((row) => key === "batch" ? inBatch(row) : key === "all" ? true : statusOf(row) === key).length;
+      host.innerHTML = filters.map(([key, label]) =>
+        `<button type="button" data-filter="${key}" aria-pressed="${filter === key}">${label} (${n(key)})</button>`
+      ).join("");
+      host.querySelectorAll("button").forEach((button) => {
+        button.onclick = () => { filter = button.dataset.filter; renderCounts(); renderList(); };
+      });
+    }
+
+    function renderList() {
+      const host = document.getElementById("list");
+      const items = visible();
+      host.innerHTML = items.map((row) => `
+        <button type="button" class="item${row.record_id === current ? " active" : ""}" data-id="${row.record_id}">
+          <span class="tag">${row.record_id} · ${row.relation_type} · ${row.if_decision || "—"} · ${statusOf(row)}${row.gold ? " · gold" : ""}</span>
+          <small>${(row.request || "").slice(0, 110)}</small>
+        </button>`).join("");
+      host.querySelectorAll(".item").forEach((button) => {
+        button.onclick = () => openRow(button.dataset.id);
+      });
+      if (!current && items[0]) openRow(items[0].record_id);
+    }
+
+    function field(name, label, value, ai, multiline) {
+      const shown = value == null ? "" : value;
+      const differs = ai && String(ai) !== String(shown);
+      const control = multiline
+        ? `<textarea name="${name}">${escapeText(shown)}</textarea>`
+        : `<input name="${name}" type="text" value="${escapeAttr(shown)}" />`;
+      return `<label>${label}</label>${control}${differs ? `<div class="ai">AI: ${escapeText(ai)}</div>` : ""}`;
+    }
+
+    function escapeText(value) {
+      return String(value ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+    }
+    function escapeAttr(value) { return escapeText(value).replace(/"/g, "&quot;"); }
+
+    function openRow(id) {
+      current = id;
+      const row = rows.find((item) => item.record_id === id);
+      renderList();
+      const exceptions = Array.isArray(row.exceptions) ? row.exceptions.join(", ") : (row.exceptions || "");
+      document.getElementById("detail").innerHTML = `
+        <div class="status">${row.record_id} · ${row.relation_type} · gap ${escapeText(row.time_gap)} · word overlap ${row.heuristic_overlap} · AI confidence ${escapeText(row.ai_confidence || "—")} · <span class="${row.gold ? "gold" : ""}">${statusOf(row)}</span></div>
+        <label>Cue (evidence, not editable)</label>
+        <div class="cue">${escapeText(row.cue_dialogue)}</div>
+        <label>Trigger (the request)</label>
+        <div class="trigger">${escapeText(row.request)}</div>
+        <form id="form">
+          <div class="row2">
+            <div><label>Who</label>
+              <select name="who_basis">
+                ${["explicit", "inferred"].map((opt) => `<option ${row.who_basis === opt ? "selected" : ""}>${opt}</option>`).join("")}
+              </select></div>
+            <div><label>What type</label>
+              <select name="what_type">
+                ${["stable_constraint", "recurring_goal", "taste_or_value", "updated_fact", "recurring_activity", "assistant_style"].map((opt) => `<option ${row.what_type === opt ? "selected" : ""}>${opt}</option>`).join("")}
+              </select></div>
+          </div>
+          ${field("what", "What — the constraint in your words", row.what, row.ai_what, true)}
+          ${field("scope", "Scope — where it applies", row.scope, row.ai_scope, false)}
+          ${field("exceptions", "Exceptions, comma-separated", exceptions, (row.ai_exceptions || []).join(", "), false)}
+          ${field("uncertainty", "Why — uncertainty", row.uncertainty, row.ai_uncertainty, true)}
+          <label>If</label>
+          <select name="if_decision">
+            ${["select", "abstain"].map((opt) => `<option ${row.if_decision === opt ? "selected" : ""}>${opt}</option>`).join("")}
+          </select>
+          ${field("when", "When — why this trigger does or does not call for the cue", row.when, row.ai_when, true)}
+          ${field("how_then", "How / Then — instruction for the reply. Empty if abstaining.", row.how_then, row.ai_how_then, true)}
+          ${field("annotator_notes", "Your notes", row.annotator_notes, "", true)}
+          <div class="savebar">
+            <button type="submit" name="mode" value="gold">Save as gold</button>
+            <button type="submit" name="mode" value="draft">Save revision, keep it unconfirmed</button>
+            <button type="button" id="prev">Previous</button>
+            <button type="button" id="next">Next</button>
+            <span id="msg"></span>
+          </div>
+        </form>`;
+      document.getElementById("form").onsubmit = (event) => save(event, row);
+      document.getElementById("prev").onclick = () => step(-1);
+      document.getElementById("next").onclick = () => step(1);
+    }
+
+    function step(delta) {
+      const items = visible();
+      const index = items.findIndex((row) => row.record_id === current);
+      const next = items[index + delta];
+      if (next) openRow(next.record_id);
+    }
+
+    async function save(event, row) {
+      event.preventDefault();
+      const data = new FormData(event.target);
+      const mode = event.submitter ? event.submitter.value : "draft";
+      const body = {
+        record_id: row.record_id,
+        who_basis: data.get("who_basis"),
+        what_type: data.get("what_type"),
+        what: data.get("what"),
+        scope: data.get("scope"),
+        exceptions: data.get("exceptions"),
+        uncertainty: data.get("uncertainty"),
+        if_decision: data.get("if_decision"),
+        when: data.get("when"),
+        how_then: data.get("how_then"),
+        annotator_notes: data.get("annotator_notes"),
+        gold: mode === "gold",
+      };
+      const response = await fetch("/api/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const saved = await response.json();
+      if (!response.ok) {
+        document.getElementById("msg").textContent = saved.error || "Save failed";
+        return;
+      }
+      const index = rows.findIndex((item) => item.record_id === saved.record_id);
+      rows[index] = saved;
+      document.getElementById("msg").textContent = saved.gold ? "Saved as gold" : "Saved, not gold yet";
+      renderCounts();
+      renderList();
+    }
+
+    fetch("/api/sheet").then((response) => response.json()).then((data) => {
+      rows = data;
+      renderCounts();
+      renderList();
+    });
+  </script>
+</body>
+</html>

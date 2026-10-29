@@ -167,6 +167,7 @@ class CodexAgentRunner(AgentRunner):
         timeout_s: float = DEFAULT_TIMEOUT_S,
         codex_bin: str | None = None,
         extra_args: list[str] | None = None,
+        project_hooks: bool = False,
     ):
         self.model_name = model_name
         self.persist_memory = bool(persist_memory)
@@ -174,6 +175,9 @@ class CodexAgentRunner(AgentRunner):
         self.timeout_s = float(timeout_s)
         self.codex_bin = codex_bin
         self.extra_args = list(extra_args or [])
+        # Off for fact-recall. On uses the hello-world cell-b flags so
+        # a project hook can read memory/policy.json.
+        self.project_hooks = bool(project_hooks)
 
     def run(self, request: AgentRequest) -> AgentResult:
         binary = resolve_codex_bin(self.codex_bin)
@@ -260,13 +264,24 @@ class CodexAgentRunner(AgentRunner):
             WEB_SEARCH_DISABLED,
             "-c",
             DISK_READ_PERMISSION,
-            "--ignore-user-config",
             # Skip user/project execpolicy so local ~/.codex/rules cannot
-            # block workspace cat/read. MCP still off via ignore-user-config.
+            # block workspace cat/read.
             "--ignore-rules",
         ]
+        if not self.project_hooks:
+            # This flag also skips project hooks. Personalization runs
+            # set project_hooks and drop it. See hello-world cell b.
+            argv.append("--ignore-user-config")
         if not self.persist_memory:
             argv.extend(["--ephemeral"])
+        if self.project_hooks:
+            from harness.codex.spikes.codex_hello_world import (
+                trust_config_argument,
+            )
+
+            argv.append("--dangerously-bypass-hook-trust")
+            argv.extend(["-c", trust_config_argument(root)])
+            argv.extend(["--enable", "hooks"])
         # `--search` would re-enable live hosted web_search after our -c.
         argv.extend(arg for arg in self.extra_args if arg != "--search")
         argv.append(prompt)

@@ -237,7 +237,8 @@ is a later job, not part of the answer call.
 
 The adapter, workspace, and trajectory record around Codex. This is one
 answer path inside the evaluation harness. It is not a name for the
-repository.
+repository. Codex words (hook, plugin, cell, spike) are in
+[harness/GLOSSARY.md](../harness/GLOSSARY.md).
 
 ### Experiment runner
 

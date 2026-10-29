@@ -44,7 +44,11 @@ def get_agent_runner(
             model_name=model,
             persist_memory=persist_memory,
             tools=tools,
-            **{k: v for k, v in kwargs.items() if k in ("timeout_s", "codex_bin", "extra_args")},
+            **{
+                k: v
+                for k, v in kwargs.items()
+                if k in ("timeout_s", "codex_bin", "extra_args", "project_hooks")
+            },
         )
     if key in STUB_ADAPTERS:
         raise NotImplementedError(

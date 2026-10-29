@@ -1,0 +1,4 @@
+Assess evidence, applicability, and conflicts before you answer.
+A stored preference applies only inside its scope.
+If it conflicts with an explicit requirement in the current request, follow the request.
+If nothing applies, answer without using the stored memories.

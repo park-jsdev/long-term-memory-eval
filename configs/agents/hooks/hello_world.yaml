@@ -1,0 +1,56 @@
+# Flag cells for the Codex hello-world spikes.
+# The runner is harness/codex/spikes/run_codex_hello_world.py.
+# CodexAgentRunner does not read this file. Its project_hooks switch
+# defaults off, which keeps these cell-a flags for fact-recall runs.
+#
+# Cell a matches that default. Cells b and c drop --ignore-user-config,
+# keep --ignore-rules, and bypass hook trust so codex exec can run the
+# project hook without an interactive /hooks review. Cell d loads the
+# same script as a plugin from a disposable CODEX_HOME. plugin_hooks is
+# not enabled here: on Codex 0.155.1 that feature is removed.
+#
+# Observed on codex-cli 0.155.1 (2026-10-18): a is absent (hook never
+# starts). b, c, and d inject the marker and the model echoes it.
+# Abstain returns {} and the model does not see the token. See
+# harness/codex/spikes/RESULTS.md.
+model: gpt-4o-mini
+timeout_s: 120
+prompt: |
+  Reply with exactly one line and do not use tools.
+  A hook may add developer context that contains a token.
+  If that context contains a token beginning with HARNESS_MARKER_,
+  reply SEEN followed by the token.
+  If no token was added, reply MISSING.
+cells:
+  - id: a_current_adapter
+    ignore_user_config: true
+    ignore_rules: true
+    ephemeral: true
+    bypass_hook_trust: false
+    trust_project: false
+    enable_hooks: false
+    hook_source: project
+  - id: b_project_hooks
+    ignore_user_config: false
+    ignore_rules: true
+    ephemeral: true
+    bypass_hook_trust: true
+    trust_project: true
+    enable_hooks: true
+    hook_source: project
+  - id: c_project_hooks_no_ephemeral
+    ignore_user_config: false
+    ignore_rules: true
+    ephemeral: false
+    bypass_hook_trust: true
+    trust_project: true
+    enable_hooks: true
+    hook_source: project
+  - id: d_plugin
+    ignore_user_config: false
+    ignore_rules: true
+    ephemeral: true
+    bypass_hook_trust: true
+    trust_project: true
+    enable_hooks: true
+    hook_source: plugin

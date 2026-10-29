@@ -102,6 +102,11 @@ published walkthrough. Operator steps:
 | `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements — **local only** |
 | `docs/agent/EXPERIMENT_MATRIX_v1.md` | Scientific matrix + skip vs regenerate — **local only** |
 | `infra/gcp/README.md` | Exact GCP resources to create |
+| `harness/` | Third-party harness plugins and hello-world spikes. Codex marker hook lives here. LoCoMo adapters stay in `src/locomo_eval/agents/`. |
+| `configs/agents/hooks/hello_world.yaml` | Codex exec flag cells for the marker spike. Not read by `CodexAgentRunner`. |
+| `harness/codex/spikes/RESULTS.md` | Pinned hello-world outcome on codex-cli 0.155.1: cells b, c, and d inject; cell a does not. |
+| `src/data/locomo_plus.py` | LoCoMo-Plus cognitive file: pinned fetch, load, and count. Raw JSON stays in `data/raw/`. |
+| `src/locomo_eval/interaction_patterns/` | Who/What/Why records, Plus label sheet, and P/A/B/C decisions. The Codex hook only delivers the policy this package writes. |
 | `docs/gcp.md` | Cloud Run: infra, deploy, execute, pull from GCS |
 | `docs/agent/RUNBOOK_2025_LIVE.md` | Parked three-family 2025 campaign (includes Claude) |
 | `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md` | Budget 2025: GPT-5 vs DeepSeek-V3 |
@@ -213,6 +218,14 @@ python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --read
 
 # Agent harness mock smoke (no Codex binary, no API)
 python -m src.locomo_eval.run --config configs/presets/agent_codex_gpt5.yaml --reader mock --max-questions 3 --run-id smoke_agent_codex
+# Codex hook hello world (spike 0 is local; spikes 1–3 call the model in the YAML)
+python harness/codex/spikes/run_codex_hello_world.py --spike 0
+python -m pytest tests/test_codex.py tests/test_personalization_poc.py tests/test_personalization_e2e.py -q
+# Plus file, label sheet, and decision pack. Annotations and run logs stay gitignored.
+# python -m src.data.locomo_plus --fetch --path data/raw/locomo_plus.json
+# python -m src.locomo_eval.interaction_patterns.plus_starter_and_overlap
+# python -m src.locomo_eval.interaction_patterns.labeled_plus_run --dry-run
+# python harness/codex/spikes/run_plus_codex_smoke.py
 python -m src.experiment_runner write-manifest configs/experiments/openai_codex_persist_memory.yaml
 python -m src.experiment_runner execute-qa configs/experiments/openai_codex_persist_memory.yaml --run-index 0
 python -m src.experiment_runner write-manifest configs/experiments/openai_mini_writers_structured.yaml
