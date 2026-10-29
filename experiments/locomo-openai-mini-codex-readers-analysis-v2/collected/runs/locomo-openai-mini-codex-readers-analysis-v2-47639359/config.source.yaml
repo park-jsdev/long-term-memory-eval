@@ -1,0 +1,7 @@
+# Entire timestamped dialog, no retrieve.
+#   python -m src.locomo_eval.run --config configs/writers/full_context.yaml --run-id full_context_qa
+includes:
+  - configs/stacks/qa_default.yaml
+
+pipeline:
+  memory: full_context

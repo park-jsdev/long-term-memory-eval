@@ -1,0 +1,36 @@
+{
+  "schema_version": "memory_io.v1",
+  "memory_type": "session_summaries",
+  "max_chars_config": null,
+  "layout": {
+    "builder": "SessionSummaryMemoryBuilder",
+    "code": "src/locomo_eval/memory.py",
+    "source_fields": [
+      "session_summary.session_k_summary"
+    ],
+    "text_layout": "[Session {k}]\n{session_k_summary text}\n\n[Session {k+1}]\n…",
+    "notes": "Dataset summaries when no writer is set. A writer model replaces the text and records writer_model."
+  },
+  "documentation": "docs/schemas/memory_runtime.md",
+  "json_schema": "docs/schemas/memory_io.schema.json",
+  "object_fields": {
+    "memory_type": "condition id",
+    "text": "full string injected as prompt {memory}",
+    "source_ids": "provenance list",
+    "schema_version": "memory_io.v1",
+    "writer_model": "write-path model id",
+    "writer_provider": "openai | anthropic | deepseek | mock | codex"
+  },
+  "writer_model": null,
+  "writer_provider": null,
+  "injection": {
+    "prompt_placeholders": [
+      "{memory}",
+      "{question}"
+    ],
+    "gold_answer_in_memory": false
+  },
+  "n_unique_samples": 10,
+  "n_unique_questions": 0,
+  "question_dependent_dump": false
+}

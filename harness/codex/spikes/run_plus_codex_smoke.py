@@ -10,6 +10,7 @@ context reached the model.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from datetime import datetime, timezone
@@ -32,7 +33,7 @@ from src.locomo_eval.env import load_env  # noqa: E402
 
 CONFIG = ROOT / "configs" / "agents" / "hooks" / "hello_world.yaml"
 RUNS = ROOT / "harness" / "codex" / "spikes" / "runs"
-DEFAULT_PACK = ROOT / "experiments" / "personalization-e2e-same-user"
+DEFAULT_PACK = ROOT / "experiments" / "personalization-e2e"
 MODEL = "gpt-4o-mini"
 TIMEOUT_S = 120.0
 
@@ -97,12 +98,15 @@ class _PolicyView:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Codex smoke on a saved Plus pack")
+    parser.add_argument("--pack", type=Path, default=DEFAULT_PACK)
+    args = parser.parse_args()
     load_env()
     binary = resolve_codex_bin()
     if not binary:
         print("codex binary not found")
         return 2
-    pack = DEFAULT_PACK
+    pack = args.pack
     if not (pack / "e2e_report.json").is_file():
         print(f"missing pack {pack}")
         return 2

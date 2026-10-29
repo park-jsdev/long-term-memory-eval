@@ -1,0 +1,5 @@
+category,category_id,n,mem0_f1_pct,mem0_bleu1_pct,llm_judge_pct,locomo_f1
+temporal,2,321,27.84,20.35,52.65,0.2847
+open_domain,3,96,14.82,9.32,56.25,0.1505
+multi_hop,1,282,27.65,19.72,72.34,0.2663
+single_hop,4,841,40.47,30.26,89.06,0.4014

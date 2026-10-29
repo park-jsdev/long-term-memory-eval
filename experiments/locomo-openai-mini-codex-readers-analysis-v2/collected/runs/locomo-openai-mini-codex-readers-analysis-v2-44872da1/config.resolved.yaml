@@ -1,0 +1,42 @@
+source_config: /app/configs/writers/session_summaries.yaml
+cli_overrides:
+  config: /app/configs/writers/session_summaries.yaml
+  data: /tmp/memorybench-experiments/data/locomo10.json
+  memory: session_summaries
+  reader: openai
+  model: gpt-4o-mini
+  agent: codex
+  agent_persist: 'on'
+  agent_sessions: full
+  agent_tools: native
+  agent_prompt_mode: reader_prompt
+  prompt: prompts/readers/qa_mem0_v1.txt
+  output_dir: /tmp/memorybench-experiments
+  run_id: locomo-openai-mini-codex-readers-analysis-v2-44872da1
+yaml:
+  data:
+    raw_path: data/raw/locomo10.json
+    locomo_commit: 3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376
+  pipeline:
+    prompt_path: prompts/readers/qa_mem0_v1.txt
+    max_questions: null
+    memory: session_summaries
+  reader:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.0
+    max_tokens: 64
+    max_retries: 8
+    min_request_interval_s: 0.5
+    max_wait_s: 3600
+  run:
+    run_id: null
+    output_dir: experiments
+  agent:
+    comparison:
+      strict: false
+      tool_budget:
+        allowed_tools: []
+        max_tool_calls: null
+        max_retrieved_tokens: null
+        wall_clock_s: 600

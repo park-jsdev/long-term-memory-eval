@@ -96,7 +96,7 @@ published walkthrough. Operator steps:
 | `scripts/analysis/verify_experiments.py` | Offline pack verifier (TRACE/prompts/logs) + graph year diagnosis |
 | `src/metrics/locomo_qa.py` | Official LoCoMo category F1 |
 | `data/raw/locomo10.json` | Dataset (gitignored; fetch) |
-| `experiments/<run_id>/` | Human-auditable run pack (gitignored, except the pinned `locomo-openai-mini-codex-readers-analysis-v2` reference). Local map: `experiments/journal.md` |
+| `experiments/<run_id>/` | Human-auditable run pack (gitignored, except the pinned `locomo-openai-mini-codex-readers-analysis-v2` reference) |
 | `configs/experiments/*.yaml` | Harness matrices (`poc`, frozen reader, agent, longitudinal, ablation) |
 | `src/experiment_runner/` | Thin orchestrator: expand matrix, hashed ids, QA then autorater, Parquet |
 | `docs/agent/SPEC_v2.md` | Cloud-portable experiment runner requirements — **local only** |
@@ -105,6 +105,8 @@ published walkthrough. Operator steps:
 | `harness/` | Third-party harness plugins and hello-world spikes. Codex marker hook lives here. LoCoMo adapters stay in `src/locomo_eval/agents/`. |
 | `configs/agents/hooks/hello_world.yaml` | Codex exec flag cells for the marker spike. Not read by `CodexAgentRunner`. |
 | `harness/codex/spikes/RESULTS.md` | Pinned hello-world outcome on codex-cli 0.155.1: cells b, c, and d inject; cell a does not. |
+| `src/data/locomo_plus.py` | LoCoMo-Plus cognitive file: pinned fetch, load, and count. Raw JSON stays in `data/raw/`. |
+| `src/locomo_eval/interaction_patterns/` | Who/What/Why records, Plus label sheet, and P/A/B/C decisions. The Codex hook only delivers the policy this package writes. |
 | `docs/gcp.md` | Cloud Run: infra, deploy, execute, pull from GCS |
 | `docs/agent/RUNBOOK_2025_LIVE.md` | Parked three-family 2025 campaign (includes Claude) |
 | `docs/agent/RUNBOOK_2025_OPENAI_DEEPSEEK.md` | Budget 2025: GPT-5 vs DeepSeek-V3 |
@@ -133,22 +135,6 @@ published walkthrough. Operator steps:
 | `LICENSE` / `NOTICE.md` | MIT code license + LoCoMo (CC BY-NC) and Mem0 (Apache-2.0) terms |
 | `docs/agent/HUMANS.md` | Human-facing brief — **local only** |
 | `docs/agent/traces/` | Doc version history — **local only** |
-
-### Local experiment inventory
-
-`experiments/journal.md` is the on-disk map of which packs are local, which
-`collected/` trees were stripped, and how to pull traces back. It is
-gitignored. Update it in the same change that adds, deletes, pulls, or
-strips a pack: size, what is still on disk (`aggregate/`, `analysis/`,
-indexes), and whether `collected/` is local or only in the backup / GCS
-copy. Campaign reports read `aggregate/*.parquet`. Per-question traces and
-the agent-audit overlay need `collected/`.
-
-Do not `git add` the journal. Do not commit a deletion of
-`experiments/locomo-openai-mini-codex-readers-analysis-v2/collected/`.
-That tree is the published pin. A local delete is a disk trim. Restore
-with `git checkout -- experiments/locomo-openai-mini-codex-readers-analysis-v2/collected`
-or the GCS pull in the journal.
 
 ### Package modules (`src/locomo_eval/`)
 
@@ -234,7 +220,12 @@ python -m src.locomo_eval.run --config configs/presets/mem0_baseline.yaml --read
 python -m src.locomo_eval.run --config configs/presets/agent_codex_gpt5.yaml --reader mock --max-questions 3 --run-id smoke_agent_codex
 # Codex hook hello world (spike 0 is local; spikes 1–3 call the model in the YAML)
 python harness/codex/spikes/run_codex_hello_world.py --spike 0
-python -m pytest tests/test_codex_hello_world.py -q
+python -m pytest tests/test_codex.py tests/test_personalization_poc.py tests/test_personalization_e2e.py -q
+# Plus file, label sheet, and decision pack. Annotations and run logs stay gitignored.
+# python -m src.data.locomo_plus --fetch --path data/raw/locomo_plus.json
+# python -m src.locomo_eval.interaction_patterns.plus_starter_and_overlap
+# python -m src.locomo_eval.interaction_patterns.labeled_plus_run --dry-run
+# python harness/codex/spikes/run_plus_codex_smoke.py
 python -m src.experiment_runner write-manifest configs/experiments/openai_codex_persist_memory.yaml
 python -m src.experiment_runner execute-qa configs/experiments/openai_codex_persist_memory.yaml --run-index 0
 python -m src.experiment_runner write-manifest configs/experiments/openai_mini_writers_structured.yaml
@@ -383,7 +374,7 @@ A deterministic preprocess dump under `experiments/<run_id>/preprocess/` must in
 6. **Plain YAML**, plain JSON loaders, local CSV — no Hydra/W&B. Components live under `configs/{writers,readers,layouts,autoraters,teachers}/` and compose with `includes:` (later keys win). `pipeline.memory` is still a builder id, not a path to another YAML.
 7. **Update docs:** after behavior change, copy previous AGENTS/HUMANS into `docs/agent/traces/YYYY-MM-DD_topic.md`, then edit live files. Traces stay local (gitignored); keep writing them anyway.
 8. **Eval vs write split:** analysis of finished dumps imports `src.locomo_eval.experiment_pack.audit_loader` (and `audit_layout`). Do not add eval loops to `run.py` or import `teachers` / `experiment_pack.audit_writer` from an eval branch. On-disk contract: `docs/schemas/experiment_pack.md`.
-9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them. The published notebook is `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. The published run pack is `experiments/locomo-openai-mini-codex-readers-analysis-v2`. Local disk may omit that pack's `collected/` to save space; the inventory of what is actually on disk is `experiments/journal.md` (gitignored). Keep that journal current when packs move. Full-context rows store each conversation's memory text and Codex task-prompt prefix once; see `REFERENCE_PIN.json`. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
+9. **Published vs local.** The repo is shared with outside researchers, so anything tracked must be reproduction-relevant and account-agnostic. Traces, specs, `HUMANS.md`, `claim_audit_status.md`, notebooks, and `papers/` are gitignored — edit them freely, never `git add -f` them. The published notebook is `notebooks/17_openai_mini_codex_readers_analysis.ipynb`. The published run pack is `experiments/locomo-openai-mini-codex-readers-analysis-v2`. Full-context rows store each conversation's memory text and Codex task-prompt prefix once; see `REFERENCE_PIN.json`. Cloud ids come from `$env:PROJECT_ID` / `$MEMORYBENCH_BUCKET`; do not hardcode a project id, bucket, or service-account email into a tracked config, script, or doc.
 
 ---
 

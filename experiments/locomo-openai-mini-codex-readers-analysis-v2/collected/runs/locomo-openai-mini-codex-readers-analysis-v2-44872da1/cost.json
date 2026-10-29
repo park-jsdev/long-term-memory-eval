@@ -1,0 +1,52 @@
+{
+  "pricing_as_of": "2026-09-16",
+  "pricing_note": "USD uses pinned list prices from configs/models/pricing.yaml. Unknown models contribute tokens but usd=null. Not an invoice.",
+  "reader": {
+    "role": "reader",
+    "n_calls": 1986,
+    "prompt_tokens": 23849205,
+    "completion_tokens": 34857,
+    "total_tokens": 23884062,
+    "reasoning_tokens": 0,
+    "usd": 3.598283,
+    "by_model": {
+      "gpt-4o-mini": {
+        "model": "gpt-4o-mini",
+        "role": "reader",
+        "n_calls": 1986,
+        "prompt_tokens": 23849205,
+        "completion_tokens": 34857,
+        "total_tokens": 23884062,
+        "reasoning_tokens": 0,
+        "usd": 3.598283
+      }
+    }
+  },
+  "writer": {
+    "role": "writer",
+    "n_calls": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "reasoning_tokens": 0,
+    "usd": 0.0,
+    "by_model": {}
+  },
+  "other": {
+    "role": "other",
+    "n_calls": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "reasoning_tokens": 0,
+    "usd": 0.0,
+    "by_model": {}
+  },
+  "total": {
+    "prompt_tokens": 23849205,
+    "completion_tokens": 34857,
+    "total_tokens": 23884062,
+    "reasoning_tokens": 0,
+    "usd": 3.598283
+  }
+}

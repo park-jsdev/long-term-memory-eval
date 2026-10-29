@@ -1,0 +1,2 @@
+method,autorater_provider,score_kind,n_judged,n_skipped,mem0_f1,mem0_bleu1,llm_judge,mem0_f1_pct,mem0_bleu1_pct,llm_judge_pct,locomo_f1,reader_latency_p50,reader_latency_p95,autorater_latency_p50,autorater_latency_p95,reader_prompt_tokens_mean,reader_total_tokens_sum,autorater_total_tokens_mean,autorater_total_tokens_sum,memory_chars_mean
+full_context,openai,llm_as_a_judge,1540,446,0.4359,0.3574,0.7409,43.59,35.74,74.09,0.4382,2.06,7.9825,0.516,0.658,34996.6883,53911755,397.7649,612558,104442.8169

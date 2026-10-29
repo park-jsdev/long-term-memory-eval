@@ -28,8 +28,8 @@ from harness.codex.spikes.run_codex_hello_world import (  # noqa: E402
 )
 from src.locomo_eval.agents.adapters.codex import resolve_codex_bin  # noqa: E402
 from src.locomo_eval.env import load_env  # noqa: E402
-from src.locomo_eval.patterns.decision import decide_request, policy_body  # noqa: E402
-from src.locomo_eval.patterns.fixtures import fixture_records  # noqa: E402
+from src.locomo_eval.interaction_patterns.condition_decisions import decide_request, policy_body  # noqa: E402
+from src.locomo_eval.interaction_patterns.low_maintenance_example import fixture_records  # noqa: E402
 
 CONFIG = ROOT / "configs" / "agents" / "hooks" / "hello_world.yaml"
 RUNS = ROOT / "harness" / "codex" / "spikes" / "runs"

@@ -15,18 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.data.locomo_plus import count_cognitive_items, load_cognitive_items
-from src.locomo_eval.patterns.census import repeated_speaker_phrases
-from src.locomo_eval.patterns.decision import (
+from src.locomo_eval.interaction_patterns.speaker_repeat_census import repeated_speaker_phrases
+from src.locomo_eval.interaction_patterns.condition_decisions import (
     bounded_instruction,
     decide_request,
     policy_body,
     stage1_selection,
 )
-from src.locomo_eval.patterns.diagnostics import summarize_pack
-from src.locomo_eval.patterns.fixtures import LOW_MAINTENANCE
-from src.locomo_eval.patterns.poc import build_personalization_poc_pack
-from src.locomo_eval.patterns.representation import h2_scores, truncate_to_token_budget
-from src.locomo_eval.patterns.schema import (
+from src.locomo_eval.interaction_patterns.decision_pack_summary import summarize_pack
+from src.locomo_eval.interaction_patterns.low_maintenance_example import LOW_MAINTENANCE
+from src.locomo_eval.interaction_patterns.offline_decision_pack import build_personalization_poc_pack
+from src.locomo_eval.interaction_patterns.hypothesis_rendering import h2_scores, truncate_to_token_budget
+from src.locomo_eval.interaction_patterns.hypothesis_record import (
     HypothesisRecord,
     RequestLabel,
     validate_hypothesis,
@@ -318,7 +318,7 @@ class TestCountCognitiveItems(unittest.TestCase):
 class TestHypothesisFromCognitiveItem(unittest.TestCase):
     def test_hypothesis_from_cognitive_item_accepts_a_single_inserted_cue(self):
         from src.data.locomo_plus import CognitiveItem
-        from src.locomo_eval.patterns.plus_map import hypothesis_from_cognitive_item
+        from src.locomo_eval.interaction_patterns.plus_item_to_record import hypothesis_from_cognitive_item
 
         record = hypothesis_from_cognitive_item(
             CognitiveItem(
@@ -387,7 +387,7 @@ class TestHypothesisFromCognitiveItem(unittest.TestCase):
 class TestPlusOverlapSummary(unittest.TestCase):
     def test_plus_overlap_summary_counts_a_trigger_that_shares_no_content_words(self):
         from src.data.locomo_plus import CognitiveItem
-        from src.locomo_eval.patterns.heuristic import plus_overlap_summary
+        from src.locomo_eval.interaction_patterns.plus_starter_and_overlap import plus_overlap_summary
 
         items = [
             CognitiveItem(
@@ -407,7 +407,7 @@ class TestPlusOverlapSummary(unittest.TestCase):
 
 class TestLocomoQaOverlapSummary(unittest.TestCase):
     def test_locomo_qa_overlap_summary_counts_a_question_that_repeats_evidence_words(self):
-        from src.locomo_eval.patterns.heuristic import locomo_qa_overlap_summary
+        from src.locomo_eval.interaction_patterns.plus_starter_and_overlap import locomo_qa_overlap_summary
 
         samples = [
             {
@@ -433,7 +433,7 @@ class TestLocomoQaOverlapSummary(unittest.TestCase):
 
 class TestMergeSheet(unittest.TestCase):
     def test_merge_sheet_keeps_the_cue_and_a_human_revision_over_the_draft(self):
-        from src.locomo_eval.patterns.sheet import merge_sheet
+        from src.locomo_eval.interaction_patterns.plus_label_sheet import merge_sheet
 
         starter = [
             {
@@ -481,7 +481,7 @@ class TestMergeSheet(unittest.TestCase):
         self.assertEqual(merged[0]["ai_what"], "Saying no reduced their stress.")
 
     def test_update_row_marks_gold_only_when_the_save_asks_for_it(self):
-        from src.locomo_eval.patterns.sheet import update_row
+        from src.locomo_eval.interaction_patterns.plus_label_sheet import update_row
 
         rows = [{"record_id": "plus-1", "what": "old", "exceptions": []}]
         saved = update_row(rows, "plus-1", {"what": "new", "exceptions": "safety, cost", "gold": False})

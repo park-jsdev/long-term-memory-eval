@@ -1,0 +1,6 @@
+category,category_id,n,exact_match,token_f1,locomo_f1
+multi_hop,1,282,0.0319,0.3266,0.313
+temporal,2,321,0.0405,0.3615,0.366
+open_domain,3,96,0.0521,0.2159,0.222
+single_hop,4,841,0.1855,0.5219,0.532
+adversarial,5,446,0.0,0.0006,0.007

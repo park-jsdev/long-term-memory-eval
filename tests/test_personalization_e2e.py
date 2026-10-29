@@ -15,20 +15,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.locomo_eval.patterns.e2e import (
+from src.locomo_eval.interaction_patterns.labeled_plus_run import (
     build_first_pass_e2e_pack,
     score_harness_decision,
 )
-from src.locomo_eval.patterns.representation import (
+from src.locomo_eval.interaction_patterns.hypothesis_rendering import (
     render_memory_for_reply,
     render_record_for_decision,
 )
-from src.locomo_eval.patterns.schema import HypothesisRecord
-from src.locomo_eval.patterns.sheet_records import (
+from src.locomo_eval.interaction_patterns.hypothesis_record import HypothesisRecord
+from src.locomo_eval.interaction_patterns.labeled_row_to_record import (
     gold_request_from_labeled_row,
     memory_record_from_labeled_row,
 )
-from src.locomo_eval.patterns.stage_model import (
+from src.locomo_eval.interaction_patterns.harness_stage_calls import (
     parse_stage1_response,
     strip_record_ids,
 )
@@ -143,7 +143,7 @@ class TestRenderRecordForDecision(unittest.TestCase):
 
 class TestScoreHarnessDecision(unittest.TestCase):
     def test_score_harness_decision_matches_when_stage1_selects_the_gold_id(self):
-        from src.locomo_eval.patterns.decision import decide_request
+        from src.locomo_eval.interaction_patterns.condition_decisions import decide_request
 
         record = memory_record_from_labeled_row(LABELED_ROW)
         gold = gold_request_from_labeled_row(LABELED_ROW)

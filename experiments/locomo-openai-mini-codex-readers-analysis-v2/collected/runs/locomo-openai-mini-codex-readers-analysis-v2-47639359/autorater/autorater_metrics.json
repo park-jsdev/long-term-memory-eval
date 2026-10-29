@@ -1,0 +1,185 @@
+{
+  "number_of_questions": 1986,
+  "n_judged": 1540,
+  "n_skipped": 446,
+  "skip_category": 5,
+  "metrics": {
+    "n": 1540,
+    "mem0_f1": 0.3389,
+    "mem0_bleu1": 0.2496,
+    "llm_judge": 0.7636,
+    "llm_judge_pct": 76.36,
+    "mem0_f1_pct": 33.89,
+    "mem0_bleu1_pct": 24.96,
+    "locomo_f1": 0.3367,
+    "reader_latency": {
+      "n": 1540,
+      "mean": 3.4538,
+      "p50": 2.2518,
+      "p95": 8.5688
+    },
+    "autorater_latency": {
+      "n": 1540,
+      "mean": 0.5384,
+      "p50": 0.517,
+      "p95": 0.654
+    },
+    "reader_prompt_tokens_mean": 36132.2825,
+    "reader_total_tokens_mean": 36155.6896,
+    "reader_total_tokens_sum": 55679762,
+    "autorater_total_tokens_mean": 407.6019,
+    "autorater_total_tokens_sum": 627707,
+    "memory_chars_mean": 104442.8169
+  },
+  "metrics_including_skipped": {
+    "n": 1986,
+    "mem0_f1": 0.263,
+    "mem0_bleu1": 0.1937,
+    "llm_judge": 0.5921,
+    "llm_judge_pct": 59.21,
+    "mem0_f1_pct": 26.3,
+    "mem0_bleu1_pct": 19.37,
+    "locomo_f1": 0.2636,
+    "reader_latency": {
+      "n": 1986,
+      "mean": 3.3453,
+      "p50": 2.205,
+      "p95": 8.2186
+    },
+    "autorater_latency": {
+      "n": 1540,
+      "mean": 0.5384,
+      "p50": 0.517,
+      "p95": 0.654
+    },
+    "reader_prompt_tokens_mean": 36140.6818,
+    "reader_total_tokens_mean": 36164.219,
+    "reader_total_tokens_sum": 71822139,
+    "autorater_total_tokens_mean": 407.6019,
+    "autorater_total_tokens_sum": 627707,
+    "memory_chars_mean": 104489.0227
+  },
+  "by_category": {
+    "temporal": {
+      "category_id": 2,
+      "n": 321,
+      "mem0_f1": 0.2784,
+      "mem0_bleu1": 0.2035,
+      "llm_judge": 0.5265,
+      "llm_judge_pct": 52.65,
+      "mem0_f1_pct": 27.84,
+      "mem0_bleu1_pct": 20.35,
+      "locomo_f1": 0.2847,
+      "reader_latency": {
+        "n": 321,
+        "mean": 3.6822,
+        "p50": 2.4566,
+        "p95": 8.2979
+      },
+      "autorater_latency": {
+        "n": 321,
+        "mean": 0.5462,
+        "p50": 0.517,
+        "p95": 0.652
+      },
+      "reader_prompt_tokens_mean": 34759.6791,
+      "reader_total_tokens_mean": 34780.1464,
+      "reader_total_tokens_sum": 11164427,
+      "autorater_total_tokens_mean": 405.8318,
+      "autorater_total_tokens_sum": 130272,
+      "memory_chars_mean": 101987.3302
+    },
+    "open_domain": {
+      "category_id": 3,
+      "n": 96,
+      "mem0_f1": 0.1482,
+      "mem0_bleu1": 0.0932,
+      "llm_judge": 0.5625,
+      "llm_judge_pct": 56.25,
+      "mem0_f1_pct": 14.82,
+      "mem0_bleu1_pct": 9.32,
+      "locomo_f1": 0.1505,
+      "reader_latency": {
+        "n": 96,
+        "mean": 3.6509,
+        "p50": 2.6271,
+        "p95": 9.1047
+      },
+      "autorater_latency": {
+        "n": 96,
+        "mean": 0.5433,
+        "p50": 0.5145,
+        "p95": 0.7258
+      },
+      "reader_prompt_tokens_mean": 37489.8854,
+      "reader_total_tokens_mean": 37530.0833,
+      "reader_total_tokens_sum": 3602888,
+      "autorater_total_tokens_mean": 422.5,
+      "autorater_total_tokens_sum": 40560,
+      "memory_chars_mean": 105542.8125
+    },
+    "multi_hop": {
+      "category_id": 1,
+      "n": 282,
+      "mem0_f1": 0.2765,
+      "mem0_bleu1": 0.1972,
+      "llm_judge": 0.7234,
+      "llm_judge_pct": 72.34,
+      "mem0_f1_pct": 27.65,
+      "mem0_bleu1_pct": 19.72,
+      "locomo_f1": 0.2663,
+      "reader_latency": {
+        "n": 282,
+        "mean": 3.7991,
+        "p50": 2.4906,
+        "p95": 9.2823
+      },
+      "autorater_latency": {
+        "n": 282,
+        "mean": 0.5247,
+        "p50": 0.513,
+        "p95": 0.6399
+      },
+      "reader_prompt_tokens_mean": 36618.0674,
+      "reader_total_tokens_mean": 36646.2482,
+      "reader_total_tokens_sum": 10334242,
+      "autorater_total_tokens_mean": 410.4007,
+      "autorater_total_tokens_sum": 115733,
+      "memory_chars_mean": 104182.7589
+    },
+    "single_hop": {
+      "category_id": 4,
+      "n": 841,
+      "mem0_f1": 0.4047,
+      "mem0_bleu1": 0.3026,
+      "llm_judge": 0.8906,
+      "llm_judge_pct": 89.06,
+      "mem0_f1_pct": 40.47,
+      "mem0_bleu1_pct": 30.26,
+      "locomo_f1": 0.4014,
+      "reader_latency": {
+        "n": 841,
+        "mean": 3.2283,
+        "p50": 2.0787,
+        "p95": 8.0868
+      },
+      "autorater_latency": {
+        "n": 841,
+        "mean": 0.5395,
+        "p50": 0.519,
+        "p95": 0.656
+      },
+      "reader_prompt_tokens_mean": 36338.3282,
+      "reader_total_tokens_mean": 36359.3401,
+      "reader_total_tokens_sum": 30578205,
+      "autorater_total_tokens_mean": 405.6385,
+      "autorater_total_tokens_sum": 341142,
+      "memory_chars_mean": 105341.6849
+    }
+  },
+  "memory_type": "full_context",
+  "autorater_model": "gpt-4o-mini",
+  "autorater_provider": "openai",
+  "score_kind": "llm_as_a_judge",
+  "reader_model": "gpt-4o-mini"
+}

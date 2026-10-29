@@ -252,23 +252,33 @@ the injected text.
 In the 0.155.1 record, cells b, c, and d smoke-passed. Cell a left an
 empty hook log. The pinned note is `harness/codex/spikes/RESULTS.md`.
 
-## Tests not yet run
+## Plus decisions through Codex
 
-These stay unrun until someone executes them. The 0.155.1 record does not
-replace them. Implementation files for the checks that did run:
-`harness/codex/plugin/hooks/marker_hook.py`,
-`harness/codex/plugin/hooks/hooks.json`,
-`harness/codex/plugin/plugin.json`,
-`configs/agents/hooks/hello_world.yaml`,
-`harness/codex/spikes/run_codex_hello_world.py`.
+The personalization package writes `memory/policy.json`. This hook
+delivers that file. Fact-recall launches keep `project_hooks` off, so
+they still use cell a. A personalization call sets `project_hooks` and
+uses the cell-b flags.
 
-| Test | Setup | Evidence to keep | Priority |
-| --- | --- | --- | --- |
-| Single-flag discovery | Two execs, same workspace and hook file. Only `--ignore-user-config` changes. | Hook logs side by side. | P0 |
-| Echo still means delivery | Hook emits a fresh token. Prompt does not contain it. | Log action `inject` and final message `SEEN <token>`. Save the exec JSONL. | P0, smoke already recorded |
-| Abstain still means no token | Policy `abstain`. | Log action `abstain`, stdout `{}`, token absent from the final message. | P0, smoke already recorded on cell b |
-| Plugin matches project | Same policy and prompt. Cell b versus cell d. | Same log action and same final line. | P1. One smoke pair is recorded. Repeat on a longer prompt. |
-| Capture count | One exec that takes more than one model call, plus one that errors. | `capture.log` line count versus completed execs. | P1 |
-| Selective policy | Per question, a relevance decision writes inject or abstain. Score wrong injections and wrong abstentions. | Policy row, hook action, and judgment for each question. | P1 |
-| Home isolation | Hash `~/.codex/config.toml` before and after a spike. | Hashes match. Disposable `CODEX_HOME` holds the trust and plugin rows. | P1 |
-| Paired answer test | Same questions, model, and decoding. Arms: `hook_off`, `inject_fixed`, `inject_selective`. | Accuracy, injected tokens, injection rate, latency. | Later. This is a LoCoMo comparison, not a hook smoke. |
+Offline checks do not need a model:
+
+```bash
+python -m pytest tests/test_codex.py tests/test_personalization_poc.py tests/test_personalization_e2e.py -q
+python -m src.locomo_eval.interaction_patterns.offline_decision_pack
+python -m src.locomo_eval.interaction_patterns.labeled_plus_run --dry-run
+```
+
+The Plus file is gitignored. Fetch it, then build the label starter.
+Draft labels live in `src/locomo_eval/interaction_patterns/plus_draft_labels.py`. Saved
+sheets and exec logs stay gitignored.
+
+```bash
+python -m src.data.locomo_plus --fetch --path data/raw/locomo_plus.json
+python -m src.locomo_eval.interaction_patterns.plus_starter_and_overlap
+python -m src.locomo_eval.interaction_patterns.labeled_plus_run
+python harness/codex/spikes/run_plus_codex_smoke.py
+```
+
+`e2e` calls gpt-4o-mini and writes `experiments/personalization-e2e`.
+The Codex smoke reads that pack. Pass `--pack` for a different one.
+Both directories are gitignored. A smoke pass is hook delivery.
+It is not a reply score.

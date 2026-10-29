@@ -1,0 +1,40 @@
+{
+  "schema_version": "prompt_bundle.v1",
+  "audit_layout": "audit_pack.v3",
+  "config_entry": "configs/writers/session_summaries.yaml",
+  "config_includes": [
+    "configs/data/locomo10.yaml",
+    "configs/layouts/qa_mem0_v1.yaml",
+    "configs/readers/gpt-4o-mini.yaml",
+    "configs/run/local_experiments.yaml",
+    "configs/stacks/qa_default.yaml",
+    "configs/writers/session_summaries.yaml"
+  ],
+  "prompts": [
+    {
+      "role": "reader",
+      "config_key": "pipeline.prompt_path",
+      "source_path": "prompts/readers/qa_mem0_v1.txt",
+      "snapshot_path": "prompts/readers/qa_mem0_v1.txt",
+      "prompt_version": "qa_mem0_v1",
+      "sha256": "85c626a7eaf0631e17d3fcdaa020e47afb2d85802f1d4543d6363f812fbfe31c",
+      "jsonl": [
+        "predictions.jsonl",
+        "reader/traces.jsonl",
+        "reader/predictions.jsonl"
+      ]
+    },
+    {
+      "role": "autorater",
+      "config_key": "autorater.prompt_path",
+      "source_path": "prompts/autoraters/autorater_mem0_v1.txt",
+      "snapshot_path": "prompts/autoraters/autorater_mem0_v1.txt",
+      "prompt_version": "autorater_mem0_v1",
+      "sha256": "94aba7f70a8fed357d7f79ff14a9abacd5d8a67558e9f6d46d99915b04384cc0",
+      "jsonl": [
+        "autorater/traces.jsonl",
+        "autorater/autorater_verdicts.jsonl"
+      ]
+    }
+  ]
+}

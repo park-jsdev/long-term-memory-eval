@@ -1,0 +1,100 @@
+{
+  "number_of_questions": 1986,
+  "metrics": {
+    "exact_match": 0.0181,
+    "token_f1": 0.182,
+    "locomo_f1": 0.196
+  },
+  "by_category": {
+    "multi_hop": {
+      "category_id": 1,
+      "n": 282,
+      "exact_match": 0.0071,
+      "token_f1": 0.2223,
+      "locomo_f1": 0.229
+    },
+    "temporal": {
+      "category_id": 2,
+      "n": 321,
+      "exact_match": 0.0062,
+      "token_f1": 0.2519,
+      "locomo_f1": 0.255
+    },
+    "open_domain": {
+      "category_id": 3,
+      "n": 96,
+      "exact_match": 0.0104,
+      "token_f1": 0.163,
+      "locomo_f1": 0.16
+    },
+    "single_hop": {
+      "category_id": 4,
+      "n": 841,
+      "exact_match": 0.0369,
+      "token_f1": 0.2399,
+      "locomo_f1": 0.248
+    },
+    "adversarial": {
+      "category_id": 5,
+      "n": 446,
+      "exact_match": 0.0,
+      "token_f1": 0.0012,
+      "locomo_f1": 0.043
+    }
+  },
+  "locomo_official": {
+    "overall_f1": 0.196,
+    "n": 1986,
+    "by_category": {
+      "single_hop": {
+        "category_id": 4,
+        "n": 841,
+        "f1": 0.248
+      },
+      "multi_hop": {
+        "category_id": 1,
+        "n": 282,
+        "f1": 0.229
+      },
+      "temporal": {
+        "category_id": 2,
+        "n": 321,
+        "f1": 0.255
+      },
+      "open_domain": {
+        "category_id": 3,
+        "n": 96,
+        "f1": 0.16
+      },
+      "adversarial": {
+        "category_id": 5,
+        "n": 446,
+        "f1": 0.043
+      }
+    }
+  },
+  "memory_type": "session_summaries",
+  "reader_model": "gpt-4o-mini",
+  "reader_family": "gpt-4o",
+  "prompt_version": "qa_mem0_v1",
+  "agent": {
+    "n_questions": 1986,
+    "n_harness_failed": 0,
+    "harness_failed_rate": 0.0,
+    "n_retrieval_calls_mean": 0.023162134944612285,
+    "retrieved_tokens_mean": 0.7613293051359517,
+    "memory_recall_mean": null,
+    "memory_precision_mean": null,
+    "unnecessary_retrievals_mean": null,
+    "evidence_retrieved_rate": null,
+    "n_web_search_sum": 0,
+    "n_mcp_sum": 0,
+    "n_write_events_mean": 0.013091641490433032,
+    "hop_to_evidence_mean": null,
+    "notes_retrieved_rate": 0.016112789526686808,
+    "used_non_workspace_tools_rate": 0.0,
+    "failure_modes": {
+      "prompt_injected": 1986
+    }
+  }
+}

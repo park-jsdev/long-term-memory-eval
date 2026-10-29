@@ -1,0 +1,80 @@
+{
+  "number_of_questions": 1986,
+  "metrics": {
+    "exact_match": 0.1636,
+    "token_f1": 0.4128,
+    "locomo_f1": 0.422
+  },
+  "by_category": {
+    "multi_hop": {
+      "category_id": 1,
+      "n": 282,
+      "exact_match": 0.0496,
+      "token_f1": 0.3841,
+      "locomo_f1": 0.379
+    },
+    "temporal": {
+      "category_id": 2,
+      "n": 321,
+      "exact_match": 0.1153,
+      "token_f1": 0.5135,
+      "locomo_f1": 0.516
+    },
+    "open_domain": {
+      "category_id": 3,
+      "n": 96,
+      "exact_match": 0.0729,
+      "token_f1": 0.2399,
+      "locomo_f1": 0.245
+    },
+    "single_hop": {
+      "category_id": 4,
+      "n": 841,
+      "exact_match": 0.3175,
+      "token_f1": 0.6219,
+      "locomo_f1": 0.634
+    },
+    "adversarial": {
+      "category_id": 5,
+      "n": 446,
+      "exact_match": 0.0,
+      "token_f1": 0.0016,
+      "locomo_f1": 0.02
+    }
+  },
+  "locomo_official": {
+    "overall_f1": 0.422,
+    "n": 1986,
+    "by_category": {
+      "single_hop": {
+        "category_id": 4,
+        "n": 841,
+        "f1": 0.634
+      },
+      "multi_hop": {
+        "category_id": 1,
+        "n": 282,
+        "f1": 0.379
+      },
+      "temporal": {
+        "category_id": 2,
+        "n": 321,
+        "f1": 0.516
+      },
+      "open_domain": {
+        "category_id": 3,
+        "n": 96,
+        "f1": 0.245
+      },
+      "adversarial": {
+        "category_id": 5,
+        "n": 446,
+        "f1": 0.02
+      }
+    }
+  },
+  "memory_type": "full_context",
+  "reader_model": "gpt-4o-mini",
+  "reader_family": "gpt-4o",
+  "prompt_version": "qa_mem0_v1"
+}
